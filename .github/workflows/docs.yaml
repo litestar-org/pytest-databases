@@ -1,0 +1,38 @@
+name: docs
+on:
+  workflow_run:
+    workflows: ["ci"]
+    branches: [main]
+    types:
+      - completed
+env:
+  PYTHONUNBUFFERED: "1"
+  FORCE_COLOR: "1"
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+
+    - name: Install Hatch
+      run: pip install --upgrade hatch hatch-pip-compile
+
+    - name: Build release docs
+      run: hatch run docs:python scripts/build_docs.py docs-build
+      if: github.event_name == 'release'
+
+    - name: Build dev docs
+      run: hatch run docs:python scripts/build_docs.py docs-build
+      if: github.event_name == 'push'
+
+    - name: Deploy
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        folder: docs-build
+ 

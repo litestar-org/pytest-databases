@@ -1,0 +1,143 @@
+name: release
+
+on:
+#   push:
+#     tags:
+#     - v*
+#     branches:
+#     - master
+#   pull_request:
+#     branches:
+#     - master
+  release:
+    types:
+      - created
+concurrency:
+  group: build-${{ github.head_ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  STABLE_PYTHON_VERSION: "3.12"
+  CIBW_BUILD_FRONTEND: build
+  CIBW_ENVIRONMENT_PASS_LINUX: >
+    HATCH_BUILD_HOOKS_ENABLE
+  CIBW_TEST_COMMAND: >
+    python -c
+    "from hatch_showcase.fib import fibonacci;
+    assert fibonacci(32) == 2178309
+    "
+  CIBW_SKIP: >
+    pp*
+
+jobs:
+  binary-wheels-standard:
+    name: Binary wheels for ${{ startsWith(matrix.os, 'macos-') && 'macOS' || startsWith(matrix.os, 'windows-') && 'Windows' || 'Linux' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        # Fetch all tags
+        fetch-depth: 0
+
+    - name: Build wheels
+      uses: pypa/cibuildwheel@v2.11.4
+      env:
+        CIBW_ARCHS_MACOS: x86_64
+        HATCH_BUILD_HOOKS_ENABLE: 'true'
+
+    - uses: actions/upload-artifact@v3
+      with:
+        name: artifacts
+        path: wheelhouse/*.whl
+        if-no-files-found: error
+
+  pure-python-wheel-and-sdist:
+    name: Build a pure Python wheel and source distribution
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        # Fetch all tags
+        fetch-depth: 0
+
+    - name: Install build dependencies
+      run: python -m pip install --upgrade build wheel setuptools cython mypy
+
+    - name: Build
+      run: python -m build
+
+    - uses: actions/upload-artifact@v3
+      with:
+        name: artifacts
+        path: dist/*
+        if-no-files-found: error
+
+  binary-wheels-arm:
+    name: Build Linux wheels for ARM
+    runs-on: ubuntu-latest
+    # Very slow, no need to run on PRs
+    if: >
+      github.event_name == 'push'
+      &&
+      (github.ref == 'refs/heads/master' || startsWith(github.event.ref, 'refs/tags'))
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        # Fetch all tags
+        fetch-depth: 0
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+      with:
+        platforms: arm64
+
+    - name: Build wheels
+      uses: pypa/cibuildwheel@v2.11.4
+      env:
+        CIBW_ARCHS_LINUX: aarch64
+        HATCH_BUILD_HOOKS_ENABLE: 'true'
+
+    - uses: actions/upload-artifact@v3
+      with:
+        name: artifacts
+        path: wheelhouse/*.whl
+        if-no-files-found: error
+ 
+  publish:
+    name: Publish release
+    needs:
+    - binary-wheels-standard
+    - pure-python-wheel-and-sdist
+    - binary-wheels-arm 
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags')
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: artifacts
+        path: dist
+
+    - name: Push build artifacts to PyPI
+      uses: pypa/gh-action-pypi-publish@v1.6.4
+      with:
+        skip_existing: true
+        user: __token__
+        password: ${{ secrets.PYPI_API_TOKEN }}
+
+    - name: Add collection scripts to current release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/*.zip
+ 
