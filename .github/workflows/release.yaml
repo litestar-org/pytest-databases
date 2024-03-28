@@ -43,7 +43,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         # Fetch all tags
         fetch-depth: 0
@@ -54,7 +54,7 @@ jobs:
         CIBW_ARCHS_MACOS: x86_64
         HATCH_BUILD_HOOKS_ENABLE: 'true'
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: artifacts
         path: wheelhouse/*.whl
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         # Fetch all tags
         fetch-depth: 0
@@ -76,7 +76,7 @@ jobs:
     - name: Build
       run: python -m build
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: artifacts
         path: dist/*
@@ -92,7 +92,7 @@ jobs:
       (github.ref == 'refs/heads/master' || startsWith(github.event.ref, 'refs/tags'))
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         # Fetch all tags
         fetch-depth: 0
@@ -108,7 +108,7 @@ jobs:
         CIBW_ARCHS_LINUX: aarch64
         HATCH_BUILD_HOOKS_ENABLE: 'true'
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: artifacts
         path: wheelhouse/*.whl
@@ -124,19 +124,19 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags')
 
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: artifacts
         path: dist
 
     - name: Push build artifacts to PyPI
-      uses: pypa/gh-action-pypi-publish@v1.6.4
+      uses: pypa/gh-action-pypi-publish@v1.8.14
       with:
         skip_existing: true
         user: __token__
         password: ${{ secrets.PYPI_API_TOKEN }}
 
     - name: Add collection scripts to current release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: dist/*.zip
