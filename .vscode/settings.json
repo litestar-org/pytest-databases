@@ -23,7 +23,7 @@
         ".coverage": true,
         "node_modules": true,
         ".terraform": true
-    }, 
+    },
     "ruff.format.args": [
         "--config=${workspaceFolder}/pyproject.toml"
     ],
@@ -31,7 +31,7 @@
     "ruff.lint.args": [
         "--config=${workspaceFolder}/pyproject.toml"
     ],
-    "mypy-type-checker.importStrategy": "fromEnvironment", 
+    "mypy-type-checker.importStrategy": "fromEnvironment",
     "pylint.importStrategy": "fromEnvironment",
     "python.autoComplete.extraPaths": [
         "${workspaceFolder}/src"

@@ -56,7 +56,7 @@ exceptiongroup==1.2.0
     #   pytest
 filelock==3.13.3
     # via virtualenv
-harlequin==1.16.0
+harlequin==1.16.1
 identify==2.5.35
     # via pre-commit
 idna==3.6

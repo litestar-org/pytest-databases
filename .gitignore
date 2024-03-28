@@ -145,7 +145,7 @@ src/pytest_databases/_version.py
 *.log
 log/*
 *.csv
-tmp/* 
+tmp/*
 node_modules
 .astro
 .vite

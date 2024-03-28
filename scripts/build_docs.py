@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import subprocess
+import subprocess  # noqa: S404
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Generator
 
 REDIRECT_TEMPLATE = """
 <!DOCTYPE HTML>
@@ -26,14 +27,14 @@ parser.add_argument("output")
 
 
 @contextmanager
-def checkout(branch: str) -> None:
-    subprocess.run(["git", "checkout", branch], check=True)  # noqa: S603 S607
+def checkout(branch: str) -> Generator[None, None, None]:
+    subprocess.run(["git", "checkout", branch], check=True)  # noqa: S607
     yield
-    subprocess.run(["git", "checkout", "-"], check=True)  # noqa: S603 S607
+    subprocess.run(["git", "checkout", "-"], check=True)  # noqa: S607
 
 
 def build(output_dir: str) -> None:
-    subprocess.run(["make", "docs"], check=True)  # noqa: S603 S607
+    subprocess.run(["make", "docs"], check=True)  # noqa: S607
 
     output_dir = Path(output_dir)
     output_dir.mkdir()
