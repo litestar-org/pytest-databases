@@ -69,7 +69,7 @@ clean: 														## remove all build, testing, and static documentation file
 	@find . -name '.ipynb_checkpoints' -exec rm -rf {} +
 	@echo "=> Source cleaned successfully"
 
-deep-clean: clean destroy-venv destroy-node_modules							## Clean everything up
+deep-clean: clean destroy-venv							## Clean everything up
 	@hatch python remove all
 	@echo "=> Hatch environments pruned and python installations trimmed"
 	@uv cache clean

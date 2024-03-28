@@ -59,7 +59,6 @@ sqlite = ["aiosqlite"]
 ######################
 # Build & Versioning #
 ######################
-
 [tool.hatch.metadata]
 # direct dependency references, e.g `pip @ git+https://github.com/pypa/pip.git@master`
 allow-direct-references = true
@@ -151,6 +150,7 @@ topo_order = false
 # Default environment with production dependencies
 [tool.hatch.envs.default]
 lock-filename = "requirements/requirements.txt"
+pip-compile-constraint = "default"
 pip-compile-hashes = false
 pip-compile-installer = "uv"
 pip-compile-resolver = "uv"
@@ -175,7 +175,7 @@ extra-dependencies = [
   "pytest-click",
   "pytest-xdist",
 ]
-features = ["oracle", "mysql", "mssql", "postgres"]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner"]
 template = "default"
 type = "virtual"
 
@@ -214,12 +214,14 @@ extra-dependencies = [
   "sphinx-toolbox>=3.5.0",
   "sphinx-design>=0.5.0",
 ]
-features = ["oracle", "mysql", "mssql", "postgres"]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner"]
 lock-filename = "requirements/requirements-docs.txt"
 pip-compile-constraint = "default"
-python-version = "3.12"
 template = "test"
 type = "pip-compile"
+
+[[tool.hatch.envs.docs.matrix]]
+python-version = ["3.11"]
 
 [tool.hatch.envs.docs.env-vars]
 MKDOCS_CONFIG = "mkdocs.yml"
@@ -251,13 +253,15 @@ extra-dependencies = [
   "types-pyyaml",
   "asyncpg-stubs",
 ]
-features = ["oracle", "mysql", "mssql", "postgres"]
+features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner"]
 lock-filename = "requirements/requirements-dev.txt"
 path = ".venv/"
 pip-compile-constraint = "docs"
-python-version = "3.12"
 template = "docs"
 type = "pip-compile"
+
+[[tool.hatch.envs.docs.matrix]]
+python-version = ["3.11"]
 
 
 # Lint environment
@@ -277,9 +281,11 @@ extra-dependencies = [
   "types-pyyaml",
   "asyncpg-stubs",
 ]
-features = ["oracle", "mysql", "mssql", "postgres"]
-python-version = "3.12"
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb"]
 template = "docs"
+
+[[tool.hatch.envs.docs.matrix]]
+python-version = ["3.11"]
 
 [tool.hatch.envs.lint.scripts]
 check = ["style", "typing"]
