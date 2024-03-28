@@ -54,7 +54,7 @@ jobs:
         CIBW_ARCHS_MACOS: x86_64
         HATCH_BUILD_HOOKS_ENABLE: 'true'
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: artifacts
         path: wheelhouse/*.whl
@@ -76,7 +76,7 @@ jobs:
     - name: Build
       run: python -m build
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: artifacts
         path: dist/*
@@ -108,7 +108,7 @@ jobs:
         CIBW_ARCHS_LINUX: aarch64
         HATCH_BUILD_HOOKS_ENABLE: 'true'
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: artifacts
         path: wheelhouse/*.whl
