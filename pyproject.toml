@@ -14,7 +14,18 @@ readme = "README.md"
 requires-python = ">=3.8"
 #
 authors = [{ name = "Cody Fincher", email = "cody.fincher@gmail.com" }]
-keywords = ["database", "migration", "postgres", "mysql", "oracle", "mssql", "duckdb", "bigquery", "spanner"]
+keywords = [
+  "database",
+  "migration",
+  "postgres",
+  "mysql",
+  "oracle",
+  "mssql",
+  "duckdb",
+  "bigquery",
+  "spanner",
+  "cockroachdb",
+]
 # options under https://pypi.org/classifiers/
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -37,12 +48,13 @@ Issues = "https://github.com/jolt-org/pytest-databases/issues"
 Source = "https://github.com/jolt-org/pytest-databases"
 
 [project.optional-dependencies]
+cockroachdb = ["psycopg"]
 mssql = ["aioodbc"]
 mysql = ["asyncmy>=0.2.9"]
 oracle = ["oracledb"]
 postgres = ["asyncpg>=0.29.0"]
-sqlite = ["sqlite"]
-
+spanner = ["google-cloud-spanner"]
+sqlite = ["aiosqlite"]
 
 ######################
 # Build & Versioning #
