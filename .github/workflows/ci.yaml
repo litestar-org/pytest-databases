@@ -12,8 +12,7 @@ concurrency:
 
 env:
   PYTHONUNBUFFERED: "1"
-  FORCE_COLOR: "1"
-  SKIP_DOCKER_COMPOSE: "1"
+  FORCE_COLOR: "1" 
 
 jobs:
   run:
@@ -45,9 +44,6 @@ jobs:
           && sudo rm -rf /var/apt/lists/* \
           && sudo rm -rf /var/cache/apt/* \
           && sudo apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false
-      - if: runner.os == 'Linux'
-        name: Start Database Services
-        run: sudo docker compose -f tests/docker-compose.yml up -d
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -63,10 +59,6 @@ jobs:
 
       - name: Run tests and track code coverage
         run: hatch run test:cov
-
-      - if: runner.os == 'Linux'
-        name: Start Database Services
-        run: sudo docker compose -f tests/docker-compose.yml down --remove-orphans --volumes
 
   run-container-matrix:
     name: Container matrix on Linux
@@ -96,19 +88,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - if: runner.os == 'Linux'
-        name: Start Database Services
-        run: sudo docker compose -f tests/docker-compose.yml up -d
-
       - name: Install Hatch
         run: pip install --upgrade hatch hatch-containers hatch-pip-compile
 
       - name: Run tests in container matrix
         run: hatch run test:no-cov
-
-      - if: runner.os == 'Linux'
-        name: Stop Database Services
-        run: sudo docker compose -f tests/docker-compose.yml down --remove-orphans --volumes
 
   sonar:
     needs:
