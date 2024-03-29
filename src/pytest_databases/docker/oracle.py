@@ -9,7 +9,7 @@ import oracledb
 import pytest
 
 if TYPE_CHECKING:
-    from pytest_databases.docker.compose import DockerServiceRegistry
+    from pytest_databases.docker import DockerServiceRegistry
 
 
 def oracle_responsive(host: str, port: int, service_name: str) -> bool:

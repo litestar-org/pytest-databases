@@ -10,7 +10,7 @@ import aioodbc
 import pytest
 
 if TYPE_CHECKING:
-    from pytest_databases.docker.compose import DockerServiceRegistry
+    from pytest_databases.docker import DockerServiceRegistry
 
 
 async def mssql_responsive(host: str, port: int) -> bool:

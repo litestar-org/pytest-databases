@@ -9,7 +9,7 @@ import psycopg
 import pytest
 
 if TYPE_CHECKING:
-    from pytest_databases.docker.compose import DockerServiceRegistry
+    from pytest_databases.docker import DockerServiceRegistry
 
 
 async def cockroachdb_responsive(host: str, port: int, database: str, driver_opts: dict[str, str]) -> bool:
@@ -18,7 +18,7 @@ async def cockroachdb_responsive(host: str, port: int, database: str, driver_opt
         with psycopg.connect(f"postgresql://root@{host}:{port}/{database}?{opts}") as conn, conn.cursor() as cursor:
             cursor.execute("select 1 as is_available")
             resp = cursor.fetchone()
-            return resp[0] == 1
+            return resp[0] if resp is not None else 0 == 1  # noqa: PLR0133
     except Exception:  # noqa: BLE001
         return False
 

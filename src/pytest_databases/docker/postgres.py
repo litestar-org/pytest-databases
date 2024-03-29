@@ -9,7 +9,7 @@ import asyncpg
 import pytest
 
 if TYPE_CHECKING:
-    from pytest_databases.docker.compose import DockerServiceRegistry
+    from pytest_databases.docker import DockerServiceRegistry
 
 
 async def postgres_responsive(host: str, port: int) -> bool:
