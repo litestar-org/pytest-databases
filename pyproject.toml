@@ -81,25 +81,25 @@ packages = ["src/pytest_databases"]
 [tool.git-cliff.changelog]
 body = """
 {% if version %}\
-    `Release [v{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }} <https://github.com/jolt-org/advanced-alchemy/releases/tag/v{{ version | trim_start_matches(pat="v") }}>`_
+    `Release [v{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }} <https://github.com/jolt-org/pytest-databases/releases/tag/v{{ version | trim_start_matches(pat="v") }}>`_
     ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    * `See All commits in v{{ version | trim_start_matches(pat="v") }} <https://github.com/jolt-org/advanced-alchemy/commits/v{{ version | trim_start_matches(pat="v") }}>`_
+    * `See All commits in v{{ version | trim_start_matches(pat="v") }} <https://github.com/jolt-org/pytest-databases/commits/v{{ version | trim_start_matches(pat="v") }}>`_
 {% else %}\
     [unreleased]
     ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 {% endif %}\
 {% if previous %}\
     {% if previous.commit_id %}
-        `{{ previous.commit_id | truncate(length=7, end="") }} <https://github.com/jolt-org/advanced-alchemy/commit/{{ previous.commit_id }}>`_ ... \
-            `{{ commit_id | truncate(length=7, end="") }} <https://github.com/jolt-org/advanced-alchemy/commit/{{ commit_id }}>`_ \
-            | `See diff for {{ version | trim_start_matches(pat="v") }} <https://github.com/jolt-org/advanced-alchemy/compare/{{ previous.commit_id }}...{{ commit_id }}>`_
+        `{{ previous.commit_id | truncate(length=7, end="") }} <https://github.com/jolt-org/pytest-databases/commit/{{ previous.commit_id }}>`_ ... \
+            `{{ commit_id | truncate(length=7, end="") }} <https://github.com/jolt-org/pytest-databases/commit/{{ commit_id }}>`_ \
+            | `See diff for {{ version | trim_start_matches(pat="v") }} <https://github.com/jolt-org/pytest-databases/compare/{{ previous.commit_id }}...{{ commit_id }}>`_
     {% endif %}\
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
     {{ group | upper_first }}
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     {% for commit in commits %}
-        * (`{{ commit.id | truncate(length=7, end="") }} <https://github.com/jolt-org/advanced-alchemy/commit/{{ commit.id }}>`_) {% if commit.breaking %}[**breaking**] {% endif %} - {{ commit.message | upper_first }} ({{ commit.author.name  }})\
+        * (`{{ commit.id | truncate(length=7, end="") }} <https://github.com/jolt-org/pytest-databases/commit/{{ commit.id }}>`_) {% if commit.breaking %}[**breaking**] {% endif %} - {{ commit.message | upper_first }} ({{ commit.author.name  }})\
           {% for footer in commit.footers -%}
             , {{ footer.token }}{{ footer.separator }}{{ footer.value }}\
           {% endfor %}\
@@ -154,6 +154,7 @@ pip-compile-constraint = "default"
 pip-compile-hashes = false
 pip-compile-installer = "uv"
 pip-compile-resolver = "uv"
+python = "3.11"
 requires = ["hatch-pip-compile"]
 type = "pip-compile"
 
@@ -181,10 +182,10 @@ type = "virtual"
 
 # Test matrix for various Python versions replacing the functionality of tox
 [[tool.hatch.envs.test.matrix]]
-python-version = ["3.8", "3.9", "3.10", "3.11", "3.12"]
+python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
 [tool.hatch.envs.test.scripts]
-cov = "pytest -n auto --dist loadgroup --cov-report=term-missing --cov-config=pyproject.toml --cov=src/dma --cov=tests {args}"
+cov = "pytest -n auto --dist loadgroup --cov-report=term-missing --cov-config=pyproject.toml --cov=src/pytest_databases --cov=tests {args}"
 debug = "cov --no-cov -s --pdb --pdbcls=IPython.core.debugger:Pdb {args}"
 no-cov = "cov --no-cov {args}"
 
@@ -217,20 +218,18 @@ extra-dependencies = [
 features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner"]
 lock-filename = "requirements/requirements-docs.txt"
 pip-compile-constraint = "default"
+python = "3.11"
 template = "test"
 type = "pip-compile"
 
-[[tool.hatch.envs.docs.matrix]]
-python-version = ["3.11"]
-
 [tool.hatch.envs.docs.env-vars]
-MKDOCS_CONFIG = "mkdocs.yml"
+PYTHONPATH = "."
 PYTHONUNBUFFERED = "1"
 SOURCE_DATE_EPOCH = "1580601600"
 
 [tool.hatch.envs.docs.scripts]
-build = "sphinx-build -M html docs docs/_build/ -E -a -j auto --keep-going {args}"
-serve = "sphinx-autobuild docs docs/_build/ -j auto --watch advanced_alchemy --watch docs --watch tests --watch CONTRIBUTING.rst --port 8002 {args}"
+build = "sphinx-build -M html docs docs/_build/ -E -a -j auto --keep-going"
+serve = "sphinx-autobuild docs docs/_build/ -j auto --watch pytest_databases --watch docs --watch tests --watch CONTRIBUTING.rst --port 8002 {args}"
 # --ignore-url=None since the SUMMARY.md file leaves a <toc>None</toc> in sitemap.xml
 validate = "linkchecker --config .linkcheckerrc --ignore-url=/reference --ignore-url=None site"
 # https://github.com/linkchecker/linkchecker/issues/678
@@ -257,11 +256,9 @@ features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner"]
 lock-filename = "requirements/requirements-dev.txt"
 path = ".venv/"
 pip-compile-constraint = "docs"
+python = "3.11"
 template = "docs"
 type = "pip-compile"
-
-[[tool.hatch.envs.docs.matrix]]
-python-version = ["3.11"]
 
 
 # Lint environment
@@ -282,10 +279,8 @@ extra-dependencies = [
   "asyncpg-stubs",
 ]
 features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb"]
+python = "3.11"
 template = "docs"
-
-[[tool.hatch.envs.docs.matrix]]
-python-version = ["3.11"]
 
 [tool.hatch.envs.lint.scripts]
 check = ["style", "typing"]

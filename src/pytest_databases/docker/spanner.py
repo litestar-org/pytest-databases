@@ -12,7 +12,7 @@ from google.auth.credentials import AnonymousCredentials
 from google.cloud import spanner
 
 if TYPE_CHECKING:
-    from pytest_databases.docker.compose import DockerServiceRegistry
+    from pytest_databases.docker import DockerServiceRegistry
 
 
 def spanner_responsive(host: str) -> bool:
