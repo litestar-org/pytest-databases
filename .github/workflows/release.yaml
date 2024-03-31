@@ -53,7 +53,7 @@ jobs:
         uses: pypa/cibuildwheel@v2.17.0
         env:
           CIBW_ARCHS_MACOS: x86_64
-          HATCH_BUILD_HOOKS_ENABLE: 'true'
+          HATCH_BUILD_HOOKS_ENABLE: "true"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -93,27 +93,27 @@ jobs:
       (github.ref == 'refs/heads/master' || startsWith(github.event.ref, 'refs/tags'))
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        # Fetch all tags
-        fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          # Fetch all tags
+          fetch-depth: 0
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-      with:
-        platforms: arm64
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
-    - name: Build wheels
-      uses: pypa/cibuildwheel@v2.17.0
-      env:
-        CIBW_ARCHS_LINUX: aarch64
-        HATCH_BUILD_HOOKS_ENABLE: 'true'
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.17.0
+        env:
+          CIBW_ARCHS_LINUX: aarch64
+          HATCH_BUILD_HOOKS_ENABLE: "true"
 
-    - uses: actions/upload-artifact@v4
-      with:
-        name: artifacts
-        path: wheelhouse/*.whl
-        if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts
+          path: wheelhouse/*.whl
+          if-no-files-found: error
 
   publish:
     name: Publish release

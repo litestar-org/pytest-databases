@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023-present Cody Fincher <codyfincher@google.com>
+# SPDX-FileCopyrightText: 2023-present Jolt
 #
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
@@ -13,14 +13,11 @@ if TYPE_CHECKING:
     from pytest_databases.docker import DockerServiceRegistry
 
 
-async def mssql_responsive(host: str, port: int) -> bool:
+async def mssql_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
     await asyncio.sleep(1)
     try:
-        port = 1344
-        user = "sa"
-        database = "master"
         conn = await aioodbc.connect(
-            connstring=f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={host},{port}; database={database}; UID={user}; PWD=Super-secret1",
+            connstring=f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={host},{port}; database={database}; UID={user}; PWD={password}",
             timeout=2,
         )
         async with conn.cursor() as cursor:
@@ -32,5 +29,71 @@ async def mssql_responsive(host: str, port: int) -> bool:
 
 
 @pytest.fixture()
-async def mssql_service(docker_services: DockerServiceRegistry) -> None:
-    await docker_services.start("mssql", timeout=60, pause=1, check=mssql_responsive, port=1344)
+def mssql_user() -> str:
+    return "sa"
+
+
+@pytest.fixture()
+def mssql_password() -> str:
+    return "super-secret"
+
+
+@pytest.fixture()
+def mssql_database() -> str:
+    return "master"
+
+
+@pytest.fixture()
+def mssql2022_port() -> int:
+    return 4133
+
+
+@pytest.fixture()
+def mssql_default_version() -> str:
+    return "mssql2022"
+
+
+@pytest.fixture()
+def mssql_port(mssql113_port: int) -> int:
+    return mssql113_port
+
+
+@pytest.fixture()
+async def mssql113_service(
+    docker_services: DockerServiceRegistry,
+    mssql2022_port: int,
+    mssql_database: str,
+    mssql_user: str,
+    mssql_password: str,
+) -> None:
+    await docker_services.start(
+        "mssql2022",
+        timeout=120,
+        pause=1,
+        check=mssql_responsive,
+        port=mssql2022_port,
+        database=mssql_database,
+        user=mssql_user,
+        password=mssql_password,
+    )
+
+
+@pytest.fixture()
+async def mssql_service(
+    docker_services: DockerServiceRegistry,
+    mssql_default_version: str,
+    mssql_port: int,
+    mssql_database: str,
+    mssql_user: str,
+    mssql_password: str,
+) -> None:
+    await docker_services.start(
+        mssql_default_version,
+        timeout=120,
+        pause=1,
+        check=mssql_responsive,
+        port=mssql_port,
+        database=mssql_database,
+        user=mssql_user,
+        password=mssql_password,
+    )

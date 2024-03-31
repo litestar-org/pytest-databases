@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023-present Cody Fincher <codyfincher@google.com>
+# SPDX-FileCopyrightText: 2023-present Jolt
 #
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
@@ -108,11 +108,11 @@ class DockerServiceRegistry:
 
     def down(self) -> None:
         if not SKIP_DOCKER_COMPOSE:
-            self.run_command("down", "--remove-orphans", "--volumes", "-t", "10")
+            self.run_command("down", "--volumes", "-t", "10")
 
 
 @pytest.fixture(scope="session")
-def docker_services(worker_id: str) -> Generator[DockerServiceRegistry, None, None]:
+def docker_services(worker_id: str = "main") -> Generator[DockerServiceRegistry, None, None]:
     if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
         pytest.skip("Docker not available on this platform")
 

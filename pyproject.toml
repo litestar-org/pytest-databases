@@ -180,12 +180,18 @@ features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "s
 template = "default"
 type = "virtual"
 
+[tool.hatch.envs.test.env-vars]
+COV_CORE_SOURCE = "src"
+PYTHONPATH = "."
+PYTHONUNBUFFERED = "1"
+SOURCE_DATE_EPOCH = "1580601600"
+
 # Test matrix for various Python versions replacing the functionality of tox
 [[tool.hatch.envs.test.matrix]]
 python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
 [tool.hatch.envs.test.scripts]
-cov = "pytest -n auto --dist loadgroup --cov-report=term-missing --cov-config=pyproject.toml --cov=src/pytest_databases --cov=tests {args}"
+cov = "pytest -n auto --dist loadgroup --cov-report=term-missing --cov-config=pyproject.toml --cov=src --cov=tests {args}"
 debug = "cov --no-cov -s --pdb --pdbcls=IPython.core.debugger:Pdb {args}"
 no-cov = "cov --no-cov {args}"
 
@@ -223,10 +229,11 @@ template = "test"
 type = "pip-compile"
 
 [tool.hatch.envs.docs.env-vars]
+COV_CORE_DATAFILE = ".coverage"
+COV_CORE_SOURCE = "src"
 PYTHONPATH = "."
 PYTHONUNBUFFERED = "1"
 SOURCE_DATE_EPOCH = "1580601600"
-
 [tool.hatch.envs.docs.scripts]
 build = "sphinx-build -M html docs docs/_build/ -E -a -j auto --keep-going"
 serve = "sphinx-autobuild docs docs/_build/ -j auto --watch pytest_databases --watch docs --watch tests --watch CONTRIBUTING.rst --port 8002 {args}"
@@ -482,6 +489,8 @@ ban-relative-imports = "all"
 ]
 
 # copyright
+# Enable once this is released: https://github.com/astral-sh/ruff/issues/10021
+# Ruff v0.3.4 has not included this release yet
 "**/*.py" = ["CPY001"]
 
 [tool.ruff.lint.mccabe]
@@ -511,7 +520,7 @@ line-length = 120
 ## Testing Tools
 
 [tool.pytest.ini_options]
-addopts = "-ra -q --doctest-glob='*.md'"
+addopts = "-ra -q --doctest-glob='*.md' --cov-append"
 filterwarnings = ["ignore::DeprecationWarning:pkg_resources", "ignore::DeprecationWarning:xdist.*"]
 markers = [
   "mysql: MySQL Tests",
@@ -527,6 +536,7 @@ testpaths = ["tests"]
 [tool.coverage.run]
 branch = true
 concurrency = ["multiprocessing", "thread"]
+disable_warnings = ["no-data-collected", "module-not-measured"]
 omit = [
   "_version.py",                       # automatically created by hatch-vcs, not in repo
   "src/pytest_databases/__about__.py",
@@ -534,11 +544,11 @@ omit = [
   "scripts/*",
 ]
 parallel = true
-source_pkgs = ["pytest_databases", "tests"]
+source_pkgs = ["pytest_databases"]
 
 [tool.coverage.paths]
-pytest_databases = ["src/pytest_databases", "*/pytest-databases/src/pytest_databases"]
-tests = ["tests", "*/pytest-databases/tests"]
+pytest_databases = ["src/pytest_databases"]
+tests = ["tests"]
 
 [tool.coverage.report]
 # Regexes for lines to exclude from consideration
