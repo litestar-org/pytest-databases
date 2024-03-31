@@ -138,9 +138,6 @@ jobs:
         uses: github/codeql-action/analyze@v2
 
   build-docs:
-    needs:
-      - run
-      - run-container-matrix
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -150,7 +147,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Install Hatch
         run: pip install --upgrade hatch hatch-containers hatch-pip-compile

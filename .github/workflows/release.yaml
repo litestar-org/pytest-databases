@@ -1,17 +1,9 @@
-name: release
+name: Latest Release
 
 on:
-  #   push:
-  #     tags:
-  #     - v*
-  #     branches:
-  #     - master
-  #   pull_request:
-  #     branches:
-  #     - master
   release:
-    types:
-      - created
+    types: [published]
+  workflow_dispatch:
 concurrency:
   group: build-${{ github.head_ref }}
   cancel-in-progress: true
@@ -21,46 +13,16 @@ defaults:
     shell: bash
 
 env:
-  STABLE_PYTHON_VERSION: "3.12"
+  STABLE_PYTHON_VERSION: "3.11"
   CIBW_BUILD_FRONTEND: build
   CIBW_ENVIRONMENT_PASS_LINUX: >
     HATCH_BUILD_HOOKS_ENABLE
   CIBW_TEST_COMMAND: >
-    python -c
-    "from python_databases.docker import DockerServiceRegistry;
-    registry = DockerServiceRegistry('worker_test')
-    assert isinstance(registry, DockerServiceRegistry)
-    "
+    python -c "from pytest_databases.docker import DockerServiceRegistry; registry = DockerServiceRegistry('worker_test'); assert isinstance(registry, DockerServiceRegistry)"
   CIBW_SKIP: >
     pp*
 
 jobs:
-  binary-wheels-standard:
-    name: Binary wheels for ${{ startsWith(matrix.os, 'macos-') && 'macOS' || startsWith(matrix.os, 'windows-') && 'Windows' || 'Linux' }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Fetch all tags
-          fetch-depth: 0
-
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v2.17.0
-        env:
-          CIBW_ARCHS_MACOS: x86_64
-          HATCH_BUILD_HOOKS_ENABLE: "true"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: artifacts
-          path: wheelhouse/*.whl
-          if-no-files-found: error
-
   pure-python-wheel-and-sdist:
     name: Build a pure Python wheel and source distribution
     runs-on: ubuntu-latest
@@ -83,45 +45,13 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  binary-wheels-arm:
-    name: Build Linux wheels for ARM
-    runs-on: ubuntu-latest
-    # Very slow, no need to run on PRs
-    if: >
-      github.event_name == 'push'
-      &&
-      (github.ref == 'refs/heads/master' || startsWith(github.event.ref, 'refs/tags'))
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Fetch all tags
-          fetch-depth: 0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v2.17.0
-        env:
-          CIBW_ARCHS_LINUX: aarch64
-          HATCH_BUILD_HOOKS_ENABLE: "true"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: artifacts
-          path: wheelhouse/*.whl
-          if-no-files-found: error
-
   publish:
     name: Publish release
     needs:
-      - binary-wheels-standard
       - pure-python-wheel-and-sdist
-      - binary-wheels-arm
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags')
 
     steps:
@@ -130,14 +60,5 @@ jobs:
           name: artifacts
           path: dist
 
-      - name: Push build artifacts to PyPI
-        uses: pypa/gh-action-pypi-publish@v1.8.14
-        with:
-          skip_existing: true
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-
-      - name: Add collection scripts to current release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.zip
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
