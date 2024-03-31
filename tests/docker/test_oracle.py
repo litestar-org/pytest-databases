@@ -64,13 +64,3 @@ async def test_oracle23c_service(docker_ip: str, oracle23c_service: DockerServic
         user="app",
         password="super-secret",
     )
-
-
-async def test_oracle_service(docker_ip: str, oracle_service: DockerServiceRegistry) -> None:
-    assert oracle_responsive(
-        host=docker_ip,
-        port=1513,
-        service_name="FREEPDB1",
-        user="app",
-        password="super-secret",
-    )

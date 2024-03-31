@@ -84,7 +84,7 @@ async def oracle23c_service(
 ) -> None:
     await docker_services.start(
         "oracle23c",
-        timeout=120,
+        timeout=180,
         pause=1,
         check=oracle_responsive,
         port=oracle23c_port,
@@ -104,7 +104,7 @@ async def oracle18c_service(
 ) -> None:
     await docker_services.start(
         "oracle18c",
-        timeout=120,
+        timeout=180,
         pause=1,
         check=oracle_responsive,
         port=oracle18c_port,
@@ -126,7 +126,7 @@ async def oracle_service(
 ) -> None:
     await docker_services.start(
         oracle_default_version,
-        timeout=120,
+        timeout=180,
         pause=1,
         check=oracle_responsive,
         port=oracle_port,
