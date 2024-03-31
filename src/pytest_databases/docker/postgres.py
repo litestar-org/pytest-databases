@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023-present Cody Fincher <codyfincher@google.com>
+# SPDX-FileCopyrightText: 2023-present Jolt
 #
 # SPDX-License-Identifier: MIT
 from __future__ import annotations

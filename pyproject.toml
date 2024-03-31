@@ -489,6 +489,8 @@ ban-relative-imports = "all"
 ]
 
 # copyright
+# Enable once this is released: https://github.com/astral-sh/ruff/issues/10021
+# Ruff v0.3.4 has not included this release yet
 "**/*.py" = ["CPY001"]
 
 [tool.ruff.lint.mccabe]
