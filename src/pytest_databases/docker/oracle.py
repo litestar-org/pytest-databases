@@ -83,7 +83,14 @@ async def oracle23c_service(
     oracle_password: str,
 ) -> None:
     await docker_services.start(
-        "oracle23c", timeout=120, pause=1, check=oracle_responsive, port=1512, service_name="FREEPDB1"
+        "oracle23c",
+        timeout=120,
+        pause=1,
+        check=oracle_responsive,
+        port=oracle23c_port,
+        service_name="FREEPDB1",
+        user=oracle_user,
+        password=oracle_password,
     )
 
 
@@ -96,7 +103,14 @@ async def oracle18c_service(
     oracle_password: str,
 ) -> None:
     await docker_services.start(
-        "oracle18c", timeout=120, pause=1, check=oracle_responsive, port=1512, service_name="xepdb1"
+        "oracle18c",
+        timeout=120,
+        pause=1,
+        check=oracle_responsive,
+        port=oracle18c_port,
+        service_name="xepdb1",
+        user=oracle_user,
+        password=oracle_password,
     )
 
 
