@@ -518,7 +518,7 @@ line-length = 120
 ## Testing Tools
 
 [tool.pytest.ini_options]
-addopts = "-ra -q --doctest-glob='*.md' --cov-append --cov=src"
+addopts = "-ra -q --doctest-glob='*.md' --cov-append"
 filterwarnings = ["ignore::DeprecationWarning:pkg_resources", "ignore::DeprecationWarning:xdist.*"]
 markers = [
   "mysql: MySQL Tests",
@@ -534,6 +534,7 @@ testpaths = ["tests"]
 [tool.coverage.run]
 branch = true
 concurrency = ["multiprocessing", "thread"]
+disable_warnings = ["no-data-collected", "module-not-measured"]
 omit = [
   "_version.py",                       # automatically created by hatch-vcs, not in repo
   "src/pytest_databases/__about__.py",
@@ -541,11 +542,11 @@ omit = [
   "scripts/*",
 ]
 parallel = true
-source_pkgs = ["pytest_databases", "tests"]
+source_pkgs = ["pytest_databases"]
 
 [tool.coverage.paths]
-pytest_databases = ["src/pytest_databases", "*/pytest-databases/src/pytest_databases"]
-tests = ["tests", "*/pytest-databases/tests"]
+pytest_databases = ["src/pytest_databases"]
+tests = ["tests"]
 
 [tool.coverage.report]
 # Regexes for lines to exclude from consideration
