@@ -12,6 +12,7 @@ license = "MIT"
 name = "pytest-databases"
 readme = "README.md"
 requires-python = ">=3.8"
+version = "0.1.0"
 #
 authors = [{ name = "Cody Fincher", email = "cody.fincher@gmail.com" }]
 keywords = [
@@ -40,7 +41,6 @@ classifiers = [
 ]
 # direct dependencies of this package
 dependencies = ["pytest"]
-dynamic = ["version"]
 
 [project.urls]
 Documentation = "https://github.com/jolt-org/pytest-databases#readme"
@@ -62,9 +62,6 @@ sqlite = ["aiosqlite"]
 [tool.hatch.metadata]
 # direct dependency references, e.g `pip @ git+https://github.com/pypa/pip.git@master`
 allow-direct-references = true
-
-[tool.hatch.version]
-path = "src/pytest_databases/__about__.py"
 
 [tool.hatch.build]
 dev-mode-dirs = ["src/"]
