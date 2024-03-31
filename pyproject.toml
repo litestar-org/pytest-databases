@@ -177,7 +177,6 @@ template = "default"
 type = "virtual"
 
 [tool.hatch.envs.test.env-vars]
-COV_CORE_SOURCE = "src"
 PYTHONPATH = "."
 PYTHONUNBUFFERED = "1"
 SOURCE_DATE_EPOCH = "1580601600"
@@ -225,8 +224,6 @@ template = "test"
 type = "pip-compile"
 
 [tool.hatch.envs.docs.env-vars]
-COV_CORE_DATAFILE = ".coverage"
-COV_CORE_SOURCE = "src"
 PYTHONPATH = "."
 PYTHONUNBUFFERED = "1"
 SOURCE_DATE_EPOCH = "1580601600"
