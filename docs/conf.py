@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from pytest_databases.__about__ import __version__ as version
+from pytest_databases.__metadata__ import __version__ as version
 
 # -- Environmental Data ------------------------------------------------------
 
