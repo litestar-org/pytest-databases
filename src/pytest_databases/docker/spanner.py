@@ -35,7 +35,7 @@ def spanner_responsive(host: str) -> bool:
         return False
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def spanner_service(docker_services: DockerServiceRegistry) -> None:
     os.environ["SPANNER_EMULATOR_HOST"] = "localhost:9010"
     await docker_services.start("spanner", timeout=60, check=spanner_responsive)

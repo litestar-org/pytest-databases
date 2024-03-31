@@ -17,7 +17,7 @@ Code contributions
 Workflow
 ++++++++
 
-1. `Fork <https://github.com/jolt-org/pytest-databases/fork>`_ the `Advanced Alchemy repository <https://github.com/jolt-org/pytest-databases>`_
+1. `Fork <https://github.com/jolt-org/pytest-databases/fork>`_ the `Pytest Database Alchemy repository <https://github.com/jolt-org/pytest-databases>`_
 2. Clone your fork locally with git
 3. `Set up the environment <#setting-up-the-environment>`_
 4. Make your changes

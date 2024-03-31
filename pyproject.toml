@@ -104,7 +104,7 @@ body = """
 {% endfor %}\n
 """
 footer = """
-Advanced Alchemy Changelog
+Pytest Databases Changelog
 """
 header = """
 =========
@@ -171,7 +171,6 @@ extra-dependencies = [
   "pytest-vcr",
   "pytest-sugar",
   "pytest-click",
-  "pytest-xdist",
 ]
 features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner"]
 template = "default"
@@ -188,9 +187,9 @@ SOURCE_DATE_EPOCH = "1580601600"
 python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
 [tool.hatch.envs.test.scripts]
-cov = "pytest -n auto --dist loadgroup --cov-report=term-missing --cov-config=pyproject.toml --cov=src --cov=tests {args}"
-debug = "cov --no-cov -s --pdb --pdbcls=IPython.core.debugger:Pdb {args}"
-no-cov = "cov --no-cov {args}"
+cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov-report=xml"
+debug = "cov --no-cov -s --pdb --pdbcls=IPython.core.debugger:Pdb"
+no-cov = "cov --no-cov"
 
 
 # Docs environment
@@ -517,7 +516,7 @@ line-length = 120
 ## Testing Tools
 
 [tool.pytest.ini_options]
-addopts = "-ra -q --doctest-glob='*.md' --cov-append"
+addopts = "-ra -q --doctest-glob='*.md'"
 filterwarnings = ["ignore::DeprecationWarning:pkg_resources", "ignore::DeprecationWarning:xdist.*"]
 markers = [
   "mysql: MySQL Tests",
@@ -535,12 +534,13 @@ branch = true
 concurrency = ["multiprocessing", "thread"]
 disable_warnings = ["no-data-collected", "module-not-measured"]
 omit = [
-  "_version.py",                       # automatically created by hatch-vcs, not in repo
-  "src/pytest_databases/__about__.py",
+  "_version.py",                          # automatically created by hatch-vcs, not in repo
+  "src/pytest_databases/__metadata__.py",
   "tests/*",
   "scripts/*",
 ]
 parallel = true
+source = ["src/pytest_databases"]
 source_pkgs = ["pytest_databases"]
 
 [tool.coverage.paths]

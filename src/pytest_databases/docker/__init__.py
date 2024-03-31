@@ -92,7 +92,7 @@ class DockerServiceRegistry:
         if SKIP_DOCKER_COMPOSE:
             self._running_services.add(name)
         if name not in self._running_services:
-            self.run_command("up", "-d", name)
+            self.run_command("up", "--force-recreate", "-d", name)
             self._running_services.add(name)
 
         await wait_until_responsive(
@@ -108,7 +108,7 @@ class DockerServiceRegistry:
 
     def down(self) -> None:
         if not SKIP_DOCKER_COMPOSE:
-            self.run_command("down", "--volumes", "-t", "10")
+            self.run_command("down", "--remove-orphans", "--volumes", "-t", "10")
 
 
 @pytest.fixture(scope="session")

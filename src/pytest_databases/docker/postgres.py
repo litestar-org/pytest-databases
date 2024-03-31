@@ -86,7 +86,7 @@ def postgres_port(postgres16_port: int) -> int:
     return postgres16_port
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def postgres12_service(
     docker_services: DockerServiceRegistry,
     postgres12_port: int,
@@ -106,7 +106,7 @@ async def postgres12_service(
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def postgres13_service(
     docker_services: DockerServiceRegistry,
     postgres13_port: int,
@@ -126,7 +126,7 @@ async def postgres13_service(
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def postgres14_service(
     docker_services: DockerServiceRegistry,
     postgres14_port: int,
@@ -146,7 +146,7 @@ async def postgres14_service(
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def postgres15_service(
     docker_services: DockerServiceRegistry,
     postgres15_port: int,
@@ -166,7 +166,7 @@ async def postgres15_service(
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def postgres16_service(
     docker_services: DockerServiceRegistry,
     postgres16_port: int,
@@ -187,7 +187,7 @@ async def postgres16_service(
 
 
 # alias to the latest
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def postgres_service(
     docker_services: DockerServiceRegistry,
     postgres_default_version: str,
