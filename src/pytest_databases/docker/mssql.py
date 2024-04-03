@@ -58,8 +58,8 @@ def mssql_port(mssql113_port: int) -> int:
     return mssql113_port
 
 
-@pytest.fixture()
-async def mssql113_service(
+@pytest.fixture(autouse=False)
+async def mssql2022_service(
     docker_services: DockerServiceRegistry,
     mssql2022_port: int,
     mssql_database: str,
@@ -78,7 +78,7 @@ async def mssql113_service(
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def mssql_service(
     docker_services: DockerServiceRegistry,
     mssql_default_version: str,

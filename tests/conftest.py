@@ -13,10 +13,6 @@ here = Path(__file__).parent
 root_path = here.parent
 pytest_plugins = [
     "pytest_databases.docker",
-    "pytest_databases.docker.oracle",
-    "pytest_databases.docker.postgres",
-    "pytest_databases.docker.mysql",
-    "pytest_databases.docker.mssql",
 ]
 
 

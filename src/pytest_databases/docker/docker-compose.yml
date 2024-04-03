@@ -98,7 +98,7 @@ services:
       - default
     image: gvenzl/oracle-xe:18-slim-faststart
     ports:
-      - "1512:1521" # use a non-standard port here
+      - "1514:1521" # use a non-standard port here
     environment:
       ORACLE_PASSWORD: super-secret
       APP_USER_PASSWORD: super-secret

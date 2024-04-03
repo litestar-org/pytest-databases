@@ -50,13 +50,13 @@ def oracle23c_service_name() -> str:
 
 
 @pytest.fixture()
-def oracle_service_name() -> str:
-    return "FREEPDB1"
+def oracle_service_name(oracle23c_service_name: str) -> str:
+    return oracle23c_service_name
 
 
 @pytest.fixture()
 def oracle18c_port() -> int:
-    return 1512
+    return 1514
 
 
 @pytest.fixture()
@@ -74,7 +74,7 @@ def oracle_port(oracle23c_port: int) -> int:
     return oracle23c_port
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def oracle23c_service(
     docker_services: DockerServiceRegistry,
     oracle23c_port: int,
@@ -84,17 +84,17 @@ async def oracle23c_service(
 ) -> None:
     await docker_services.start(
         "oracle23c",
-        timeout=180,
+        timeout=90,
         pause=1,
         check=oracle_responsive,
         port=oracle23c_port,
-        service_name="FREEPDB1",
+        service_name=oracle23c_service_name,
         user=oracle_user,
         password=oracle_password,
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def oracle18c_service(
     docker_services: DockerServiceRegistry,
     oracle18c_port: int,
@@ -104,18 +104,18 @@ async def oracle18c_service(
 ) -> None:
     await docker_services.start(
         "oracle18c",
-        timeout=180,
+        timeout=90,
         pause=1,
         check=oracle_responsive,
         port=oracle18c_port,
-        service_name="xepdb1",
+        service_name=oracle18c_service_name,
         user=oracle_user,
         password=oracle_password,
     )
 
 
 # alias to the latest
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def oracle_service(
     docker_services: DockerServiceRegistry,
     oracle_default_version: str,
@@ -126,7 +126,7 @@ async def oracle_service(
 ) -> None:
     await docker_services.start(
         oracle_default_version,
-        timeout=180,
+        timeout=90,
         pause=1,
         check=oracle_responsive,
         port=oracle_port,

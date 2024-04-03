@@ -73,7 +73,7 @@ def mysql_port(mysql8_port: int) -> int:
     return mysql8_port
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def mysql8_service(
     docker_services: DockerServiceRegistry, mysql8_port: int, mysql_database: str, mysql_user: str, mysql_password: str
 ) -> None:
@@ -89,7 +89,7 @@ async def mysql8_service(
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def mysql57_service(
     docker_services: DockerServiceRegistry, mysql57_port: int, mysql_database: str, mysql_user: str, mysql_password: str
 ) -> None:
@@ -105,7 +105,7 @@ async def mysql57_service(
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def mysql56_service(
     docker_services: DockerServiceRegistry, mysql56_port: int, mysql_database: str, mysql_user: str, mysql_password: str
 ) -> None:
@@ -121,7 +121,7 @@ async def mysql56_service(
     )
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=False)
 async def mysql_service(
     docker_services: DockerServiceRegistry,
     mysql_default_version: str,
