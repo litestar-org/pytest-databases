@@ -65,6 +65,7 @@ allow-direct-references = true
 
 [tool.hatch.build]
 dev-mode-dirs = ["src/"]
+include = ["src/pytest_databases/**/*.yml"]
 packages = ["src/pytest_databases"]
 sources = ["src"]
 
