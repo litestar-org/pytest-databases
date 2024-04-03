@@ -1,3 +1,3 @@
-# SPDX-FileCopyrightText: 2023-present Jolt
+# SPDX-FileCopyrightText: 2023-present Litestar
 #
 # SPDX-License-Identifier: MIT
