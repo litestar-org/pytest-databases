@@ -48,6 +48,6 @@ def dragonfly_port() -> int:
     return 6398
 
 
-@pytest.fixture()
-async def dragonfly_service(docker_services: DockerServiceRegistry) -> None:
-    await docker_services.start("dragonfly", check=dragonfly_responsive)
+@pytest.fixture(autouse=False)
+async def dragonfly_service(docker_services: DockerServiceRegistry, dragonfly_port: int) -> None:
+    await docker_services.start("dragonfly", check=dragonfly_responsive, port=dragonfly_port)

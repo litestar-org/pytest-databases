@@ -48,6 +48,6 @@ def keydb_port() -> int:
     return 6396
 
 
-@pytest.fixture()
-async def keydb_service(docker_services: DockerServiceRegistry) -> None:
-    await docker_services.start("keydb", check=keydb_responsive)
+@pytest.fixture(autouse=False)
+async def keydb_service(docker_services: DockerServiceRegistry, keydb_port: int) -> None:
+    await docker_services.start("keydb", check=keydb_responsive, port=keydb_port)

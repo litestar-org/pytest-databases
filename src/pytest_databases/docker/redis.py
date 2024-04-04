@@ -48,6 +48,6 @@ def redis_port() -> int:
     return 6397
 
 
-@pytest.fixture()
-async def redis_service(docker_services: DockerServiceRegistry) -> None:
-    await docker_services.start("redis", check=redis_responsive)
+@pytest.fixture(autouse=False)
+async def redis_service(docker_services: DockerServiceRegistry, redis_port: int) -> None:
+    await docker_services.start("redis", check=redis_responsive, port=redis_port)
