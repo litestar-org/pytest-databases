@@ -26,6 +26,7 @@ keywords = [
   "bigquery",
   "spanner",
   "cockroachdb",
+  "redis",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -53,6 +54,7 @@ mssql = ["aioodbc"]
 mysql = ["asyncmy>=0.2.9"]
 oracle = ["oracledb"]
 postgres = ["asyncpg>=0.29.0"]
+redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 sqlite = ["aiosqlite"]
 
@@ -174,7 +176,7 @@ extra-dependencies = [
   "pytest-click",
   "pytest-xdist",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner"]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "redis"]
 template = "default"
 type = "virtual"
 
@@ -220,7 +222,7 @@ extra-dependencies = [
   "sphinxcontrib-mermaid>=0.9.2",
   "auto-pytabs[sphinx]>=0.4.0",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner"]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "redis"]
 lock-filename = "requirements/requirements-docs.txt"
 pip-compile-constraint = "default"
 python = "3.11"
@@ -279,8 +281,9 @@ extra-dependencies = [
   "types-pyyaml",
   "asyncpg-stubs",
   "types-docutils",
+  "types-redis",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner"]
+features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner", "redis"]
 lock-filename = "requirements/requirements-dev.txt"
 path = ".venv/"
 pip-compile-constraint = "docs"
@@ -306,8 +309,9 @@ extra-dependencies = [
   "types-pyyaml",
   "asyncpg-stubs",
   "types-docutils",
+  "types-redis",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb"]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "redis"]
 python = "3.11"
 template = "docs"
 
