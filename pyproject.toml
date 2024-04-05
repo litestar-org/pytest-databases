@@ -50,6 +50,8 @@ Source = "https://github.com/litestar-org/pytest-databases"
 
 [project.optional-dependencies]
 cockroachdb = ["psycopg"]
+dragonfly = ["redis"]
+keydb = ["redis"]
 mssql = ["aioodbc"]
 mysql = ["asyncmy>=0.2.9"]
 oracle = ["oracledb"]
@@ -61,85 +63,8 @@ sqlite = ["aiosqlite"]
 ######################
 # Build & Versioning #
 ######################
-[tool.hatch.metadata]
-# direct dependency references, e.g `pip @ git+https://github.com/pypa/pip.git@master`
-allow-direct-references = true
-
-[tool.hatch.build]
-dev-mode-dirs = ["src/"]
-include = ["src/pytest_databases/**/*.yml"]
-packages = ["src/pytest_databases"]
-sources = ["src"]
-
 [tool.hatch.build.targets.sdist]
-exclude = [".github", "./docs"]
-support-legacy = true           # Create setup.py
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/pytest_databases"]
-
-[tool.git-cliff.changelog]
-body = """
-{% if version %}\
-    `Release [v{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }} <https://github.com/litestar-org/pytest-databases/releases/tag/v{{ version | trim_start_matches(pat="v") }}>`_
-    ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    * `See All commits in v{{ version | trim_start_matches(pat="v") }} <https://github.com/litestar-org/pytest-databases/commits/v{{ version | trim_start_matches(pat="v") }}>`_
-{% else %}\
-    [unreleased]
-    ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-{% endif %}\
-{% if previous %}\
-    {% if previous.commit_id %}
-        `{{ previous.commit_id | truncate(length=7, end="") }} <https://github.com/litestar-org/pytest-databases/commit/{{ previous.commit_id }}>`_ ... \
-            `{{ commit_id | truncate(length=7, end="") }} <https://github.com/litestar-org/pytest-databases/commit/{{ commit_id }}>`_ \
-            | `See diff for {{ version | trim_start_matches(pat="v") }} <https://github.com/litestar-org/pytest-databases/compare/{{ previous.commit_id }}...{{ commit_id }}>`_
-    {% endif %}\
-{% endif %}\
-{% for group, commits in commits | group_by(attribute="group") %}
-    {{ group | upper_first }}
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    {% for commit in commits %}
-        * (`{{ commit.id | truncate(length=7, end="") }} <https://github.com/litestar-org/pytest-databases/commit/{{ commit.id }}>`_) {% if commit.breaking %}[**breaking**] {% endif %} - {{ commit.message | upper_first }} ({{ commit.author.name  }})\
-          {% for footer in commit.footers -%}
-            , {{ footer.token }}{{ footer.separator }}{{ footer.value }}\
-          {% endfor %}\
-    {% endfor %}
-{% endfor %}\n
-"""
-footer = """
-Pytest Databases Changelog
-"""
-header = """
-=========
-Changelog
-=========\n
-All commits to this project will be documented in this file.\n
-"""
-trim = true
-
-[tool.git-cliff.git]
-commit_parsers = [
-  { message = "^feat", group = "Features" },
-  { message = "^fix", group = "Bug Fixes" },
-  { message = "^doc", group = "Documentation" },
-  { message = "^perf", group = "Performance" },
-  { message = "^refactor", group = "Refactor" },
-  { message = "^style", group = "Styling" },
-  { message = "^test", group = "Testing" },
-  { message = "^chore\\(release\\): prepare for", skip = true },
-  { message = "^chore", group = "Miscellaneous Tasks" },
-  { body = ".*security", group = "Security" },
-]
-conventional_commits = true
-filter_commits = false
-filter_unconventional = true
-ignore_tags = ""
-protect_breaking_commits = false
-skip_tags = "v0.1.0-beta.1"
-sort_commits = "oldest"
-split_commits = false
-tag_pattern = "v[0-9]*"
-topo_order = false
+exclude = ["/.github", "/docs"]
 
 
 #####################
@@ -344,6 +269,70 @@ skip = 'pdm.lock, package-lock.json'
 [tool.pyright]
 exclude = ["scripts", "docs"]
 include = ["src/pytest_databases", "tests"]
+
+
+[tool.git-cliff.changelog]
+body = """
+{% if version %}\
+    `Release [v{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }} <https://github.com/litestar-org/pytest-databases/releases/tag/v{{ version | trim_start_matches(pat="v") }}>`_
+    ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    * `See All commits in v{{ version | trim_start_matches(pat="v") }} <https://github.com/litestar-org/pytest-databases/commits/v{{ version | trim_start_matches(pat="v") }}>`_
+{% else %}\
+    [unreleased]
+    ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+{% endif %}\
+{% if previous %}\
+    {% if previous.commit_id %}
+        `{{ previous.commit_id | truncate(length=7, end="") }} <https://github.com/litestar-org/pytest-databases/commit/{{ previous.commit_id }}>`_ ... \
+            `{{ commit_id | truncate(length=7, end="") }} <https://github.com/litestar-org/pytest-databases/commit/{{ commit_id }}>`_ \
+            | `See diff for {{ version | trim_start_matches(pat="v") }} <https://github.com/litestar-org/pytest-databases/compare/{{ previous.commit_id }}...{{ commit_id }}>`_
+    {% endif %}\
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    {{ group | upper_first }}
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    {% for commit in commits %}
+        * (`{{ commit.id | truncate(length=7, end="") }} <https://github.com/litestar-org/pytest-databases/commit/{{ commit.id }}>`_) {% if commit.breaking %}[**breaking**] {% endif %} - {{ commit.message | upper_first }} ({{ commit.author.name  }})\
+          {% for footer in commit.footers -%}
+            , {{ footer.token }}{{ footer.separator }}{{ footer.value }}\
+          {% endfor %}\
+    {% endfor %}
+{% endfor %}\n
+"""
+footer = """
+Pytest Databases Changelog
+"""
+header = """
+=========
+Changelog
+=========\n
+All commits to this project will be documented in this file.\n
+"""
+trim = true
+
+[tool.git-cliff.git]
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^doc", group = "Documentation" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactor" },
+  { message = "^style", group = "Styling" },
+  { message = "^test", group = "Testing" },
+  { message = "^chore\\(release\\): prepare for", skip = true },
+  { message = "^chore", group = "Miscellaneous Tasks" },
+  { body = ".*security", group = "Security" },
+]
+conventional_commits = true
+filter_commits = false
+filter_unconventional = true
+ignore_tags = ""
+protect_breaking_commits = false
+skip_tags = "v0.1.0-beta.1"
+sort_commits = "oldest"
+split_commits = false
+tag_pattern = "v[0-9]*"
+topo_order = false
 
 [tool.mypy]
 disallow_untyped_defs = false
