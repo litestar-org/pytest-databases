@@ -38,12 +38,12 @@ async def mssql_responsive(host: str, connstring: str) -> bool:
     await asyncio.sleep(1)
     try:
         conn = await aioodbc.connect(
-            connstring=connstring,
+            dsn=connstring,
             timeout=2,
         )
         async with conn.cursor() as cursor:
             await cursor.execute("select 1 as is_available")
-            resp = cursor.fetchone()
+            resp = await cursor.fetchone()
             return resp[0] == 1 if resp is not None else False
     except Exception:  # noqa: BLE001
         return False
