@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from typing import TYPE_CHECKING
 
@@ -51,7 +52,8 @@ async def mariadb_responsive(host: str, port: int, user: str, password: str, dat
             resp = await cursor.fetchone()
         return resp[0] == 1
     finally:
-        await conn.close()
+        with contextlib.suppress(Exception):
+            await conn.close()
 
 
 @pytest.fixture()
