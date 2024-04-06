@@ -123,9 +123,9 @@ async def mariadb_service(
     mariadb_database: str,
     mariadb_user: str,
     mariadb_password: str,
-    maria_root_password: str,
+    mariadb_root_password: str,
 ) -> None:
-    os.environ["MARIADB_ROOT_PASSWORD"] = maria_root_password
+    os.environ["MARIADB_ROOT_PASSWORD"] = mariadb_root_password
     os.environ["MARIADB_PASSWORD"] = mariadb_password
     os.environ["MARIADB_USER"] = mariadb_user
     os.environ["MARIADB_DATABASE"] = mariadb_database
