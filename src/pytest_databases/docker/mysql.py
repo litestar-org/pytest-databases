@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import asyncmy
@@ -64,6 +65,11 @@ def mysql_password() -> str:
 
 
 @pytest.fixture()
+def mysql_root_password() -> str:
+    return "super-secret"
+
+
+@pytest.fixture()
 def mysql_database() -> str:
     return "db"
 
@@ -95,8 +101,18 @@ def mysql_port(mysql8_port: int) -> int:
 
 @pytest.fixture(autouse=False)
 async def mysql8_service(
-    docker_services: DockerServiceRegistry, mysql8_port: int, mysql_database: str, mysql_user: str, mysql_password: str
+    docker_services: DockerServiceRegistry,
+    mysql8_port: int,
+    mysql_database: str,
+    mysql_user: str,
+    mysql_password: str,
+    mysql_root_password: str,
 ) -> None:
+    os.environ["MYSQL_ROOT_PASSWORD"] = mysql_root_password
+    os.environ["MYSQL_PASSWORD"] = mysql_password
+    os.environ["MYSQL_USER"] = mysql_user
+    os.environ["MYSQL_DATABASE"] = mysql_database
+    os.environ["MYSQL8_PORT"] = str(mysql8_port)
     await docker_services.start(
         "mysql8",
         timeout=45,
@@ -111,8 +127,18 @@ async def mysql8_service(
 
 @pytest.fixture(autouse=False)
 async def mysql57_service(
-    docker_services: DockerServiceRegistry, mysql57_port: int, mysql_database: str, mysql_user: str, mysql_password: str
+    docker_services: DockerServiceRegistry,
+    mysql57_port: int,
+    mysql_database: str,
+    mysql_user: str,
+    mysql_password: str,
+    mysql_root_password: str,
 ) -> None:
+    os.environ["MYSQL_ROOT_PASSWORD"] = mysql_root_password
+    os.environ["MYSQL_PASSWORD"] = mysql_password
+    os.environ["MYSQL_USER"] = mysql_user
+    os.environ["MYSQL_DATABASE"] = mysql_database
+    os.environ["MYSQL57_PORT"] = str(mysql57_port)
     await docker_services.start(
         "mysql57",
         timeout=45,
@@ -127,8 +153,18 @@ async def mysql57_service(
 
 @pytest.fixture(autouse=False)
 async def mysql56_service(
-    docker_services: DockerServiceRegistry, mysql56_port: int, mysql_database: str, mysql_user: str, mysql_password: str
+    docker_services: DockerServiceRegistry,
+    mysql56_port: int,
+    mysql_database: str,
+    mysql_user: str,
+    mysql_password: str,
+    mysql_root_password: str,
 ) -> None:
+    os.environ["MYSQL_ROOT_PASSWORD"] = mysql_root_password
+    os.environ["MYSQL_PASSWORD"] = mysql_password
+    os.environ["MYSQL_USER"] = mysql_user
+    os.environ["MYSQL_DATABASE"] = mysql_database
+    os.environ["MYSQL56_PORT"] = str(mysql56_port)
     await docker_services.start(
         "mysql56",
         timeout=45,
@@ -149,7 +185,13 @@ async def mysql_service(
     mysql_database: str,
     mysql_user: str,
     mysql_password: str,
+    mysql_root_password: str,
 ) -> None:
+    os.environ["MYSQL_ROOT_PASSWORD"] = mysql_root_password
+    os.environ["MYSQL_PASSWORD"] = mysql_password
+    os.environ["MYSQL_USER"] = mysql_user
+    os.environ["MYSQL_DATABASE"] = mysql_database
+    os.environ[f"{mysql_default_version.upper()}_PORT"] = str(mysql_port)
     await docker_services.start(
         mysql_default_version,
         timeout=45,

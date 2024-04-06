@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -50,4 +51,5 @@ def redis_port() -> int:
 
 @pytest.fixture(autouse=False)
 async def redis_service(docker_services: DockerServiceRegistry, redis_port: int) -> None:
+    os.environ["REDIS_PORT"] = str(redis_port)
     await docker_services.start("redis", check=redis_responsive, port=redis_port)

@@ -20,9 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import psycopg
@@ -44,13 +44,35 @@ async def cockroachdb_responsive(host: str, port: int, database: str, driver_opt
 
 
 @pytest.fixture()
-async def cockroachdb_service(docker_services: DockerServiceRegistry) -> None:
+def cockroachdb_port() -> int:
+    return 26257
+
+
+@pytest.fixture()
+def cockroachdb_database() -> str:
+    return "defaultdb"
+
+
+@pytest.fixture()
+def cockroachdb_driver_opts() -> dict[str, str]:
+    return {"sslmode": "disable"}
+
+
+@pytest.fixture(autouse=False)
+async def cockroachdb_service(
+    docker_services: DockerServiceRegistry,
+    cockroachdb_port: int,
+    cockroachdb_database: str,
+    cockroachdb_driver_opts: dict[str, str],
+) -> None:
+    os.environ["COCKROACHDB_DATABASE"] = cockroachdb_database
+    os.environ["COCKROACHDB_PORT"] = str(cockroachdb_port)
     await docker_services.start(
         "cockroachdb",
         timeout=60,
         pause=1,
         check=cockroachdb_responsive,
-        port=26257,
-        database="defaultdb",
-        driver_opts={"sslmode": "disable"},
+        port=cockroachdb_port,
+        database=cockroachdb_database,
+        driver_opts=cockroachdb_driver_opts,
     )
