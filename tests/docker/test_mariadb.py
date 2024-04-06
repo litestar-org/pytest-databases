@@ -44,7 +44,7 @@ async def test_mariadb_default_config(
     mariadb_user: str,
     mariadb_password: str,
 ) -> None:
-    assert mariadb_default_version == "mariadb8"
+    assert mariadb_default_version == "mariadb113"
     assert mariadb_port == 3359
     assert mariadb_database == "db"
     assert mariadb_user == "app"
