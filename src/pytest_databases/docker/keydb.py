@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -50,4 +51,5 @@ def keydb_port() -> int:
 
 @pytest.fixture(autouse=False)
 async def keydb_service(docker_services: DockerServiceRegistry, keydb_port: int) -> None:
+    os.environ["KEYDB_PORT"] = str(keydb_port)
     await docker_services.start("keydb", check=keydb_responsive, port=keydb_port)

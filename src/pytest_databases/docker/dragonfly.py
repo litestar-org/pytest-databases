@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -50,4 +51,5 @@ def dragonfly_port() -> int:
 
 @pytest.fixture(autouse=False)
 async def dragonfly_service(docker_services: DockerServiceRegistry, dragonfly_port: int) -> None:
+    os.environ["DRAGONFLY_PORT"] = str(dragonfly_port)
     await docker_services.start("dragonfly", check=dragonfly_responsive, port=dragonfly_port)
