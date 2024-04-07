@@ -67,9 +67,7 @@ async def wait_until_responsive(
 
 
 SKIP_DOCKER_COMPOSE: bool = bool(os.environ.get("SKIP_DOCKER_COMPOSE", False))
-USE_LEGACY_DOCKER_COMPOSE: bool = bool(
-    os.environ.get("USE_LEGACY_DOCKER_COMPOSE", os.getenv("GITHUB_ACTIONS") != "true")
-)
+USE_LEGACY_DOCKER_COMPOSE: bool = bool(os.environ.get("USE_LEGACY_DOCKER_COMPOSE", False))
 
 
 class DockerServiceRegistry:

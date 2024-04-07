@@ -26,6 +26,7 @@ keywords = [
   "bigquery",
   "spanner",
   "cockroachdb",
+  "elasticsearch",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -49,6 +50,8 @@ Source = "https://github.com/litestar-org/pytest-databases"
 
 [project.optional-dependencies]
 cockroachdb = ["psycopg"]
+elasticsearch7 = ["elasticsearch7[async]"]
+elasticsearch8 = ["elasticsearch8[async]"]
 mssql = ["aioodbc"]
 mysql = ["asyncmy>=0.2.9"]
 oracle = ["oracledb"]
@@ -174,7 +177,7 @@ extra-dependencies = [
   "pytest-click",
   "pytest-xdist",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner"]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "elasticsearch7", "elasticsearch8"]
 template = "default"
 type = "virtual"
 
@@ -220,7 +223,7 @@ extra-dependencies = [
   "sphinxcontrib-mermaid>=0.9.2",
   "auto-pytabs[sphinx]>=0.4.0",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner"]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "elasticsearch7", "elasticsearch8"]
 lock-filename = "requirements/requirements-docs.txt"
 pip-compile-constraint = "default"
 python = "3.11"
@@ -280,7 +283,7 @@ extra-dependencies = [
   "asyncpg-stubs",
   "types-docutils",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner"]
+features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner", "elasticsearch7", "elasticsearch8"]
 lock-filename = "requirements/requirements-dev.txt"
 path = ".venv/"
 pip-compile-constraint = "docs"
@@ -307,7 +310,7 @@ extra-dependencies = [
   "asyncpg-stubs",
   "types-docutils",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb"]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "elasticsearch7", "elasticsearch8"]
 python = "3.11"
 template = "docs"
 
@@ -537,6 +540,7 @@ markers = [
   "spanner: Google Cloud Spanner Tests",
   "duckdb: DuckDB Tests",
   "mssql: Microsoft SQL Server Tests",
+  "elasticsearch: Elasticsearch Tests",
 ]
 minversion = "6.0"
 testpaths = ["tests"]

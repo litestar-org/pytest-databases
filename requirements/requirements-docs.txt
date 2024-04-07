@@ -25,6 +25,8 @@
 # - auto-pytabs[sphinx]>=0.4.0
 # - pytest
 # - psycopg
+# - elasticsearch7[async]
+# - elasticsearch8[async]
 # - aioodbc
 # - asyncmy>=0.2.9
 # - oracledb
@@ -34,7 +36,13 @@
 
 accessible-pygments==0.0.4
     # via pydata-sphinx-theme
+aiohttp==3.9.3
+    # via
+    #   elasticsearch7
+    #   elasticsearch8
 aioodbc==0.5.0
+aiosignal==1.3.1
+    # via aiohttp
 alabaster==0.7.16
     # via sphinx
 anyio==4.3.0
@@ -46,6 +54,8 @@ async-timeout==4.0.3
     # via asyncpg
 asyncmy==0.2.9
 asyncpg==0.29.0
+attrs==23.2.0
+    # via aiohttp
 auto-pytabs==0.4.0
 autodocsumm==0.2.12
     # via sphinx-toolbox
@@ -62,7 +72,10 @@ cachecontrol==0.14.0
 cachetools==5.3.3
     # via google-auth
 certifi==2024.2.2
-    # via requests
+    # via
+    #   elastic-transport
+    #   elasticsearch7
+    #   requests
 cffi==1.16.0
     # via cryptography
 charset-normalizer==3.3.2
@@ -98,12 +111,20 @@ domdf-python-tools==3.8.0.post2
     #   apeye-core
     #   dict2css
     #   sphinx-toolbox
+elastic-transport==8.13.0
+    # via elasticsearch8
+elasticsearch7==7.17.9
+elasticsearch8==8.13.0
 execnet==2.0.2
     # via pytest-xdist
 filelock==3.13.3
     # via
     #   cachecontrol
     #   sphinx-toolbox
+frozenlist==1.4.1
+    # via
+    #   aiohttp
+    #   aiosignal
 google-api-core==2.18.0
     # via
     #   google-cloud-core
@@ -159,7 +180,9 @@ markupsafe==2.1.5
 msgpack==1.0.8
     # via cachecontrol
 multidict==6.0.5
-    # via yarl
+    # via
+    #   aiohttp
+    #   yarl
 natsort==8.4.0
     # via domdf-python-tools
 nodeenv==1.8.0
@@ -302,8 +325,11 @@ typing-extensions==4.10.0
     #   psycopg
     #   pydata-sphinx-theme
     #   sphinx-toolbox
-urllib3==2.2.1
-    # via requests
+urllib3==1.26.18
+    # via
+    #   elastic-transport
+    #   elasticsearch7
+    #   requests
 vcrpy==6.0.1
     # via pytest-vcr
 webencodings==0.5.1
@@ -313,4 +339,6 @@ wrapt==1.16.0
     #   deprecated
     #   vcrpy
 yarl==1.9.4
-    # via vcrpy
+    # via
+    #   aiohttp
+    #   vcrpy
