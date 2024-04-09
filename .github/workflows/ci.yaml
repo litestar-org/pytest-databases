@@ -6,9 +6,9 @@ on:
       - main
   pull_request:
 
-# concurrency:
-#   group: test-${{ github.head_ref }}
-#   cancel-in-progress: true
+concurrency:
+  group: test-${{ github.head_ref }}
+  cancel-in-progress: true
 
 env:
   PYTHONUNBUFFERED: "1"
