@@ -521,7 +521,7 @@ line-length = 120
 ## Testing Tools
 
 [tool.pytest.ini_options]
-addopts = "-ra -q --doctest-glob='*.md'"
+addopts = "-n auto --dist loadfile -ra -q --doctest-glob='*.md'"
 filterwarnings = ["ignore::DeprecationWarning:pkg_resources", "ignore::DeprecationWarning:xdist.*"]
 markers = [
   "mysql: MySQL Tests",
