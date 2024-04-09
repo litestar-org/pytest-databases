@@ -52,7 +52,9 @@ apeye==1.4.1
 apeye-core==1.1.5
     # via apeye
 async-timeout==4.0.3
-    # via asyncpg
+    # via
+    #   asyncpg
+    #   redis
 asyncmy==0.2.9
 asyncpg==0.29.0
 attrs==23.2.0
@@ -116,9 +118,9 @@ elastic-transport==8.13.0
     # via elasticsearch8
 elasticsearch7==7.17.9
 elasticsearch8==8.13.0
-execnet==2.0.2
+execnet==2.1.1
     # via pytest-xdist
-filelock==3.13.3
+filelock==3.13.4
     # via
     #   cachecontrol
     #   sphinx-toolbox
@@ -321,7 +323,7 @@ termcolor==2.4.0
     # via pytest-sugar
 tornado==6.4
     # via livereload
-typing-extensions==4.10.0
+typing-extensions==4.11.0
     # via
     #   domdf-python-tools
     #   psycopg
