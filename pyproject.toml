@@ -12,7 +12,7 @@ license = "MIT"
 name = "pytest-databases"
 readme = "README.md"
 requires-python = ">=3.8"
-version = "0.1.0"
+version = "0.2.3"
 #
 authors = [{ name = "Cody Fincher", email = "cody.fincher@gmail.com" }]
 keywords = [
@@ -26,6 +26,7 @@ keywords = [
   "bigquery",
   "spanner",
   "cockroachdb",
+  "redis",
   "elasticsearch",
 ]
 # options under https://pypi.org/classifiers/
@@ -50,34 +51,228 @@ Source = "https://github.com/litestar-org/pytest-databases"
 
 [project.optional-dependencies]
 cockroachdb = ["psycopg"]
+dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7[async]"]
 elasticsearch8 = ["elasticsearch8[async]"]
+keydb = ["redis"]
 mssql = ["aioodbc"]
 mysql = ["asyncmy>=0.2.9"]
 oracle = ["oracledb"]
 postgres = ["asyncpg>=0.29.0"]
+redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 sqlite = ["aiosqlite"]
 
 ######################
 # Build & Versioning #
 ######################
-[tool.hatch.metadata]
-# direct dependency references, e.g `pip @ git+https://github.com/pypa/pip.git@master`
-allow-direct-references = true
-
-[tool.hatch.build]
-dev-mode-dirs = ["src/"]
-include = ["src/pytest_databases/**/*.yml"]
-packages = ["src/pytest_databases"]
-sources = ["src"]
-
 [tool.hatch.build.targets.sdist]
-exclude = [".github", "./docs"]
-support-legacy = true           # Create setup.py
+exclude = ["/.github", "/docs"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/pytest_databases"]
+
+#####################
+# Environment Setup #
+#####################
+
+
+# Default environment with production dependencies
+[tool.hatch.envs.default]
+lock-filename = "requirements/requirements.txt"
+pip-compile-constraint = "default"
+pip-compile-hashes = false
+pip-compile-installer = "uv"
+pip-compile-resolver = "uv"
+python = "3.11"
+requires = ["hatch-pip-compile"]
+type = "pip-compile"
+
+[tool.hatch.envs.default.scripts]
+upgrade-all = "PIP_COMPILE_UPGRADE=1 hatch env run --env {env_name} -- python --version"
+upgrade-pkg = "PIP_COMPILE_UPGRADE='{args}' hatch env run --env {env_name} -- python --version"
+
+# Test environment with test-only dependencies
+[tool.hatch.envs.test]
+extra-dependencies = [
+  "cython",
+  "anyio",
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest-vcr",
+  "pytest-sugar",
+  "pytest-click",
+  "pytest-xdist",
+]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "redis", "elasticsearch7", "elasticsearch8"]
+template = "default"
+type = "virtual"
+
+[tool.hatch.envs.test.env-vars]
+PYTHONPATH = "."
+PYTHONUNBUFFERED = "1"
+SOURCE_DATE_EPOCH = "1580601600"
+
+# Test matrix for various Python versions replacing the functionality of tox
+[[tool.hatch.envs.test.matrix]]
+python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+[tool.hatch.envs.test.scripts]
+cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov-report=xml"
+debug = "cov --no-cov -s --pdb --pdbcls=IPython.core.debugger:Pdb"
+no-cov = "cov --no-cov"
+
+
+# Docs environment
+[tool.hatch.envs.docs]
+extra-dependencies = [
+  # tests
+  "nodeenv",
+  # required test dependencies
+  "cython",
+  "anyio",
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest-vcr",
+  "pytest-sugar",
+  "pytest-click",
+  "pytest-xdist",
+  # Plugins
+  "sphinx>=7.1.2",
+  "sphinx-autobuild>=2021.3.14",
+  "sphinx-copybutton>=0.5.2",
+  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
+  "sphinx-click>=5.0.1",
+  "sphinx-toolbox>=3.5.0",
+  "sphinx-design>=0.5.0",
+  "sphinxcontrib-mermaid>=0.9.2",
+  "auto-pytabs[sphinx]>=0.4.0",
+]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "redis", "elasticsearch7", "elasticsearch8"]
+lock-filename = "requirements/requirements-docs.txt"
+pip-compile-constraint = "default"
+python = "3.11"
+template = "test"
+type = "pip-compile"
+
+[tool.hatch.envs.docs.env-vars]
+PYTHONPATH = "."
+PYTHONUNBUFFERED = "1"
+SOURCE_DATE_EPOCH = "1580601600"
+[tool.hatch.envs.docs.scripts]
+build = "sphinx-build -M html docs docs/_build/ -E -a -j auto --keep-going"
+serve = "sphinx-autobuild docs docs/_build/ -j auto --watch pytest_databases --watch docs --watch tests --watch CONTRIBUTING.rst --port 8002 {args}"
+# --ignore-url=None since the SUMMARY.md file leaves a <toc>None</toc> in sitemap.xml
+validate = "linkchecker --config .linkcheckerrc --ignore-url=/reference --ignore-url=None site"
+# https://github.com/linkchecker/linkchecker/issues/678
+build-check = ["build", "validate"]
+
+[tool.hatch.envs.local]
+extra-dependencies = [
+  # tests
+  "nodeenv",
+  # required test dependencies
+  "cython",
+  "anyio",
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest-vcr",
+  "pytest-sugar",
+  "pytest-click",
+  "pytest-xdist",
+  # Plugins
+  "sphinx>=7.1.2",
+  "sphinx-autobuild>=2021.3.14",
+  "sphinx-copybutton>=0.5.2",
+  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
+  "sphinx-click>=5.0.1",
+  "sphinx-toolbox>=3.5.0",
+  "sphinx-design>=0.5.0",
+  "sphinxcontrib-mermaid>=0.9.2",
+  "auto-pytabs[sphinx]>=0.4.0",
+  # cli databasae brwoser
+  "harlequin",
+  # linting
+  "cython",
+  "anyio",
+  "mypy",
+  "ruff",
+  "pylint",
+  "pre-commit",
+  "types-click",
+  "types-six",
+  "types-decorator",
+  "types-pyyaml",
+  "asyncpg-stubs",
+  "types-docutils",
+  "types-redis",
+]
+features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner", "redis", "elasticsearch7", "elasticsearch8"]
+lock-filename = "requirements/requirements-dev.txt"
+path = ".venv/"
+pip-compile-constraint = "docs"
+python = "3.11"
+template = "docs"
+type = "pip-compile"
+
+
+# Lint environment
+[tool.hatch.envs.lint]
+detached = true
+extra-dependencies = [
+  "pyyaml>=6",
+  "cython",
+  "anyio",
+  "mypy",
+  "ruff",
+  "pylint",
+  "pre-commit",
+  "types-click",
+  "types-six",
+  "types-decorator",
+  "types-pyyaml",
+  "asyncpg-stubs",
+  "types-docutils",
+  "types-redis",
+]
+features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "redis", "elasticsearch7", "elasticsearch8"]
+python = "3.11"
+template = "docs"
+
+[tool.hatch.envs.lint.scripts]
+check = ["style", "typing"]
+fix = [
+  "typing",
+  "ruff format {args:.}",
+  "ruff check --fix {args:.}",
+  "style",                      # feedback on what is not fixable
+  "pre-commit run --all-files",
+]
+style = ["echo \"VERSION: `ruff --version`\"", "ruff check {args:.}", "ruff format --check {args:.}"]
+typing = ["echo \"VERSION: `mypy --version`\"", "mypy --install-types --non-interactive {args}"]
+
+
+##################
+# External Tools #
+##################
+
+## Linting Tools
+
+[tool.slotscheck]
+strict-imports = false
+
+[tool.codespell]
+ignore-words-list = "alog"
+skip = 'pdm.lock, package-lock.json'
+
+[tool.pyright]
+exclude = ["scripts", "docs"]
+include = ["src/pytest_databases", "tests"]
+
 
 [tool.git-cliff.changelog]
 body = """
@@ -141,208 +336,6 @@ sort_commits = "oldest"
 split_commits = false
 tag_pattern = "v[0-9]*"
 topo_order = false
-
-
-#####################
-# Environment Setup #
-#####################
-
-
-# Default environment with production dependencies
-[tool.hatch.envs.default]
-lock-filename = "requirements/requirements.txt"
-pip-compile-constraint = "default"
-pip-compile-hashes = false
-pip-compile-installer = "uv"
-pip-compile-resolver = "uv"
-python = "3.11"
-requires = ["hatch-pip-compile"]
-type = "pip-compile"
-
-[tool.hatch.envs.default.scripts]
-upgrade-all = "PIP_COMPILE_UPGRADE=1 hatch env run --env {env_name} -- python --version"
-upgrade-pkg = "PIP_COMPILE_UPGRADE='{args}' hatch env run --env {env_name} -- python --version"
-
-# Test environment with test-only dependencies
-[tool.hatch.envs.test]
-extra-dependencies = [
-  "cython",
-  "anyio",
-  "coverage[toml]>=6.2",
-  "pytest",
-  "pytest-cov",
-  "pytest-mock",
-  "pytest-vcr",
-  "pytest-sugar",
-  "pytest-click",
-  "pytest-xdist",
-]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "elasticsearch7", "elasticsearch8"]
-template = "default"
-type = "virtual"
-
-[tool.hatch.envs.test.env-vars]
-PYTHONPATH = "."
-PYTHONUNBUFFERED = "1"
-SOURCE_DATE_EPOCH = "1580601600"
-
-# Test matrix for various Python versions replacing the functionality of tox
-[[tool.hatch.envs.test.matrix]]
-python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
-
-[tool.hatch.envs.test.scripts]
-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov-report=xml"
-debug = "cov --no-cov -s --pdb --pdbcls=IPython.core.debugger:Pdb"
-no-cov = "cov --no-cov"
-
-
-# Docs environment
-[tool.hatch.envs.docs]
-extra-dependencies = [
-  # tests
-  "nodeenv",
-  # required test dependencies
-  "cython",
-  "anyio",
-  "coverage[toml]>=6.2",
-  "pytest",
-  "pytest-cov",
-  "pytest-mock",
-  "pytest-vcr",
-  "pytest-sugar",
-  "pytest-click",
-  "pytest-xdist",
-  # Plugins
-  "sphinx>=7.1.2",
-  "sphinx-autobuild>=2021.3.14",
-  "sphinx-copybutton>=0.5.2",
-  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
-  "sphinx-click>=5.0.1",
-  "sphinx-toolbox>=3.5.0",
-  "sphinx-design>=0.5.0",
-  "sphinxcontrib-mermaid>=0.9.2",
-  "auto-pytabs[sphinx]>=0.4.0",
-]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "elasticsearch7", "elasticsearch8"]
-lock-filename = "requirements/requirements-docs.txt"
-pip-compile-constraint = "default"
-python = "3.11"
-template = "test"
-type = "pip-compile"
-
-[tool.hatch.envs.docs.env-vars]
-PYTHONPATH = "."
-PYTHONUNBUFFERED = "1"
-SOURCE_DATE_EPOCH = "1580601600"
-[tool.hatch.envs.docs.scripts]
-build = "sphinx-build -M html docs docs/_build/ -E -a -j auto --keep-going"
-serve = "sphinx-autobuild docs docs/_build/ -j auto --watch pytest_databases --watch docs --watch tests --watch CONTRIBUTING.rst --port 8002 {args}"
-# --ignore-url=None since the SUMMARY.md file leaves a <toc>None</toc> in sitemap.xml
-validate = "linkchecker --config .linkcheckerrc --ignore-url=/reference --ignore-url=None site"
-# https://github.com/linkchecker/linkchecker/issues/678
-build-check = ["build", "validate"]
-
-[tool.hatch.envs.local]
-extra-dependencies = [
-  # tests
-  "nodeenv",
-  # required test dependencies
-  "cython",
-  "anyio",
-  "coverage[toml]>=6.2",
-  "pytest",
-  "pytest-cov",
-  "pytest-mock",
-  "pytest-vcr",
-  "pytest-sugar",
-  "pytest-click",
-  "pytest-xdist",
-  # Plugins
-  "sphinx>=7.1.2",
-  "sphinx-autobuild>=2021.3.14",
-  "sphinx-copybutton>=0.5.2",
-  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
-  "sphinx-click>=5.0.1",
-  "sphinx-toolbox>=3.5.0",
-  "sphinx-design>=0.5.0",
-  "sphinxcontrib-mermaid>=0.9.2",
-  "auto-pytabs[sphinx]>=0.4.0",
-  # cli databasae brwoser
-  "harlequin",
-  # linting
-  "cython",
-  "anyio",
-  "mypy",
-  "ruff",
-  "pylint",
-  "pre-commit",
-  "types-click",
-  "types-six",
-  "types-decorator",
-  "types-pyyaml",
-  "asyncpg-stubs",
-  "types-docutils",
-]
-features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner", "elasticsearch7", "elasticsearch8"]
-lock-filename = "requirements/requirements-dev.txt"
-path = ".venv/"
-pip-compile-constraint = "docs"
-python = "3.11"
-template = "docs"
-type = "pip-compile"
-
-
-# Lint environment
-[tool.hatch.envs.lint]
-detached = true
-extra-dependencies = [
-  "pyyaml>=6",
-  "cython",
-  "anyio",
-  "mypy",
-  "ruff",
-  "pylint",
-  "pre-commit",
-  "types-click",
-  "types-six",
-  "types-decorator",
-  "types-pyyaml",
-  "asyncpg-stubs",
-  "types-docutils",
-]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "elasticsearch7", "elasticsearch8"]
-python = "3.11"
-template = "docs"
-
-[tool.hatch.envs.lint.scripts]
-check = ["style", "typing"]
-fix = [
-  "typing",
-  "ruff format {args:.}",
-  "ruff check --fix {args:.}",
-  "style",                      # feedback on what is not fixable
-  "pre-commit run --all-files",
-]
-style = ["echo \"VERSION: `ruff --version`\"", "ruff check {args:.}", "ruff format --check {args:.}"]
-typing = ["echo \"VERSION: `mypy --version`\"", "mypy --install-types --non-interactive {args}"]
-
-
-##################
-# External Tools #
-##################
-
-## Linting Tools
-
-[tool.slotscheck]
-strict-imports = false
-
-[tool.codespell]
-ignore-words-list = "alog"
-skip = 'pdm.lock, package-lock.json'
-
-[tool.pyright]
-exclude = ["scripts", "docs"]
-include = ["src/pytest_databases", "tests"]
 
 [tool.mypy]
 disallow_untyped_defs = false

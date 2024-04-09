@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import oracledb
@@ -56,6 +57,11 @@ def oracle_user() -> str:
 
 @pytest.fixture()
 def oracle_password() -> str:
+    return "super-secret"
+
+
+@pytest.fixture()
+def oracle_system_password() -> str:
     return "super-secret"
 
 
@@ -99,9 +105,15 @@ async def oracle23c_service(
     docker_services: DockerServiceRegistry,
     oracle23c_port: int,
     oracle23c_service_name: str,
+    oracle_system_password: str,
     oracle_user: str,
     oracle_password: str,
 ) -> None:
+    os.environ["ORACLE_PASSWORD"] = oracle_password
+    os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
+    os.environ["ORACLE_USER"] = oracle_user
+    os.environ["ORACLE23C_SERVICE_NAME"] = oracle23c_service_name
+    os.environ["ORACLE23C_PORT"] = str(oracle23c_port)
     await docker_services.start(
         "oracle23c",
         timeout=90,
@@ -119,9 +131,15 @@ async def oracle18c_service(
     docker_services: DockerServiceRegistry,
     oracle18c_port: int,
     oracle18c_service_name: str,
+    oracle_system_password: str,
     oracle_user: str,
     oracle_password: str,
 ) -> None:
+    os.environ["ORACLE_PASSWORD"] = oracle_password
+    os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
+    os.environ["ORACLE_USER"] = oracle_user
+    os.environ["ORACLE18C_SERVICE_NAME"] = oracle18c_service_name
+    os.environ["ORACLE18C_PORT"] = str(oracle18c_port)
     await docker_services.start(
         "oracle18c",
         timeout=90,
@@ -141,9 +159,15 @@ async def oracle_service(
     oracle_default_version: str,
     oracle_port: int,
     oracle_service_name: str,
+    oracle_system_password: str,
     oracle_user: str,
     oracle_password: str,
 ) -> None:
+    os.environ["ORACLE_PASSWORD"] = oracle_password
+    os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
+    os.environ["ORACLE_USER"] = oracle_user
+    os.environ["ORACLE_SERVICE_NAME"] = oracle_service_name
+    os.environ[f"{oracle_default_version.upper()}_PORT"] = str(oracle_port)
     await docker_services.start(
         oracle_default_version,
         timeout=90,

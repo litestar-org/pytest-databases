@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 from typing import TYPE_CHECKING
 
 import asyncmy
@@ -50,7 +52,8 @@ async def mariadb_responsive(host: str, port: int, user: str, password: str, dat
             resp = await cursor.fetchone()
         return resp[0] == 1
     finally:
-        await conn.close()
+        with contextlib.suppress(Exception):
+            await conn.close()
 
 
 @pytest.fixture()
@@ -60,6 +63,11 @@ def mariadb_user() -> str:
 
 @pytest.fixture()
 def mariadb_password() -> str:
+    return "super-secret"
+
+
+@pytest.fixture()
+def mariadb_root_password() -> str:
     return "super-secret"
 
 
@@ -90,9 +98,15 @@ async def mariadb113_service(
     mariadb_database: str,
     mariadb_user: str,
     mariadb_password: str,
+    mariadb_root_password: str,
 ) -> None:
+    os.environ["MARIADB_ROOT_PASSWORD"] = mariadb_root_password
+    os.environ["MARIADB_PASSWORD"] = mariadb_password
+    os.environ["MARIADB_USER"] = mariadb_user
+    os.environ["MARIADB_DATABASE"] = mariadb_database
+    os.environ["MARIADB113_PORT"] = str(mariadb113_port)
     await docker_services.start(
-        "mariadb8",
+        "mariadb113",
         timeout=45,
         pause=1,
         check=mariadb_responsive,
@@ -111,7 +125,13 @@ async def mariadb_service(
     mariadb_database: str,
     mariadb_user: str,
     mariadb_password: str,
+    mariadb_root_password: str,
 ) -> None:
+    os.environ["MARIADB_ROOT_PASSWORD"] = mariadb_root_password
+    os.environ["MARIADB_PASSWORD"] = mariadb_password
+    os.environ["MARIADB_USER"] = mariadb_user
+    os.environ["MARIADB_DATABASE"] = mariadb_database
+    os.environ[f"{mariadb_default_version.upper()}_PORT"] = str(mariadb_port)
     await docker_services.start(
         mariadb_default_version,
         timeout=45,

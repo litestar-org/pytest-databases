@@ -20,49 +20,32 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import pytest
 
-from pytest_databases.docker.spanner import spanner_responsive
+from pytest_databases.docker.dragonfly import dragonfly_responsive
 
 if TYPE_CHECKING:
-    from google.auth.credentials import Credentials
-
     from pytest_databases.docker import DockerServiceRegistry
 
 pytestmark = pytest.mark.anyio
 pytest_plugins = [
-    "pytest_databases.docker.spanner",
+    "pytest_databases.docker.dragonfly",
 ]
 
 
-async def test_spanner_default_config(
-    spanner_port: int, spanner_instance: str, spanner_database: str, spanner_project: str
-) -> None:
-    assert spanner_port == 9010
-    assert spanner_instance == "test-instance"
-    assert spanner_database == "test-database"
-    assert spanner_project == "emulator-test-project"
+def test_dragonfly_default_config(dragonfly_port: int) -> None:
+    assert dragonfly_port == 6398
 
 
-async def test_spanner_services(
+async def test_dragonfly_service(
     docker_ip: str,
-    spanner_service: DockerServiceRegistry,
-    spanner_port: int,
-    spanner_instance: str,
-    spanner_database: str,
-    spanner_project: str,
-    spanner_credentials: Credentials,
+    dragonfly_service: DockerServiceRegistry,
+    dragonfly_port: int,
 ) -> None:
-    ping = spanner_responsive(
-        docker_ip,
-        spanner_port=spanner_port,
-        spanner_instance=spanner_instance,
-        spanner_database=spanner_database,
-        spanner_project=spanner_project,
-        spanner_credentials=spanner_credentials,
-    )
+    ping = await dragonfly_responsive(docker_ip, dragonfly_port)
     assert ping

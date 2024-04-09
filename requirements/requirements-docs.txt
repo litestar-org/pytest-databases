@@ -31,6 +31,7 @@
 # - asyncmy>=0.2.9
 # - oracledb
 # - asyncpg>=0.29.0
+# - redis
 # - google-cloud-spanner
 #
 
@@ -245,6 +246,7 @@ pytest-vcr==1.0.2
 pytest-xdist==3.5.0
 pyyaml==6.0.1
     # via vcrpy
+redis==5.0.3
 requests==2.31.0
     # via
     #   apeye

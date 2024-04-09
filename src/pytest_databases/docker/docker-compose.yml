@@ -1,57 +1,55 @@
-version: "3"
-
 services:
   postgres12:
     networks:
       - default
     image: postgres:12
     ports:
-      - "5423:5432" # use a non-standard port here
+      - "${POSTGRES12_PORT:-5423}:5432" # use a non-standard port here
     environment:
-      POSTGRES_PASSWORD: super-secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-super-secret}
   postgres13:
     networks:
       - default
     image: postgres:13
     ports:
-      - "5424:5432" # use a non-standard port here
+      - "${POSTGRES13_PORT:-5424}:5432" # use a non-standard port here
     environment:
-      POSTGRES_PASSWORD: super-secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-super-secret}
   postgres14:
     networks:
       - default
     image: postgres:14
     ports:
-      - "5425:5432" # use a non-standard port here
+      - "${POSTGRES14_PORT:-5425}:5432" # use a non-standard port here
     environment:
-      POSTGRES_PASSWORD: super-secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-super-secret}
   postgres15:
     networks:
       - default
     image: postgres:15
     ports:
-      - "5426:5432" # use a non-standard port here
+      - "${POSTGRES15_PORT:-5426}:5432" # use a non-standard port here
     environment:
-      POSTGRES_PASSWORD: super-secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-super-secret}
   postgres16:
     networks:
       - default
     image: postgres:16
     ports:
-      - "5427:5432" # use a non-standard port here
+      - "${POSTGRES16_PORT:-5427}:5432" # use a non-standard port here
     environment:
-      POSTGRES_PASSWORD: super-secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-super-secret}
   mariadb113:
     networks:
       - default
     image: mariadb:11.3
     ports:
-      - "3359:3306" # use a non-standard port here
+      - "${MARIADB113_PORT:-3359}:3306" # use a non-standard port here
     environment:
-      MARIADB_ROOT_PASSWORD: super-secret
-      MARIADB_PASSWORD: super-secret
-      MARIADB_USER: app
-      MARIADB_DATABASE: db
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-super-secret}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-super-secret}
+      MARIADB_USER: ${MARIADB_USER:-app}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-db}
       MARIADB_ROOT_HOST: "%"
       LANG: C.UTF-8
   mysql8:
@@ -59,12 +57,12 @@ services:
       - default
     image: mysql:latest
     ports:
-      - "3360:3306" # use a non-standard port here
+      - "${MYSQL8_PORT:-3360}:3306" # use a non-standard port here
     environment:
-      MYSQL_ROOT_PASSWORD: super-secret
-      MYSQL_PASSWORD: super-secret
-      MYSQL_USER: app
-      MYSQL_DATABASE: db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-super-secret}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-super-secret}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-db}
       MYSQL_ROOT_HOST: "%"
       LANG: C.UTF-8
   mysql57:
@@ -72,12 +70,12 @@ services:
       - default
     image: mysql:5.7
     ports:
-      - "3362:3306" # use a non-standard port here
+      - "${MYSQL57_PORT:-3362}:3306" # use a non-standard port here
     environment:
-      MYSQL_ROOT_PASSWORD: super-secret
-      MYSQL_PASSWORD: super-secret
-      MYSQL_USER: app
-      MYSQL_DATABASE: db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-super-secret}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-super-secret}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-db}
       MYSQL_ROOT_HOST: "%"
       LANG: C.UTF-8
   mysql56:
@@ -85,12 +83,12 @@ services:
       - default
     image: mysql:5.6
     ports:
-      - "3363:3306" # use a non-standard port here
+      - "${MYSQL56_PORT:-3363}:3306" # use a non-standard port here
     environment:
-      MYSQL_ROOT_PASSWORD: super-secret
-      MYSQL_PASSWORD: super-secret
-      MYSQL_USER: app
-      MYSQL_DATABASE: db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-super-secret}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-super-secret}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-db}
       MYSQL_ROOT_HOST: "%"
       LANG: C.UTF-8
   oracle18c:
@@ -98,36 +96,36 @@ services:
       - default
     image: gvenzl/oracle-xe:18-slim-faststart
     ports:
-      - "1514:1521" # use a non-standard port here
+      - "${ORACLE18C_PORT:-1514}:1521" # use a non-standard port here
     environment:
-      ORACLE_PASSWORD: super-secret
-      APP_USER_PASSWORD: super-secret
-      APP_USER: app
+      ORACLE_PASSWORD: ${ORACLE_SYSTEM_PASSWORD:-super-secret}
+      APP_USER_PASSWORD: ${ORACLE_PASSWORD:-super-secret}
+      APP_USER: ${ORACLE_USER:-app}
   oracle23c:
     networks:
       - default
     image: gvenzl/oracle-free:23-slim-faststart
     ports:
-      - "1513:1521" # use a non-standard port here
+      - "${ORACLE23C_PORT:-1513}:1521" # use a non-standard port here
     environment:
-      ORACLE_PASSWORD: super-secret
-      APP_USER_PASSWORD: super-secret
-      APP_USER: app
+      ORACLE_PASSWORD: ${ORACLE_SYSTEM_PASSWORD:-super-secret}
+      APP_USER_PASSWORD: ${ORACLE_PASSWORD:-super-secret}
+      APP_USER: ${ORACLE_USER:-app}
   mssql2022:
     networks:
       - default
     image: mcr.microsoft.com/mssql/server:2022-latest
     ports:
-      - "4133:1433" # use a non-standard port here
+      - "${MSSQL2022_PORT:-4133}:1433" # use a non-standard port here
     environment:
-      SA_PASSWORD: Super-secret1
+      SA_PASSWORD: ${MSSQL_PASSWORD:-Super-secret1}
       MSSQL_PID: Developer
       ACCEPT_EULA: Accepted
       MSSQL_TCP_PORT: 1433
   spanner:
     image: gcr.io/cloud-spanner-emulator/emulator:latest
     ports:
-      - "9010:9010"
+      - "${SPANNER_PORT:-9010}:9010"
   # Init (Create Instance)
   spanner_init:
     image: gcr.io/google.com/cloudsdktool/cloud-sdk:332.0.0-slim
@@ -138,9 +136,9 @@ services:
               gcloud config set auth/disable_credentials true &&
               gcloud spanner instances create $${INSTANCE_NAME} --config=emulator-config --description=Emulator --nodes=1'
     environment:
-      PROJECT_ID: emulator-test-project
-      INSTANCE_NAME: test-instance
-      DATABASE_NAME: test-database
+      PROJECT_ID: ${GOOGLE_CLOUD_PROJECT:-emulator-test-project}
+      INSTANCE_NAME: ${SPANNER_INSTANCE:-test-instance}
+      DATABASE_NAME: ${SPANNER_DATABASE:-test-database}
     depends_on:
       - spanner
   cockroachdb:
@@ -149,15 +147,35 @@ services:
     restart: "no"
     expose:
       - "8080"
-      - "26257"
+      - "${COCKROACHDB_PORT:-26257}"
     ports:
-      - "26257:26257"
+      - "${COCKROACHDB_PORT:-26257}:26257"
       - "8880:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health?ready=1"]
       interval: 3s
       timeout: 3s
       retries: 5
+  redis:
+    image: redis
+    ports:
+      - "${REDIS_PORT:-6397}:6379"
+  keydb:
+    image: eqalpha/keydb
+    ports:
+      - "${KEYDB_PORT:-6396}:6379"
+  dragonfly:
+    image: "docker.dragonflydb.io/dragonflydb/dragonfly"
+    ulimits:
+      memlock: -1
+    ports:
+      - "${DRAGONFLY_PORT:-6398}:6379"
+    # For better performance, consider `host` mode instead `port` to avoid docker NAT.
+    # `host` mode is NOT currently supported in Swarm Mode.
+    # https://docs.docker.com/compose/compose-file/compose-file-v3/#network_mode
+    # network_mode: "host"
+    volumes:
+      - dragonflydata:/data
   elasticsearch7:
     image: elasticsearch:7.17.19
     ports:
@@ -187,3 +205,5 @@ services:
 networks:
   default:
     driver: bridge
+volumes:
+  dragonflydata:

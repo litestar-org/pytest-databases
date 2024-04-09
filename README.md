@@ -46,6 +46,9 @@ It is designed to offer pre-configured testing setups for many different types a
 - **SQL Server**: Version 2022 is available
 - **Spanner**: The latest cloud-emulator from Google is available
 - **Cockroach**: Version 23.1-latest is available
+- **Redis**: Latest server
+- **Dragonfly**: Latest server
+- **KeyDB**: Latest server
 - **Elasticsearch**: Version 7 and 8 are available
 
 ## Contributing

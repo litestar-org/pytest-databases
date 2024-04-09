@@ -28,23 +28,28 @@ import os
 from typing import TYPE_CHECKING
 
 import pytest
-from google.auth.credentials import AnonymousCredentials
+from google.auth.credentials import AnonymousCredentials, Credentials
 from google.cloud import spanner
 
 if TYPE_CHECKING:
     from pytest_databases.docker import DockerServiceRegistry
 
 
-def spanner_responsive(host: str) -> bool:
+def spanner_responsive(
+    host: str,
+    spanner_port: int,
+    spanner_instance: str,
+    spanner_database: str,
+    spanner_project: str,
+    spanner_credentials: Credentials,
+) -> bool:
     try:
-        os.environ["SPANNER_EMULATOR_HOST"] = "localhost:9010"
-        os.environ["GOOGLE_CLOUD_PROJECT"] = "emulator-test-project"
-        spanner_client = spanner.Client(project="emulator-test-project", credentials=AnonymousCredentials())
-        instance = spanner_client.instance("test-instance")
+        spanner_client = spanner.Client(project=spanner_project, credentials=spanner_credentials)
+        instance = spanner_client.instance(spanner_instance)
         with contextlib.suppress(Exception):
             instance.create()
 
-        database = instance.database("test-database")
+        database = instance.database(spanner_database)
         with contextlib.suppress(Exception):
             database.create()
 
@@ -55,7 +60,53 @@ def spanner_responsive(host: str) -> bool:
         return False
 
 
+@pytest.fixture
+def spanner_port() -> int:
+    return 9010
+
+
+@pytest.fixture
+def spanner_instance() -> str:
+    return "test-instance"
+
+
+@pytest.fixture
+def spanner_database() -> str:
+    return "test-database"
+
+
+@pytest.fixture
+def spanner_project() -> str:
+    return "emulator-test-project"
+
+
+@pytest.fixture
+def spanner_credentials() -> Credentials:
+    return AnonymousCredentials()
+
+
 @pytest.fixture(autouse=False)
-async def spanner_service(docker_services: DockerServiceRegistry) -> None:
-    os.environ["SPANNER_EMULATOR_HOST"] = "localhost:9010"
-    await docker_services.start("spanner", timeout=60, check=spanner_responsive)
+async def spanner_service(
+    docker_services: DockerServiceRegistry,
+    docker_ip: str,
+    spanner_port: int,
+    spanner_instance: str,
+    spanner_database: str,
+    spanner_project: str,
+    spanner_credentials: Credentials,
+) -> None:
+    os.environ["SPANNER_EMULATOR_HOST"] = f"{docker_ip}:{spanner_port}"
+    os.environ["SPANNER_DATABASE"] = spanner_database
+    os.environ["SPANNER_INSTANCE"] = spanner_instance
+    os.environ["SPANNER_PORT"] = str(spanner_port)
+    os.environ["GOOGLE_CLOUD_PROJECT"] = spanner_project
+    await docker_services.start(
+        "spanner",
+        timeout=60,
+        check=spanner_responsive,
+        spanner_port=spanner_port,
+        spanner_instance=spanner_instance,
+        spanner_database=spanner_database,
+        spanner_project=spanner_project,
+        spanner_credentials=spanner_credentials,
+    )

@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -114,6 +115,10 @@ async def postgres12_service(
     postgres_user: str,
     postgres_password: str,
 ) -> None:
+    os.environ["POSTGRES_PASSWORD"] = postgres_password
+    os.environ["POSTGRES_USER"] = postgres_user
+    os.environ["POSTGRES_DATABASE"] = postgres_database
+    os.environ["POSTGRES12_PORT"] = str(postgres12_port)
     await docker_services.start(
         "postgres12",
         timeout=45,
@@ -134,6 +139,10 @@ async def postgres13_service(
     postgres_user: str,
     postgres_password: str,
 ) -> None:
+    os.environ["POSTGRES_PASSWORD"] = postgres_password
+    os.environ["POSTGRES_USER"] = postgres_user
+    os.environ["POSTGRES_DATABASE"] = postgres_database
+    os.environ["POSTGRES13_PORT"] = str(postgres13_port)
     await docker_services.start(
         "postgres13",
         timeout=45,
@@ -154,6 +163,10 @@ async def postgres14_service(
     postgres_user: str,
     postgres_password: str,
 ) -> None:
+    os.environ["POSTGRES_PASSWORD"] = postgres_password
+    os.environ["POSTGRES_USER"] = postgres_user
+    os.environ["POSTGRES_DATABASE"] = postgres_database
+    os.environ["POSTGRES14_PORT"] = str(postgres14_port)
     await docker_services.start(
         "postgres14",
         timeout=45,
@@ -174,6 +187,10 @@ async def postgres15_service(
     postgres_user: str,
     postgres_password: str,
 ) -> None:
+    os.environ["POSTGRES_PASSWORD"] = postgres_password
+    os.environ["POSTGRES_USER"] = postgres_user
+    os.environ["POSTGRES_DATABASE"] = postgres_database
+    os.environ["POSTGRES15_PORT"] = str(postgres15_port)
     await docker_services.start(
         "postgres15",
         timeout=45,
@@ -194,6 +211,10 @@ async def postgres16_service(
     postgres_user: str,
     postgres_password: str,
 ) -> None:
+    os.environ["POSTGRES_PASSWORD"] = postgres_password
+    os.environ["POSTGRES_USER"] = postgres_user
+    os.environ["POSTGRES_DATABASE"] = postgres_database
+    os.environ["POSTGRES16_PORT"] = str(postgres16_port)
     await docker_services.start(
         "postgres16",
         timeout=45,
@@ -216,6 +237,10 @@ async def postgres_service(
     postgres_user: str,
     postgres_password: str,
 ) -> None:
+    os.environ["POSTGRES_PASSWORD"] = postgres_password
+    os.environ["POSTGRES_USER"] = postgres_user
+    os.environ["POSTGRES_DATABASE"] = postgres_database
+    os.environ[f"{postgres_default_version.upper()}_PORT"] = str(postgres_port)
     await docker_services.start(
         postgres_default_version,
         timeout=45,
