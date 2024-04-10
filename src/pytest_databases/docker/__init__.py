@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
 
-from pytest_databases.helpers import wrap_sync
+from pytest_databases.helpers import simple_string_hash, wrap_sync
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Generator
@@ -70,17 +70,18 @@ SKIP_DOCKER_COMPOSE: bool = bool(os.environ.get("SKIP_DOCKER_COMPOSE", False))
 USE_LEGACY_DOCKER_COMPOSE: bool = bool(
     os.environ.get("USE_LEGACY_DOCKER_COMPOSE", os.getenv("GITHUB_ACTIONS") != "true")
 )
+COMPOSE_PROJECT_NAME: str = f"pytest-databases-{simple_string_hash(__file__)}"
 
 
 class DockerServiceRegistry:
-    def __init__(self, worker_id: str) -> None:
+    def __init__(self, worker_id: str, compose_project_name: str = COMPOSE_PROJECT_NAME) -> None:
         self._running_services: set[str] = set()
         self.docker_ip = self._get_docker_ip()
         self._base_command = ["docker-compose"] if USE_LEGACY_DOCKER_COMPOSE else ["docker", "compose"]
         self._base_command.extend(
             [
                 f"--file={Path(__file__).parent / 'docker-compose.yml'}",
-                f"--project-name=pytest-databases-{worker_id}",
+                f"--project-name={compose_project_name}-{worker_id}",
             ],
         )
 
@@ -132,11 +133,16 @@ class DockerServiceRegistry:
 
 
 @pytest.fixture(scope="session")
-def docker_services(worker_id: str = "main") -> Generator[DockerServiceRegistry, None, None]:
+def compose_project_name() -> str:
+    return os.environ.get("COMPOSE_PROJECT_NAME", COMPOSE_PROJECT_NAME)
+
+
+@pytest.fixture(scope="session")
+def docker_services(compose_project_name: str, worker_id: str = "main") -> Generator[DockerServiceRegistry, None, None]:
     if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
         pytest.skip("Docker not available on this platform")
 
-    registry = DockerServiceRegistry(worker_id)
+    registry = DockerServiceRegistry(worker_id, compose_project_name=compose_project_name)
     try:
         yield registry
     finally:
