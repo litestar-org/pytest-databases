@@ -4,12 +4,12 @@ Contribution guide
 Setting up the environment
 --------------------------
 
-1. Install `PDM <https://pdm.fming.dev/latest/>`_
-2. Run ``pdm install -G:all`` to create a `virtual environment <https://docs.python.org/3/tutorial/venv.html>`_ and install
-   the dependencies
-3. If you're working on the documentation and need to build it locally, install the extra dependencies with ``pdm install -G:docs``
-4. Install `pre-commit <https://pre-commit.com/>`_
-5. Run ``pre-commit install`` to install pre-commit hooks
+1. ``make install-pipx``
+2. ``make install-hatch``
+3. ``make configure-hatch``
+4. ``make install``
+5. Install `pre-commit <https://pre-commit.com/>`_
+6. ``pre-commit install``
 
 Code contributions
 ------------------
@@ -59,11 +59,7 @@ The documentation is located in the ``/docs`` directory and is `ReST <https://do
 Running the docs locally
 ++++++++++++++++++++++++
 
-To run or build the docs locally, you need to first install the required dependencies:
-
-``pdm install -G:docs``
-
-Then you can serve the documentation with ``make docs-serve``, or build them with ``make docs``.
+You can serve the documentation with ``make serve-docs``, or build them with ``make docs``.
 
 Creating a new release
 ----------------------

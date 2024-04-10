@@ -49,6 +49,7 @@ It is designed to offer pre-configured testing setups for many different types a
 - **Redis**: Latest server
 - **Dragonfly**: Latest server
 - **KeyDB**: Latest server
+- **Elasticsearch**: Version 7 and 8 are available
 
 ## Contributing
 

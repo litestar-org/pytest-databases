@@ -67,9 +67,7 @@ async def wait_until_responsive(
 
 
 SKIP_DOCKER_COMPOSE: bool = bool(os.environ.get("SKIP_DOCKER_COMPOSE", False))
-USE_LEGACY_DOCKER_COMPOSE: bool = bool(
-    os.environ.get("USE_LEGACY_DOCKER_COMPOSE", os.getenv("GITHUB_ACTIONS") != "true")
-)
+USE_LEGACY_DOCKER_COMPOSE: bool = bool(os.environ.get("USE_LEGACY_DOCKER_COMPOSE", False))
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-{simple_string_hash(__file__)}"
 
 
@@ -125,7 +123,7 @@ class DockerServiceRegistry:
         )
 
     def stop(self, name: str) -> None:
-        pass
+        self.run_command("down", "--remove-orphans", "--volumes", "-t", "10", name)
 
     def down(self) -> None:
         if not SKIP_DOCKER_COMPOSE:
