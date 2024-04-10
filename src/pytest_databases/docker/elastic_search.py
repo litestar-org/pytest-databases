@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from elasticsearch7 import AsyncElasticsearch as Elasticsearch7
+from elasticsearch7 import AsyncElasticsearch as Elasticsearch8
 
 if TYPE_CHECKING:
     from pytest_databases.docker import DockerServiceRegistry
@@ -44,7 +45,7 @@ async def elasticsearch7_responsive(scheme: str, host: str, port: int, user: str
 
 async def elasticsearch8_responsive(scheme: str, host: str, port: int, user: str, password: str, database: str) -> bool:
     try:
-        async with Elasticsearch7(
+        async with Elasticsearch8(
             hosts=[{"host": host, "port": port, "scheme": scheme}], verify_certs=False, basic_auth=(user, password)
         ) as client:
             return await client.ping()

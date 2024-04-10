@@ -23,11 +23,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
+from unittest import mock
 
 import pytest
 from elasticsearch7 import AsyncElasticsearch as Elasticsearch7
 from elasticsearch8 import AsyncElasticsearch as Elasticsearch8
+
+from pytest_databases.docker.elastic_search import elasticsearch7_responsive, elasticsearch8_responsive
 
 if TYPE_CHECKING:
     from pytest_databases.docker import DockerServiceRegistry
@@ -90,3 +93,15 @@ async def test_elasticsearch8_service(
         info = await client.info()
 
     assert info["version"]["number"] == "8.13.0"
+
+
+@pytest.mark.parametrize(
+    "responsive, path_to_mock",
+    (
+        (elasticsearch7_responsive, "pytest_databases.docker.elastic_search.Elasticsearch7.ping"),
+        (elasticsearch8_responsive, "pytest_databases.docker.elastic_search.Elasticsearch8.ping"),
+    ),
+)
+async def test_elasticsearch_responsive(responsive: Callable, path_to_mock: str) -> None:
+    with mock.patch(path_to_mock, mock.Mock(side_effect=Exception)):
+        assert not await responsive(scheme="", host="", port="", user="", password="", database="")
