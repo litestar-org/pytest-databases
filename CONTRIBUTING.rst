@@ -4,12 +4,12 @@ Contribution guide
 Setting up the environment
 --------------------------
 
-1. Run ``make install-pipx`` to install ``pipx``
-2. Run ``make install-hatch`` to install ``hatch``
-3. Run ``make configure-hatch`` to configure ``hatch``
-4. Run ``make install`` to install all dependencies
+1. ``make install-pipx``
+2. ``make install-hatch``
+3. ``make configure-hatch``
+4. ``make install``
 5. Install `pre-commit <https://pre-commit.com/>`_
-6. Run ``pre-commit install`` to install pre-commit hooks
+6. ``pre-commit install``
 
 Code contributions
 ------------------
