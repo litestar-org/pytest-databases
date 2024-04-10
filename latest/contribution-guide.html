@@ -1247,12 +1247,12 @@ document.write(`
 <section id="setting-up-the-environment">
 <h2>Setting up the environment<a class="headerlink" href="#setting-up-the-environment" title="Link to this heading">#</a></h2>
 <ol class="arabic simple">
-<li><p>Install <a class="reference external" href="https://pdm.fming.dev/latest/">PDM</a></p></li>
-<li><p>Run <code class="docutils literal notranslate"><span class="pre">pdm</span> <span class="pre">install</span> <span class="pre">-G:all</span></code> to create a <a class="reference external" href="https://docs.python.org/3/tutorial/venv.html">virtual environment</a> and install
-the dependencies</p></li>
-<li><p>If you’re working on the documentation and need to build it locally, install the extra dependencies with <code class="docutils literal notranslate"><span class="pre">pdm</span> <span class="pre">install</span> <span class="pre">-G:docs</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">install-pipx</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">install-hatch</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">configure-hatch</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">install</span></code></p></li>
 <li><p>Install <a class="reference external" href="https://pre-commit.com/">pre-commit</a></p></li>
-<li><p>Run <code class="docutils literal notranslate"><span class="pre">pre-commit</span> <span class="pre">install</span></code> to install pre-commit hooks</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pre-commit</span> <span class="pre">install</span></code></p></li>
 </ol>
 </section>
 <section id="code-contributions">
@@ -1308,9 +1308,7 @@ could be titled <code class="docutils literal notranslate"><span class="pre">fix
 <a class="reference external" href="https://www.sphinx-doc.org/en/master/lib/usage/quickstart.html">Sphinx quickstart</a> are recommended reads.</p>
 <section id="running-the-docs-locally">
 <h3>Running the docs locally<a class="headerlink" href="#running-the-docs-locally" title="Link to this heading">#</a></h3>
-<p>To run or build the docs locally, you need to first install the required dependencies:</p>
-<p><code class="docutils literal notranslate"><span class="pre">pdm</span> <span class="pre">install</span> <span class="pre">-G:docs</span></code></p>
-<p>Then you can serve the documentation with <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">docs-serve</span></code>, or build them with <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">docs</span></code>.</p>
+<p>You can serve the documentation with <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">serve-docs</span></code>, or build them with <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">docs</span></code>.</p>
 </section>
 </section>
 <section id="creating-a-new-release">

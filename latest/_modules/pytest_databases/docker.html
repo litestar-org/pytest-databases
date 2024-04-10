@@ -1305,9 +1305,7 @@ document.write(`
 
 
 <span class="n">SKIP_DOCKER_COMPOSE</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;SKIP_DOCKER_COMPOSE&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span>
-<span class="n">USE_LEGACY_DOCKER_COMPOSE</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span>
-    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;USE_LEGACY_DOCKER_COMPOSE&quot;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;GITHUB_ACTIONS&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">&quot;true&quot;</span><span class="p">)</span>
-<span class="p">)</span>
+<span class="n">USE_LEGACY_DOCKER_COMPOSE</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;USE_LEGACY_DOCKER_COMPOSE&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span>
 <span class="n">COMPOSE_PROJECT_NAME</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;pytest-databases-</span><span class="si">{</span><span class="n">simple_string_hash</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
 
 
@@ -1363,7 +1361,7 @@ document.write(`
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">pass</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">run_command</span><span class="p">(</span><span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="s2">&quot;--remove-orphans&quot;</span><span class="p">,</span> <span class="s2">&quot;--volumes&quot;</span><span class="p">,</span> <span class="s2">&quot;-t&quot;</span><span class="p">,</span> <span class="s2">&quot;10&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">down</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">SKIP_DOCKER_COMPOSE</span><span class="p">:</span>
