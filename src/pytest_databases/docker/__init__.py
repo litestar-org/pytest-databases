@@ -123,7 +123,7 @@ class DockerServiceRegistry:
         )
 
     def stop(self, name: str) -> None:
-        pass
+        self.run_command("down", "--remove-orphans", "--volumes", "-t", "10", name)
 
     def down(self) -> None:
         if not SKIP_DOCKER_COMPOSE:

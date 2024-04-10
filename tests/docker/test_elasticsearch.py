@@ -23,7 +23,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable
 from unittest import mock
 
 import pytest
@@ -39,6 +39,60 @@ pytestmark = pytest.mark.anyio
 pytest_plugins = [
     "pytest_databases.docker.elastic_search",
 ]
+
+
+@pytest.fixture
+async def elasticsearch7_service(
+    docker_services: DockerServiceRegistry,
+    elasticsearch7_port: int,
+    elasticsearch_database: str,
+    elasticsearch_user: str,
+    elasticsearch_password: str,
+    elasticsearch_scheme: str,
+) -> AsyncGenerator[Any, Any]:
+    """Overwrites fixture to stop container after the test."""
+    try:
+        await docker_services.start(
+            "elasticsearch7",
+            timeout=45,
+            pause=1,
+            check=elasticsearch7_responsive,
+            port=elasticsearch7_port,
+            database=elasticsearch_database,
+            user=elasticsearch_user,
+            password=elasticsearch_password,
+            scheme=elasticsearch_scheme,
+        )
+        yield
+    finally:
+        docker_services.stop("elasticsearch7")
+
+
+@pytest.fixture
+async def elasticsearch8_service(
+    docker_services: DockerServiceRegistry,
+    elasticsearch8_port: int,
+    elasticsearch_database: str,
+    elasticsearch_user: str,
+    elasticsearch_password: str,
+    elasticsearch_scheme: str,
+) -> AsyncGenerator[Any, Any]:
+    """Overwrites fixture to stop container after the test."""
+    try:
+        await docker_services.start(
+            "elasticsearch8",
+            timeout=45,
+            pause=1,
+            check=elasticsearch8_responsive,
+            port=elasticsearch8_port,
+            database=elasticsearch_database,
+            user=elasticsearch_user,
+            password=elasticsearch_password,
+            scheme=elasticsearch_scheme,
+        )
+        yield
+    finally:
+        docker_services.stop("elasticsearch8")
 
 
 def test_elasticsearch7_default_config(
