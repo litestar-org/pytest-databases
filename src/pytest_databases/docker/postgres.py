@@ -110,7 +110,7 @@ def postgres_port(postgres16_port: int) -> int:
 
 @pytest.fixture(scope="session")
 def docker_compose_files() -> list[Path]:
-    return [Path(Path(__file__).parent / "docker-compose.cockroachdb.yml")]
+    return [Path(Path(__file__).parent / "docker-compose.postgres.yml")]
 
 
 @pytest.fixture(autouse=False)
