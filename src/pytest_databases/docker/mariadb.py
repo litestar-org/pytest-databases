@@ -128,8 +128,8 @@ async def mariadb113_service(
 @pytest.fixture()
 async def mariadb_service(
     docker_services: DockerServiceRegistry,
-    docker_compose_files: list[Path],
     default_mariadb_service_name: str,
+    docker_compose_files: list[Path],
     mariadb_port: int,
     mariadb_database: str,
     mariadb_user: str,

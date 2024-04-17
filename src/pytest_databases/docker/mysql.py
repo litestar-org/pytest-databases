@@ -196,7 +196,6 @@ async def mysql_service(
     docker_services: DockerServiceRegistry,
     default_mysql_service_name: str,
     docker_compose_files: list[Path],
-    mysql_default_version: str,
     mysql_port: int,
     mysql_database: str,
     mysql_user: str,
@@ -207,7 +206,7 @@ async def mysql_service(
     os.environ["MYSQL_PASSWORD"] = mysql_password
     os.environ["MYSQL_USER"] = mysql_user
     os.environ["MYSQL_DATABASE"] = mysql_database
-    os.environ[f"{mysql_default_version.upper()}_PORT"] = str(mysql_port)
+    os.environ[f"{default_mysql_service_name.upper()}_PORT"] = str(mysql_port)
     await docker_services.start(
         name=default_mysql_service_name,
         docker_compose_files=docker_compose_files,

@@ -168,7 +168,6 @@ async def oracle_service(
     docker_services: DockerServiceRegistry,
     default_oracle_service_name: str,
     docker_compose_files: list[Path],
-    oracle_default_version: str,
     oracle_port: int,
     oracle_service_name: str,
     oracle_system_password: str,
@@ -179,7 +178,7 @@ async def oracle_service(
     os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
     os.environ["ORACLE_USER"] = oracle_user
     os.environ["ORACLE_SERVICE_NAME"] = oracle_service_name
-    os.environ[f"{oracle_default_version.upper()}_PORT"] = str(oracle_port)
+    os.environ[f"{default_oracle_service_name.upper()}_PORT"] = str(oracle_port)
     await docker_services.start(
         name=default_oracle_service_name,
         docker_compose_files=docker_compose_files,

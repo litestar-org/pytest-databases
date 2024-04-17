@@ -88,7 +88,6 @@ def default_mssql_service_name() -> str:
 @pytest.fixture(autouse=False)
 async def mssql2022_service(
     docker_services: DockerServiceRegistry,
-    default_mssql_service_name: str,
     docker_compose_files: list[Path],
     docker_ip: str,
     mssql2022_port: int,
@@ -117,7 +116,6 @@ async def mssql_service(
     default_mssql_service_name: str,
     docker_compose_files: list[Path],
     docker_ip: str,
-    mssql_default_version: str,
     mssql_port: int,
     mssql_database: str,
     mssql_user: str,
@@ -127,7 +125,7 @@ async def mssql_service(
     os.environ["MSSQL_PASSWORD"] = mssql_password
     os.environ["MSSQL_USER"] = mssql_user
     os.environ["MSSQL_DATABASE"] = mssql_database
-    os.environ[f"{mssql_default_version.upper()}_PORT"] = str(mssql_port)
+    os.environ[f"{default_mssql_service_name.upper()}_PORT"] = str(mssql_port)
     await docker_services.start(
         name=default_mssql_service_name,
         docker_compose_files=docker_compose_files,
