@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -49,7 +50,27 @@ def keydb_port() -> int:
     return 6396
 
 
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.keydb.yml")]
+
+
+@pytest.fixture(scope="session")
+def default_keydb_service_name() -> str:
+    return "keydb"
+
+
 @pytest.fixture(autouse=False)
-async def keydb_service(docker_services: DockerServiceRegistry, keydb_port: int) -> None:
+async def keydb_service(
+    docker_services: DockerServiceRegistry,
+    default_keydb_service_name: str,
+    docker_compose_files: list[Path],
+    keydb_port: int,
+) -> None:
     os.environ["KEYDB_PORT"] = str(keydb_port)
-    await docker_services.start("keydb", check=keydb_responsive, port=keydb_port)
+    await docker_services.start(
+        name=default_keydb_service_name,
+        docker_compose_files=docker_compose_files,
+        check=keydb_responsive,
+        port=keydb_port,
+    )

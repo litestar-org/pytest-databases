@@ -1,0 +1,43 @@
+services:
+  mysql8:
+    networks:
+      - default
+    image: mysql:latest
+    ports:
+      - "${MYSQL8_PORT:-3360}:3306" # use a non-standard port here
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-super-secret}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-super-secret}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-db}
+      MYSQL_ROOT_HOST: "%"
+      LANG: C.UTF-8
+  mysql57:
+    networks:
+      - default
+    image: mysql:5.7
+    ports:
+      - "${MYSQL57_PORT:-3362}:3306" # use a non-standard port here
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-super-secret}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-super-secret}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-db}
+      MYSQL_ROOT_HOST: "%"
+      LANG: C.UTF-8
+  mysql56:
+    networks:
+      - default
+    image: mysql:5.6
+    ports:
+      - "${MYSQL56_PORT:-3363}:3306" # use a non-standard port here
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-super-secret}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-super-secret}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-db}
+      MYSQL_ROOT_HOST: "%"
+      LANG: C.UTF-8
+networks:
+  default:
+    driver: bridge

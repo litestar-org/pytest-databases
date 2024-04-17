@@ -38,13 +38,13 @@ pytest_plugins = [
 
 
 async def test_mariadb_default_config(
-    mariadb_default_version: str,
+    default_mariadb_service_name: str,
     mariadb_port: int,
     mariadb_database: str,
     mariadb_user: str,
     mariadb_password: str,
 ) -> None:
-    assert mariadb_default_version == "mariadb113"
+    assert default_mariadb_service_name == "mariadb113"
     assert mariadb_port == 3359
     assert mariadb_database == "db"
     assert mariadb_user == "app"

@@ -1,0 +1,19 @@
+services:
+  cockroachdb:
+    image: cockroachdb/cockroach:latest-v23.1
+    command: start-single-node --insecure
+    restart: "no"
+    expose:
+      - "8080"
+      - "${COCKROACHDB_PORT:-26257}"
+    ports:
+      - "${COCKROACHDB_PORT:-26257}:26257"
+      - "8880:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health?ready=1"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+networks:
+  default:
+    driver: bridge

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncmy
@@ -82,7 +83,7 @@ def mariadb113_port() -> int:
 
 
 @pytest.fixture()
-def mariadb_default_version() -> str:
+def default_mariadb_service_name() -> str:
     return "mariadb113"
 
 
@@ -91,9 +92,15 @@ def mariadb_port(mariadb113_port: int) -> int:
     return mariadb113_port
 
 
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.mariadb.yml")]
+
+
 @pytest.fixture()
 async def mariadb113_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     mariadb113_port: int,
     mariadb_database: str,
     mariadb_user: str,
@@ -107,6 +114,7 @@ async def mariadb113_service(
     os.environ["MARIADB113_PORT"] = str(mariadb113_port)
     await docker_services.start(
         "mariadb113",
+        docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=mariadb_responsive,
@@ -120,7 +128,8 @@ async def mariadb113_service(
 @pytest.fixture()
 async def mariadb_service(
     docker_services: DockerServiceRegistry,
-    mariadb_default_version: str,
+    docker_compose_files: list[Path],
+    default_mariadb_service_name: str,
     mariadb_port: int,
     mariadb_database: str,
     mariadb_user: str,
@@ -131,9 +140,10 @@ async def mariadb_service(
     os.environ["MARIADB_PASSWORD"] = mariadb_password
     os.environ["MARIADB_USER"] = mariadb_user
     os.environ["MARIADB_DATABASE"] = mariadb_database
-    os.environ[f"{mariadb_default_version.upper()}_PORT"] = str(mariadb_port)
+    os.environ[f"{default_mariadb_service_name.upper()}_PORT"] = str(mariadb_port)
     await docker_services.start(
-        mariadb_default_version,
+        name=default_mariadb_service_name,
+        docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=mariadb_responsive,

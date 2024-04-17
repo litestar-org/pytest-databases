@@ -29,7 +29,6 @@ import re
 import subprocess  # noqa: S404
 import sys
 import timeit
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
@@ -38,6 +37,7 @@ from pytest_databases.helpers import simple_string_hash, wrap_sync
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Generator
+    from pathlib import Path
 
 
 async def wait_until_responsive(
@@ -76,9 +76,9 @@ class DockerServiceRegistry:
         self._running_services: set[str] = set()
         self.docker_ip = self._get_docker_ip()
         self._base_command = ["docker-compose"] if USE_LEGACY_DOCKER_COMPOSE else ["docker", "compose"]
+        self._compose_files: list[str] = []
         self._base_command.extend(
             [
-                f"--file={Path(__file__).parent / 'docker-compose.yml'}",
                 f"--project-name={compose_project_name}-{worker_id}",
             ],
         )
@@ -96,12 +96,13 @@ class DockerServiceRegistry:
         raise ValueError(msg)
 
     def run_command(self, *args: str) -> None:
-        command = [*self._base_command, *args]
+        command = [*self._base_command, *self._compose_files, *args]
         subprocess.run(command, check=True, capture_output=True)
 
     async def start(
         self,
         name: str,
+        docker_compose_files: list[Path],
         *,
         check: Callable[..., Any],
         timeout: float = 30,
@@ -111,6 +112,7 @@ class DockerServiceRegistry:
         if SKIP_DOCKER_COMPOSE:
             self._running_services.add(name)
         if name not in self._running_services:
+            self._compose_files = [f"--file={compose_file}" for compose_file in docker_compose_files]
             self.run_command("up", "--force-recreate", "-d", name)
             self._running_services.add(name)
 

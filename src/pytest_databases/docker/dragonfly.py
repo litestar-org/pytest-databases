@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -49,7 +50,27 @@ def dragonfly_port() -> int:
     return 6398
 
 
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.dragonfly.yml")]
+
+
+@pytest.fixture(scope="session")
+def default_dragonfly_service_name() -> str:
+    return "dragonfly"
+
+
 @pytest.fixture(autouse=False)
-async def dragonfly_service(docker_services: DockerServiceRegistry, dragonfly_port: int) -> None:
+async def dragonfly_service(
+    docker_services: DockerServiceRegistry,
+    default_dragonfly_service_name: str,
+    docker_compose_files: list[Path],
+    dragonfly_port: int,
+) -> None:
     os.environ["DRAGONFLY_PORT"] = str(dragonfly_port)
-    await docker_services.start("dragonfly", check=dragonfly_responsive, port=dragonfly_port)
+    await docker_services.start(
+        name=default_dragonfly_service_name,
+        docker_compose_files=docker_compose_files,
+        check=dragonfly_responsive,
+        port=dragonfly_port,
+    )

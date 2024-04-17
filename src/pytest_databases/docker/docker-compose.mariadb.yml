@@ -1,0 +1,17 @@
+services:
+  mariadb113:
+    networks:
+      - default
+    image: mariadb:11.3
+    ports:
+      - "${MARIADB113_PORT:-3359}:3306" # use a non-standard port here
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-super-secret}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-super-secret}
+      MARIADB_USER: ${MARIADB_USER:-app}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-db}
+      MARIADB_ROOT_HOST: "%"
+      LANG: C.UTF-8
+networks:
+  default:
+    driver: bridge
