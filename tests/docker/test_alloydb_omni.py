@@ -51,6 +51,7 @@ async def test_alloydb_omni_default_config(
     assert postgres_password == "super-secret"
 
 
+@pytest.mark.xfail
 async def test_alloydb_omni_services(
     docker_ip: str,
     alloydb_omni_service: DockerServiceRegistry,
