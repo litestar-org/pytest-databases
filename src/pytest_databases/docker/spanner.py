@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -85,9 +86,21 @@ def spanner_credentials() -> Credentials:
     return AnonymousCredentials()
 
 
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.spanner.yml")]
+
+
+@pytest.fixture(scope="session")
+def default_spanner_service_name() -> str:
+    return "spanner"
+
+
 @pytest.fixture(autouse=False)
 async def spanner_service(
     docker_services: DockerServiceRegistry,
+    default_spanner_service_name: str,
+    docker_compose_files: list[Path],
     docker_ip: str,
     spanner_port: int,
     spanner_instance: str,
@@ -101,7 +114,8 @@ async def spanner_service(
     os.environ["SPANNER_PORT"] = str(spanner_port)
     os.environ["GOOGLE_CLOUD_PROJECT"] = spanner_project
     await docker_services.start(
-        "spanner",
+        name=default_spanner_service_name,
+        docker_compose_files=docker_compose_files,
         timeout=60,
         check=spanner_responsive,
         spanner_port=spanner_port,

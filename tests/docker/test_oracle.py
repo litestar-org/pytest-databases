@@ -61,9 +61,9 @@ def test_oracle_default_config(
     oracle_service_name: str,
     oracle_port: int,
     oracle23c_port: int,
-    oracle_default_version: str,
+    default_oracle_service_name: str,
 ) -> None:
-    assert oracle_default_version == "oracle23c"
+    assert default_oracle_service_name == "oracle23c"
     assert oracle_user == "app"
     assert oracle_password == "super-secret"
     assert oracle_service_name == "FREEPDB1"

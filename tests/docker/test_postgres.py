@@ -38,13 +38,13 @@ pytest_plugins = [
 
 
 async def test_postgres_default_config(
-    postgres_default_version: str,
+    default_postgres_service_name: str,
     postgres_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
 ) -> None:
-    assert postgres_default_version == "postgres16"
+    assert default_postgres_service_name == "postgres16"
     assert postgres_port == 5427
     assert postgres_database == "postgres"
     assert postgres_user == "postgres"

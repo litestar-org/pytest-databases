@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import psycopg
@@ -58,9 +59,21 @@ def cockroachdb_driver_opts() -> dict[str, str]:
     return {"sslmode": "disable"}
 
 
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.cockroachdb.yml")]
+
+
+@pytest.fixture(scope="session")
+def default_cockroachdb_service_name() -> str:
+    return "cockroachdb"
+
+
 @pytest.fixture(autouse=False)
 async def cockroachdb_service(
     docker_services: DockerServiceRegistry,
+    default_cockroachdb_service_name: str,
+    docker_compose_files: list[Path],
     cockroachdb_port: int,
     cockroachdb_database: str,
     cockroachdb_driver_opts: dict[str, str],
@@ -68,7 +81,8 @@ async def cockroachdb_service(
     os.environ["COCKROACHDB_DATABASE"] = cockroachdb_database
     os.environ["COCKROACHDB_PORT"] = str(cockroachdb_port)
     await docker_services.start(
-        "cockroachdb",
+        name=default_cockroachdb_service_name,
+        docker_compose_files=docker_compose_files,
         timeout=60,
         pause=1,
         check=cockroachdb_responsive,

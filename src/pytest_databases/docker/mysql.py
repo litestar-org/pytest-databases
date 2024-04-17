@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncmy
@@ -87,13 +88,13 @@ def mysql57_port() -> int:
 
 
 @pytest.fixture()
-def mysql8_port() -> int:
-    return 3360
+def default_mysql_service_name() -> str:
+    return "mysql8"
 
 
 @pytest.fixture()
-def mysql_default_version() -> str:
-    return "mysql8"
+def mysql8_port() -> int:
+    return 3360
 
 
 @pytest.fixture()
@@ -101,9 +102,15 @@ def mysql_port(mysql8_port: int) -> int:
     return mysql8_port
 
 
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.mysql.yml")]
+
+
 @pytest.fixture(autouse=False)
 async def mysql8_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     mysql8_port: int,
     mysql_database: str,
     mysql_user: str,
@@ -117,6 +124,7 @@ async def mysql8_service(
     os.environ["MYSQL8_PORT"] = str(mysql8_port)
     await docker_services.start(
         "mysql8",
+        docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=mysql_responsive,
@@ -130,6 +138,7 @@ async def mysql8_service(
 @pytest.fixture(autouse=False)
 async def mysql57_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     mysql57_port: int,
     mysql_database: str,
     mysql_user: str,
@@ -143,6 +152,7 @@ async def mysql57_service(
     os.environ["MYSQL57_PORT"] = str(mysql57_port)
     await docker_services.start(
         "mysql57",
+        docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=mysql_responsive,
@@ -156,6 +166,7 @@ async def mysql57_service(
 @pytest.fixture(autouse=False)
 async def mysql56_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     mysql56_port: int,
     mysql_database: str,
     mysql_user: str,
@@ -169,6 +180,7 @@ async def mysql56_service(
     os.environ["MYSQL56_PORT"] = str(mysql56_port)
     await docker_services.start(
         "mysql56",
+        docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=mysql_responsive,
@@ -182,7 +194,8 @@ async def mysql56_service(
 @pytest.fixture(autouse=False)
 async def mysql_service(
     docker_services: DockerServiceRegistry,
-    mysql_default_version: str,
+    default_mysql_service_name: str,
+    docker_compose_files: list[Path],
     mysql_port: int,
     mysql_database: str,
     mysql_user: str,
@@ -193,9 +206,10 @@ async def mysql_service(
     os.environ["MYSQL_PASSWORD"] = mysql_password
     os.environ["MYSQL_USER"] = mysql_user
     os.environ["MYSQL_DATABASE"] = mysql_database
-    os.environ[f"{mysql_default_version.upper()}_PORT"] = str(mysql_port)
+    os.environ[f"{default_mysql_service_name.upper()}_PORT"] = str(mysql_port)
     await docker_services.start(
-        mysql_default_version,
+        name=default_mysql_service_name,
+        docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=mysql_responsive,

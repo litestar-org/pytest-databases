@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -83,9 +84,20 @@ def elasticsearch8_port() -> int:
     return 9201
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.elasticsearch.yml")]
+
+
+@pytest.fixture(scope="session")
+def default_elasticsearch_service_name() -> str:
+    return "elasticsearch8"
+
+
+@pytest.fixture(autouse=False)
 async def elasticsearch7_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     elasticsearch7_port: int,
     elasticsearch_database: str,
     elasticsearch_user: str,
@@ -94,6 +106,7 @@ async def elasticsearch7_service(
 ) -> None:
     await docker_services.start(
         "elasticsearch7",
+        docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=elasticsearch7_responsive,
@@ -105,9 +118,10 @@ async def elasticsearch7_service(
     )
 
 
-@pytest.fixture
+@pytest.fixture(autouse=False)
 async def elasticsearch8_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     elasticsearch8_port: int,
     elasticsearch_database: str,
     elasticsearch_user: str,
@@ -116,6 +130,32 @@ async def elasticsearch8_service(
 ) -> None:
     await docker_services.start(
         "elasticsearch8",
+        docker_compose_files=docker_compose_files,
+        timeout=45,
+        pause=1,
+        check=elasticsearch8_responsive,
+        port=elasticsearch8_port,
+        database=elasticsearch_database,
+        user=elasticsearch_user,
+        password=elasticsearch_password,
+        scheme=elasticsearch_scheme,
+    )
+
+
+@pytest.fixture(autouse=False)
+async def elasticsearch_service(
+    docker_services: DockerServiceRegistry,
+    default_elasticsearch_service_name: str,
+    docker_compose_files: list[Path],
+    elasticsearch8_port: int,
+    elasticsearch_database: str,
+    elasticsearch_user: str,
+    elasticsearch_password: str,
+    elasticsearch_scheme: str,
+) -> None:
+    await docker_services.start(
+        name=default_elasticsearch_service_name,
+        docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=elasticsearch8_responsive,

@@ -33,6 +33,8 @@ from elasticsearch8 import AsyncElasticsearch as Elasticsearch8
 from pytest_databases.docker.elastic_search import elasticsearch7_responsive, elasticsearch8_responsive
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pytest_databases.docker import DockerServiceRegistry
 
 pytestmark = pytest.mark.anyio
@@ -44,6 +46,7 @@ pytest_plugins = [
 @pytest.fixture
 async def elasticsearch7_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     elasticsearch7_port: int,
     elasticsearch_database: str,
     elasticsearch_user: str,
@@ -54,6 +57,7 @@ async def elasticsearch7_service(
     try:
         await docker_services.start(
             "elasticsearch7",
+            docker_compose_files=docker_compose_files,
             timeout=45,
             pause=1,
             check=elasticsearch7_responsive,
@@ -71,6 +75,7 @@ async def elasticsearch7_service(
 @pytest.fixture
 async def elasticsearch8_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     elasticsearch8_port: int,
     elasticsearch_database: str,
     elasticsearch_user: str,
@@ -81,6 +86,7 @@ async def elasticsearch8_service(
     try:
         await docker_services.start(
             "elasticsearch8",
+            docker_compose_files=docker_compose_files,
             timeout=45,
             pause=1,
             check=elasticsearch8_responsive,

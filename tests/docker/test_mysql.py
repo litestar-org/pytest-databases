@@ -38,13 +38,13 @@ pytest_plugins = [
 
 
 async def test_mysql_default_config(
-    mysql_default_version: str,
+    default_mysql_service_name: str,
     mysql_port: int,
     mysql_database: str,
     mysql_user: str,
     mysql_password: str,
 ) -> None:
-    assert mysql_default_version == "mysql8"
+    assert default_mysql_service_name == "mysql8"
     assert mysql_port == 3360
     assert mysql_database == "db"
     assert mysql_user == "app"

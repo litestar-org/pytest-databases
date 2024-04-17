@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aioodbc
@@ -70,18 +71,24 @@ def mssql2022_port() -> int:
 
 
 @pytest.fixture()
-def mssql_default_version() -> str:
-    return "mssql2022"
-
-
-@pytest.fixture()
 def mssql_port(mssql2022_port: int) -> int:
     return mssql2022_port
+
+
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.mssql.yml")]
+
+
+@pytest.fixture(scope="session")
+def default_mssql_service_name() -> str:
+    return "mssql2022"
 
 
 @pytest.fixture(autouse=False)
 async def mssql2022_service(
     docker_services: DockerServiceRegistry,
+    docker_compose_files: list[Path],
     docker_ip: str,
     mssql2022_port: int,
     mssql_database: str,
@@ -95,6 +102,7 @@ async def mssql2022_service(
     connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={docker_ip},{mssql2022_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
     await docker_services.start(
         "mssql2022",
+        docker_compose_files=docker_compose_files,
         timeout=120,
         pause=1,
         check=mssql_responsive,
@@ -105,8 +113,9 @@ async def mssql2022_service(
 @pytest.fixture(autouse=False)
 async def mssql_service(
     docker_services: DockerServiceRegistry,
+    default_mssql_service_name: str,
+    docker_compose_files: list[Path],
     docker_ip: str,
-    mssql_default_version: str,
     mssql_port: int,
     mssql_database: str,
     mssql_user: str,
@@ -116,9 +125,10 @@ async def mssql_service(
     os.environ["MSSQL_PASSWORD"] = mssql_password
     os.environ["MSSQL_USER"] = mssql_user
     os.environ["MSSQL_DATABASE"] = mssql_database
-    os.environ[f"{mssql_default_version.upper()}_PORT"] = str(mssql_port)
+    os.environ[f"{default_mssql_service_name.upper()}_PORT"] = str(mssql_port)
     await docker_services.start(
-        mssql_default_version,
+        name=default_mssql_service_name,
+        docker_compose_files=docker_compose_files,
         timeout=120,
         pause=1,
         check=mssql_responsive,

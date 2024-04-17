@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -49,7 +50,27 @@ def redis_port() -> int:
     return 6397
 
 
+@pytest.fixture(scope="session")
+def docker_compose_files() -> list[Path]:
+    return [Path(Path(__file__).parent / "docker-compose.redis.yml")]
+
+
+@pytest.fixture(scope="session")
+def default_redis_service_name() -> str:
+    return "redis"
+
+
 @pytest.fixture(autouse=False)
-async def redis_service(docker_services: DockerServiceRegistry, redis_port: int) -> None:
+async def redis_service(
+    docker_services: DockerServiceRegistry,
+    default_redis_service_name: str,
+    docker_compose_files: list[Path],
+    redis_port: int,
+) -> None:
     os.environ["REDIS_PORT"] = str(redis_port)
-    await docker_services.start("redis", check=redis_responsive, port=redis_port)
+    await docker_services.start(
+        name=default_redis_service_name,
+        docker_compose_files=docker_compose_files,
+        check=redis_responsive,
+        port=redis_port,
+    )

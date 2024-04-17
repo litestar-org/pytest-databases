@@ -59,13 +59,13 @@ pytest_plugins = [
 
 
 async def test_mssql_default_config(
-    mssql_default_version: str,
+    default_mssql_service_name: str,
     mssql_port: int,
     mssql_database: str,
     mssql_user: str,
     mssql_password: str,
 ) -> None:
-    assert mssql_default_version == "mssql2022"
+    assert default_mssql_service_name == "mssql2022"
     assert mssql_port == 4133
     assert mssql_database == "master"
     assert mssql_user == "sa"
