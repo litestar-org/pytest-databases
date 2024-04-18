@@ -474,12 +474,13 @@ lint.ignore = [
   "FBT002",  # Boolean default positional argument in function definition
   "FBT003",  # Boolean Boolean default positional argument in function definition
   "ARG002",  # Unused method argument
-  "ARG001",  #  Unused function argument
+  "ARG001",  # Unused function argument
   "TD002",
   "TD003",
   "FIX002",
   "PGH003",
   "RUF006",
+  "RUF029",  # Ruff - Function is declared `async`, but doesn't `await` or use `async` features.
   "SLF001",
   "PT007",
   'PT004',
