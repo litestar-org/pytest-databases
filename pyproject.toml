@@ -25,6 +25,8 @@ keywords = [
   "duckdb",
   "bigquery",
   "spanner",
+  "alloydb",
+  "alloydbomni",
   "cockroachdb",
   "redis",
   "elasticsearch",
@@ -104,7 +106,18 @@ extra-dependencies = [
   "pytest-click",
   "pytest-xdist",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "redis", "elasticsearch7", "elasticsearch8"]
+features = [
+  "oracle",
+  "mysql",
+  "mssql",
+  "postgres",
+  "spanner",
+  "cockroachdb",
+  "spanner",
+  "redis",
+  "elasticsearch7",
+  "elasticsearch8",
+]
 template = "default"
 type = "virtual"
 
@@ -150,7 +163,18 @@ extra-dependencies = [
   "sphinxcontrib-mermaid>=0.9.2",
   "auto-pytabs[sphinx]>=0.4.0",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "spanner", "redis", "elasticsearch7", "elasticsearch8"]
+features = [
+  "oracle",
+  "mysql",
+  "mssql",
+  "postgres",
+  "spanner",
+  "cockroachdb",
+  "spanner",
+  "redis",
+  "elasticsearch7",
+  "elasticsearch8",
+]
 lock-filename = "requirements/requirements-docs.txt"
 pip-compile-constraint = "default"
 python = "3.11"
@@ -211,7 +235,17 @@ extra-dependencies = [
   "types-docutils",
   "types-redis",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "cockroachdb", "spanner", "redis", "elasticsearch7", "elasticsearch8"]
+features = [
+  "oracle",
+  "mysql",
+  "mssql",
+  "postgres",
+  "cockroachdb",
+  "spanner",
+  "redis",
+  "elasticsearch7",
+  "elasticsearch8",
+]
 lock-filename = "requirements/requirements-dev.txt"
 path = ".venv/"
 pip-compile-constraint = "docs"
@@ -239,7 +273,17 @@ extra-dependencies = [
   "types-docutils",
   "types-redis",
 ]
-features = ["oracle", "mysql", "mssql", "postgres", "spanner", "cockroachdb", "redis", "elasticsearch7", "elasticsearch8"]
+features = [
+  "oracle",
+  "mysql",
+  "mssql",
+  "postgres",
+  "spanner",
+  "cockroachdb",
+  "redis",
+  "elasticsearch7",
+  "elasticsearch8",
+]
 python = "3.11"
 template = "docs"
 

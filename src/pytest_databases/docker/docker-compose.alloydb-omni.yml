@@ -1,0 +1,18 @@
+services:
+  alloydb:
+    networks:
+      - default
+    image: google/alloydbomni
+    ulimits:
+      memlock: -1
+    ports:
+      - "${ALLOYDB_PORT:-5420}:5432" # use a non-standard port here
+    # For better performance, consider `host` mode instead `port` to avoid docker NAT.
+    # `host` mode is NOT currently supported in Swarm Mode.
+    # https://docs.docker.com/compose/compose-file/compose-file-v3/#network_mode
+    # network_mode: "host"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-super-secret}
+networks:
+  default:
+    driver: bridge
