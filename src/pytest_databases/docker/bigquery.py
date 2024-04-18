@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from pytest_databases.docker import DockerServiceRegistry
 
 
-def bigquery_responsive(
+async def bigquery_responsive(
     host: str,
     bigquery_endpoint: str,
     bigquery_dataset: str,
@@ -49,26 +49,22 @@ def bigquery_responsive(
             project=bigquery_project, client_options=bigquery_client_options, credentials=bigquery_credentials
         )
 
-        job = client.query(
-            query="SELECT 1",
-            job_config=bigquery.QueryJobConfig(),
-        )
+        job = client.query(query="SELECT 1 as one")
 
         resp = list(job.result())
-        return resp[0] == 1
-    except Exception as exc:  # noqa: BLE001
-        print(exc)
+        return resp[0].one == 1
+    except Exception:  # noqa: BLE001
         return False
 
 
 @pytest.fixture
 def bigquery_port() -> int:
-    return 9050
+    return 9051
 
 
 @pytest.fixture
 def bigquery_grpc_port() -> int:
-    return 9060
+    return 9061
 
 
 @pytest.fixture

@@ -397,8 +397,17 @@ warn_no_return = false
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
+disable_error_code = "attr-defined"
+module = "pytest_databases.docker.spanner"
+
+[[tool.mypy.overrides]]
+disable_error_code = "attr-defined"
+module = "pytest_databases.docker.bigquery"
+
+[[tool.mypy.overrides]]
+disable_error_code = "attr-defined"
 disallow_untyped_decorators = false
-module = ["tests.*"]
+module = "tests.*"
 warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
@@ -407,6 +416,18 @@ disallow_untyped_calls = false
 disallow_untyped_decorators = false
 module = ["docutils.nodes.*"]
 
+
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+module = [
+  "asyncmy",
+  "pyodbc",
+  "google.auth.*",
+  "google.cloud.*",
+  "google.protobuf.*",
+  "googleapiclient",
+  "googleapiclient.*",
+]
 
 [tool.ruff]
 exclude = [
@@ -485,7 +506,7 @@ lint.ignore = [
   "FIX002",
   "PGH003",
   "RUF006",
-  "RUF029",  # Ruff - Function is declared `async`, but doesn't `await` or use `async` features.
+  "RUF029",  # Ruff - Function is declared `async`, but doesn't `await` or use `async` features. # ignore
   "SLF001",
   "PT007",
   'PT004',

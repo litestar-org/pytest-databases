@@ -48,14 +48,14 @@ def test_bigquery_default_config(
     bigquery_endpoint: str,
     bigquery_project: str,
 ) -> None:
-    assert bigquery_port == 9050
-    assert bigquery_grpc_port == 9060
+    assert bigquery_port == 9051
+    assert bigquery_grpc_port == 9061
     assert bigquery_dataset == "test-dataset"
-    assert bigquery_endpoint == f"http://{docker_ip}:9050"
+    assert bigquery_endpoint == f"http://{docker_ip}:9051"
     assert bigquery_project == "emulator-test-project"
 
 
-def test_bigquery_services(
+async def test_bigquery_services(
     docker_ip: str,
     bigquery_service: DockerServiceRegistry,
     bigquery_endpoint: str,
@@ -64,7 +64,7 @@ def test_bigquery_services(
     bigquery_project: str,
     bigquery_credentials: Credentials,
 ) -> None:
-    ping = bigquery_responsive(
+    ping = await bigquery_responsive(
         docker_ip,
         bigquery_endpoint=bigquery_endpoint,
         bigquery_dataset=bigquery_dataset,
