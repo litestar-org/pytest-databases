@@ -1,4 +1,4 @@
-# pytest-databases
+# Pytest Databases
 
 Reusable test fixtures for any and all databases.
 
