@@ -24,6 +24,7 @@
 # - sphinxcontrib-mermaid>=0.9.2
 # - auto-pytabs[sphinx]>=0.4.0
 # - pytest
+# - google-cloud-bigquery
 # - psycopg
 # - elasticsearch7[async]
 # - elasticsearch8[async]
@@ -98,8 +99,6 @@ cryptography==42.0.5
 cssutils==2.10.2
     # via dict2css
 cython==3.0.10
-deprecated==1.2.14
-    # via google-cloud-spanner
 dict2css==0.3.0.post1
     # via sphinx-toolbox
 docutils==0.21.1
@@ -132,15 +131,24 @@ frozenlist==1.4.1
     #   aiosignal
 google-api-core==2.18.0
     # via
+    #   google-cloud-bigquery
     #   google-cloud-core
     #   google-cloud-spanner
 google-auth==2.29.0
     # via
     #   google-api-core
+    #   google-cloud-bigquery
     #   google-cloud-core
+google-cloud-bigquery==3.20.1
 google-cloud-core==2.4.1
-    # via google-cloud-spanner
-google-cloud-spanner==3.44.0
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-spanner
+google-cloud-spanner==3.45.0
+google-crc32c==1.5.0
+    # via google-resumable-media
+google-resumable-media==2.7.0
+    # via google-cloud-bigquery
 googleapis-common-protos==1.63.0
     # via
     #   google-api-core
@@ -194,6 +202,7 @@ nodeenv==1.8.0
 oracledb==2.1.2
 packaging==24.0
     # via
+    #   google-cloud-bigquery
     #   pydata-sphinx-theme
     #   pytest
     #   pytest-sugar
@@ -248,6 +257,8 @@ pytest-mock==3.14.0
 pytest-sugar==1.0.0
 pytest-vcr==1.0.2
 pytest-xdist==3.5.0
+python-dateutil==2.9.0.post0
+    # via google-cloud-bigquery
 pyyaml==6.0.1
     # via vcrpy
 redis==5.0.3
@@ -256,6 +267,7 @@ requests==2.31.0
     #   apeye
     #   cachecontrol
     #   google-api-core
+    #   google-cloud-bigquery
     #   sphinx
 rsa==4.9
     # via google-auth
@@ -268,7 +280,9 @@ ruff==0.3.7
 setuptools==69.5.1
     # via nodeenv
 six==1.16.0
-    # via html5lib
+    # via
+    #   html5lib
+    #   python-dateutil
 sniffio==1.3.1
     # via anyio
 snowballstemmer==2.2.0
@@ -345,9 +359,7 @@ webencodings==0.5.1
 websockets==12.0
     # via sphinx-autobuild
 wrapt==1.16.0
-    # via
-    #   deprecated
-    #   vcrpy
+    # via vcrpy
 yarl==1.9.4
     # via
     #   aiohttp

@@ -46,6 +46,7 @@ It is designed to offer pre-configured testing setups for many different types a
 - **SQL Server**: Version 2022 is available
 - **Google AlloyDB Omni**: Simplified Omni installation for easy testing.
 - **Google Spanner**: The latest cloud-emulator from Google is available
+- **Google BigQuery**: Unofficial BigQuery emulator
 - **Cockroach**: Version 23.1-latest is available
 - **Redis**: Latest server
 - **Dragonfly**: Latest server
