@@ -38,6 +38,7 @@
 # - types-docutils
 # - types-redis
 # - pytest
+# - google-cloud-bigquery
 # - psycopg
 # - elasticsearch7[async]
 # - elasticsearch8[async]
@@ -163,15 +164,24 @@ frozenlist==1.4.1
     #   aiosignal
 google-api-core==2.18.0
     # via
+    #   google-cloud-bigquery
     #   google-cloud-core
     #   google-cloud-spanner
 google-auth==2.29.0
     # via
     #   google-api-core
+    #   google-cloud-bigquery
     #   google-cloud-core
+google-cloud-bigquery==3.20.1
 google-cloud-core==2.4.1
-    # via google-cloud-spanner
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-spanner
 google-cloud-spanner==3.45.0
+google-crc32c==1.5.0
+    # via google-resumable-media
+google-resumable-media==2.7.0
+    # via google-cloud-bigquery
 googleapis-common-protos==1.63.0
     # via
     #   google-api-core
@@ -252,6 +262,7 @@ numpy==1.26.4
 oracledb==2.1.2
 packaging==24.0
     # via
+    #   google-cloud-bigquery
     #   pydata-sphinx-theme
     #   pytest
     #   pytest-sugar
@@ -320,6 +331,8 @@ pytest-mock==3.14.0
 pytest-sugar==1.0.0
 pytest-vcr==1.0.2
 pytest-xdist==3.5.0
+python-dateutil==2.9.0.post0
+    # via google-cloud-bigquery
 pyyaml==6.0.1
     # via
     #   pre-commit
@@ -332,6 +345,7 @@ requests==2.31.0
     #   apeye
     #   cachecontrol
     #   google-api-core
+    #   google-cloud-bigquery
     #   sphinx
 rich==13.7.1
     # via
@@ -352,7 +366,9 @@ setuptools==69.5.1
 shandy-sqlfmt==0.21.2
     # via harlequin
 six==1.16.0
-    # via html5lib
+    # via
+    #   html5lib
+    #   python-dateutil
 sniffio==1.3.1
     # via anyio
 snowballstemmer==2.2.0
