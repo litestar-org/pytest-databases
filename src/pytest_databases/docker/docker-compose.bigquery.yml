@@ -1,0 +1,18 @@
+services:
+  bigquery:
+    image: ghcr.io/goccy/bigquery-emulator:latest
+    ports:
+      - "${BIGQUERY_PORT:-9050}:9050"
+      - "${BIGQUERY_GRPC_PORT:-9060}:9060"
+    entrypoint: /bin/bigquery-emulator
+    command: --project=${GOOGLE_CLOUD_PROJECT:-emulator-test-project} --dataset=${BIGQUERY_DATASET:-test-dataset}
+    environment:
+      PROJECT_ID: ${GOOGLE_CLOUD_PROJECT:-emulator-test-project}
+      DATASET_NAME: ${BIGQUERY_DATASET:-test-dataset}
+    volumes:
+      - bigquerydata:/work
+networks:
+  default:
+    driver: bridge
+volumes:
+  bigquerydata:

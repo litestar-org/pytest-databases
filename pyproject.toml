@@ -52,6 +52,7 @@ Issues = "https://github.com/litestar-org/pytest-databases/issues"
 Source = "https://github.com/litestar-org/pytest-databases"
 
 [project.optional-dependencies]
+bigquery = ["google-cloud-bigquery"]
 cockroachdb = ["psycopg"]
 dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7[async]"]
@@ -117,6 +118,7 @@ features = [
   "redis",
   "elasticsearch7",
   "elasticsearch8",
+  "bigquery",
 ]
 template = "default"
 type = "virtual"
@@ -174,6 +176,7 @@ features = [
   "redis",
   "elasticsearch7",
   "elasticsearch8",
+  "bigquery",
 ]
 lock-filename = "requirements/requirements-docs.txt"
 pip-compile-constraint = "default"
@@ -245,6 +248,7 @@ features = [
   "redis",
   "elasticsearch7",
   "elasticsearch8",
+  "bigquery",
 ]
 lock-filename = "requirements/requirements-dev.txt"
 path = ".venv/"
@@ -283,6 +287,7 @@ features = [
   "redis",
   "elasticsearch7",
   "elasticsearch8",
+  "bigquery",
 ]
 python = "3.11"
 template = "docs"
@@ -392,8 +397,17 @@ warn_no_return = false
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
+disable_error_code = "attr-defined"
+module = "pytest_databases.docker.spanner"
+
+[[tool.mypy.overrides]]
+disable_error_code = "attr-defined"
+module = "pytest_databases.docker.bigquery"
+
+[[tool.mypy.overrides]]
+disable_error_code = "attr-defined"
 disallow_untyped_decorators = false
-module = ["tests.*"]
+module = "tests.*"
 warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
@@ -402,6 +416,18 @@ disallow_untyped_calls = false
 disallow_untyped_decorators = false
 module = ["docutils.nodes.*"]
 
+
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+module = [
+  "asyncmy",
+  "pyodbc",
+  "google.auth.*",
+  "google.cloud.*",
+  "google.protobuf.*",
+  "googleapiclient",
+  "googleapiclient.*",
+]
 
 [tool.ruff]
 exclude = [
@@ -480,7 +506,7 @@ lint.ignore = [
   "FIX002",
   "PGH003",
   "RUF006",
-  "RUF029",  # Ruff - Function is declared `async`, but doesn't `await` or use `async` features.
+  "RUF029",  # Ruff - Function is declared `async`, but doesn't `await` or use `async` features. # ignore
   "SLF001",
   "PT007",
   'PT004',
