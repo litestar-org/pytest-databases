@@ -23,12 +23,12 @@
 
 from __future__ import annotations
 
-import contextlib
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials, Credentials
 from google.cloud import bigquery
 
@@ -36,28 +36,28 @@ if TYPE_CHECKING:
     from pytest_databases.docker import DockerServiceRegistry
 
 
-def bigquery_response(
+def bigquery_responsive(
     host: str,
-    bigquery_port: int,
-    bigquery_instance: str,
-    bigquery_database: str,
+    bigquery_endpoint: str,
+    bigquery_dataset: str,
+    bigquery_client_options: ClientOptions,
     bigquery_project: str,
     bigquery_credentials: Credentials,
 ) -> bool:
     try:
-        bigquery_client = bigquery.Client(project=bigquery_project, credentials=bigquery_credentials)
-        instance = bigquery_client.instance(bigquery_instance)
-        with contextlib.suppress(Exception):
-            instance.create()
+        client = bigquery.Client(
+            project=bigquery_project, client_options=bigquery_client_options, credentials=bigquery_credentials
+        )
 
-        database = instance.database(bigquery_database)
-        with contextlib.suppress(Exception):
-            database.create()
+        job = client.query(
+            query="SELECT 1",
+            job_config=bigquery.QueryJobConfig(),
+        )
 
-        with database.snapshot() as snapshot:
-            resp = next(iter(snapshot.execute_sql("SELECT 1")))
+        resp = list(job.result())
         return resp[0] == 1
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        print(exc)
         return False
 
 
@@ -86,6 +86,11 @@ def bigquery_project() -> str:
     return "emulator-test-project"
 
 
+@pytest.fixture()
+def bigquery_client_options(bigquery_endpoint: str) -> ClientOptions:
+    return ClientOptions(api_endpoint=bigquery_endpoint)
+
+
 @pytest.fixture
 def bigquery_credentials() -> Credentials:
     return AnonymousCredentials()
@@ -107,27 +112,26 @@ async def bigquery_service(
     default_bigquery_service_name: str,
     docker_compose_files: list[Path],
     bigquery_port: int,
-    bigquery_gcp_port: int,
-    bigquery_instance: str,
+    bigquery_grpc_port: int,
     bigquery_endpoint: str,
     bigquery_dataset: str,
     bigquery_project: str,
     bigquery_credentials: Credentials,
+    bigquery_client_options: ClientOptions,
 ) -> None:
     os.environ["BIGQUERY_ENDPOINT"] = bigquery_endpoint
     os.environ["BIGQUERY_DATASET"] = bigquery_dataset
-    os.environ["BIGQUERY_INSTANCE"] = bigquery_instance
     os.environ["BIGQUERY_PORT"] = str(bigquery_port)
-    os.environ["BIGQUERY_GRPC_PORT"] = str(bigquery_gcp_port)
+    os.environ["BIGQUERY_GRPC_PORT"] = str(bigquery_grpc_port)
     os.environ["GOOGLE_CLOUD_PROJECT"] = bigquery_project
     await docker_services.start(
         name=default_bigquery_service_name,
         docker_compose_files=docker_compose_files,
         timeout=60,
-        check=bigquery_response,
-        bigquery_port=bigquery_port,
-        bigquery_gcp_port=bigquery_gcp_port,
+        check=bigquery_responsive,
+        bigquery_endpoint=bigquery_endpoint,
         bigquery_dataset=bigquery_dataset,
         bigquery_project=bigquery_project,
         bigquery_credentials=bigquery_credentials,
+        bigquery_client_options=bigquery_client_options,
     )

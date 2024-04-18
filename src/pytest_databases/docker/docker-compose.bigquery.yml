@@ -4,11 +4,7 @@ services:
     ports:
       - "${BIGQUERY_PORT:-9050}:9050"
       - "${BIGQUERY_GRPC_PORT:-9060}:9060"
-    command: |
-      --project=$${PROJECT_ID}
-    environment:
-      PROJECT_ID: ${GOOGLE_CLOUD_PROJECT:-emulator-test-project} 
-      DATASET_NAME: ${BIGQUERY_DATASET:-test-dataset}
+    command: --project=$${GOOGLE_CLOUD_PROJECT:-emulator-test-project} --dataset=$${BIGQUERY_DATASET:-test-dataset}
 networks:
   default:
     driver: bridge

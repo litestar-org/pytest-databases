@@ -89,7 +89,7 @@ async def alloydb_omni_service(
     docker_services: DockerServiceRegistry,
     default_alloydb_omni_service_name: str,
     docker_compose_files: list[Path],
-    postgres_port: int,
+    alloydb_omni_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
@@ -97,14 +97,14 @@ async def alloydb_omni_service(
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
-    os.environ[f"{default_alloydb_omni_service_name.upper()}_PORT"] = str(postgres_port)
+    os.environ[f"{default_alloydb_omni_service_name.upper()}_PORT"] = str(alloydb_omni_port)
     await docker_services.start(
         name=default_alloydb_omni_service_name,
         docker_compose_files=docker_compose_files,
         timeout=45,
         pause=1,
         check=alloydb_omni_responsive,
-        port=postgres_port,
+        port=alloydb_omni_port,
         database=postgres_database,
         user=postgres_user,
         password=postgres_password,

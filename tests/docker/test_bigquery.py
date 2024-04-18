@@ -26,43 +26,50 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from pytest_databases.docker.spanner import spanner_responsive
+from pytest_databases.docker.bigquery import bigquery_responsive
 
 if TYPE_CHECKING:
+    from google.api_core.client_options import ClientOptions
     from google.auth.credentials import Credentials
 
     from pytest_databases.docker import DockerServiceRegistry
 
 pytestmark = pytest.mark.anyio
 pytest_plugins = [
-    "pytest_databases.docker.spanner",
+    "pytest_databases.docker.bigquery",
 ]
 
 
-async def test_spanner_default_config(
-    spanner_port: int, spanner_instance: str, spanner_database: str, spanner_project: str
-) -> None:
-    assert spanner_port == 9010
-    assert spanner_instance == "test-instance"
-    assert spanner_database == "test-database"
-    assert spanner_project == "emulator-test-project"
-
-
-async def test_spanner_services(
+async def test_bigquery_default_config(
     docker_ip: str,
-    spanner_service: DockerServiceRegistry,
-    spanner_port: int,
-    spanner_instance: str,
-    spanner_database: str,
-    spanner_project: str,
-    spanner_credentials: Credentials,
+    bigquery_port: int,
+    bigquery_grpc_port: int,
+    bigquery_dataset: str,
+    bigquery_endpoint: str,
+    bigquery_project: str,
 ) -> None:
-    ping = spanner_responsive(
+    assert bigquery_port == 9050
+    assert bigquery_grpc_port == 9060
+    assert bigquery_dataset == "test-dataset"
+    assert bigquery_endpoint == f"http://{docker_ip}:9050"
+    assert bigquery_project == "emulator-test-project"
+
+
+async def test_bigquery_services(
+    docker_ip: str,
+    bigquery_service: DockerServiceRegistry,
+    bigquery_endpoint: str,
+    bigquery_dataset: str,
+    bigquery_client_options: ClientOptions,
+    bigquery_project: str,
+    bigquery_credentials: Credentials,
+) -> None:
+    ping = bigquery_responsive(
         docker_ip,
-        spanner_port=spanner_port,
-        spanner_instance=spanner_instance,
-        spanner_database=spanner_database,
-        spanner_project=spanner_project,
-        spanner_credentials=spanner_credentials,
+        bigquery_endpoint=bigquery_endpoint,
+        bigquery_dataset=bigquery_dataset,
+        bigquery_project=bigquery_project,
+        bigquery_credentials=bigquery_credentials,
+        bigquery_client_options=bigquery_client_options,
     )
     assert ping
