@@ -149,12 +149,14 @@ google-auth==2.29.0
     #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
-google-cloud-bigquery==3.20.1
+google-cloud-bigquery==3.21.0
+    # via hatch.envs.docs
 google-cloud-core==2.4.1
     # via
     #   google-cloud-bigquery
     #   google-cloud-spanner
 google-cloud-spanner==3.45.0
+    # via hatch.envs.docs
 google-crc32c==1.5.0
     # via google-resumable-media
 google-resumable-media==2.7.0
@@ -217,6 +219,7 @@ oracledb==2.1.2
     # via hatch.envs.docs
 packaging==24.0
     # via
+    #   -c requirements/requirements.txt
     #   google-cloud-bigquery
     #   pydata-sphinx-theme
     #   pytest
@@ -282,6 +285,7 @@ pytest-sugar==1.0.0
 pytest-vcr==1.0.2
     # via hatch.envs.docs
 pytest-xdist==3.5.0
+    # via hatch.envs.docs
 python-dateutil==2.9.0.post0
     # via google-cloud-bigquery
 pyyaml==6.0.1

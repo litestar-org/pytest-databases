@@ -40,7 +40,7 @@ pytest_plugins = [
 ]
 
 
-async def test_bigquery_default_config(
+def test_bigquery_default_config(
     docker_ip: str,
     bigquery_port: int,
     bigquery_grpc_port: int,
@@ -55,7 +55,7 @@ async def test_bigquery_default_config(
     assert bigquery_project == "emulator-test-project"
 
 
-async def test_bigquery_services(
+def test_bigquery_services(
     docker_ip: str,
     bigquery_service: DockerServiceRegistry,
     bigquery_endpoint: str,
