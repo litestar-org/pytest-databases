@@ -469,11 +469,11 @@ document.write(`
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">run_command</span><span class="p">(</span><span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="s2">&quot;--remove-orphans&quot;</span><span class="p">,</span> <span class="s2">&quot;--volumes&quot;</span><span class="p">,</span> <span class="s2">&quot;-t&quot;</span><span class="p">,</span> <span class="s2">&quot;10&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">run_command</span><span class="p">(</span><span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="s2">&quot;--volumes&quot;</span><span class="p">,</span> <span class="s2">&quot;-t&quot;</span><span class="p">,</span> <span class="s2">&quot;10&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">down</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">SKIP_DOCKER_COMPOSE</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">run_command</span><span class="p">(</span><span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="s2">&quot;--remove-orphans&quot;</span><span class="p">,</span> <span class="s2">&quot;--volumes&quot;</span><span class="p">,</span> <span class="s2">&quot;-t&quot;</span><span class="p">,</span> <span class="s2">&quot;10&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">run_command</span><span class="p">(</span><span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="s2">&quot;-t&quot;</span><span class="p">,</span> <span class="s2">&quot;10&quot;</span><span class="p">)</span>
 
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">scope</span><span class="o">=</span><span class="s2">&quot;session&quot;</span><span class="p">)</span>
