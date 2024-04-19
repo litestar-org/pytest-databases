@@ -62,7 +62,7 @@ jobs:
         name: Run tests and track code coverage
         run: hatch run +py=${{ matrix.python-version }} test:cov
 
-      - if: ! (matrix.python-version == '3.12' && runner.os == 'Linux')
+      - if: matrix.python-version != '3.12' || runner.os != 'Linux'
         name: Run tests without tracking coverage
         run: hatch run +py=${{ matrix.python-version }} test:no-cov
 
