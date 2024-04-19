@@ -53,9 +53,6 @@ jobs:
       - name: Install Hatch
         run: pip install --upgrade hatch hatch-pip-compile
 
-      - name: Debug Me!
-        run: docker compose -f src/pytest_databases/docker/docker-compose.alloydb-omni.yml up
-
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Lint
         run: hatch run lint:check

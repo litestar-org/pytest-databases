@@ -595,7 +595,7 @@ line-length = 120
 ## Testing Tools
 
 [tool.pytest.ini_options]
-addopts = "-ra -q --doctest-glob='*.md'"
+addopts = "--dist loadfile -n 2 -ra -q --doctest-glob='*.md'"
 filterwarnings = ["ignore::DeprecationWarning:pkg_resources", "ignore::DeprecationWarning:xdist.*"]
 markers = [
   "mysql: MySQL Tests",
@@ -611,7 +611,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-concurrency = ["multiprocessing", "thread"]
+concurrency = ["multiprocessing"]
 disable_warnings = ["no-data-collected", "module-not-measured"]
 omit = [
   "_version.py",                          # automatically created by hatch-vcs, not in repo
