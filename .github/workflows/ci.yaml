@@ -56,11 +56,17 @@ jobs:
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Lint
         run: hatch run lint:check
-
-      - name: Run tests and track code coverage
+      
+      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
+        name: Run tests with coverage tracking
         run: hatch run +py=${{ matrix.python-version }} test:cov
 
-      - uses: actions/upload-artifact@v4
+      - if: matrix.python-version != '3.12' || runner.os != 'Linux'
+        name: Run tests without tracking coverage
+        run: hatch run +py=${{ matrix.python-version }} test:no-cov
+
+      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
           path: coverage.xml
@@ -100,8 +106,6 @@ jobs:
 
       - name: Initialize CodeQL Without Dependencies
         uses: github/codeql-action/init@v3
-        with:
-          setup-python-dependencies: false
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

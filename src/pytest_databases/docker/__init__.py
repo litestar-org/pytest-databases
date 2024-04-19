@@ -125,11 +125,11 @@ class DockerServiceRegistry:
         )
 
     def stop(self, name: str) -> None:
-        self.run_command("down", "--remove-orphans", "--volumes", "-t", "10", name)
+        self.run_command("down", "--volumes", "-t", "10", name)
 
     def down(self) -> None:
         if not SKIP_DOCKER_COMPOSE:
-            self.run_command("down", "--remove-orphans", "--volumes", "-t", "10")
+            self.run_command("down", "-t", "10")
 
 
 @pytest.fixture(scope="session")
