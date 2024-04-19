@@ -133,7 +133,7 @@ SOURCE_DATE_EPOCH = "1580601600"
 python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
 [tool.hatch.envs.test.scripts]
-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov-report=xml"
+cov = "pytest --cov=pytest_databases --cov-report=xml --cov-append"
 debug = "cov --no-cov -s --pdb --pdbcls=IPython.core.debugger:Pdb"
 no-cov = "cov --no-cov"
 
@@ -606,13 +606,12 @@ markers = [
   "mssql: Microsoft SQL Server Tests",
   "elasticsearch: Elasticsearch Tests",
 ]
-minversion = "6.0"
 testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
 concurrency = ["multiprocessing"]
-disable_warnings = ["no-data-collected", "module-not-measured"]
+disable_warnings = ["no-data-collected", "module-not-measured", "module-not-imported"]
 omit = [
   "_version.py",                          # automatically created by hatch-vcs, not in repo
   "src/pytest_databases/__metadata__.py",
@@ -620,12 +619,6 @@ omit = [
   "scripts/*",
 ]
 parallel = true
-source = ["src/pytest_databases"]
-source_pkgs = ["pytest_databases"]
-
-[tool.coverage.paths]
-pytest_databases = ["src/pytest_databases"]
-tests = ["tests"]
 
 [tool.coverage.report]
 # Regexes for lines to exclude from consideration
