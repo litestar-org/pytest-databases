@@ -56,7 +56,7 @@ jobs:
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Lint
         run: hatch run lint:check
-      
+
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Run tests with coverage tracking
         run: hatch run +py=${{ matrix.python-version }} test:cov
@@ -70,7 +70,7 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
-      
+
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4.0.1
