@@ -57,14 +57,14 @@ jobs:
         name: Lint
         run: hatch run lint:check
       
-      - name: Download prior coverage artifacts.  Appending/Amending coverage.
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-xml
-          merge-multiple: true
       
-      - name: Run tests and track code coverage
+      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
+        name: Run tests and track code coverage
         run: hatch run +py=${{ matrix.python-version }} test:cov
+
+      - if: ! (matrix.python-version == '3.12' && runner.os == 'Linux')
+        name: Run tests without tracking coverage
+        run: hatch run +py=${{ matrix.python-version }} test:no-cov
 
       - uses: actions/upload-artifact@v4
         with:

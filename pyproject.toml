@@ -133,7 +133,7 @@ SOURCE_DATE_EPOCH = "1580601600"
 python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
 [tool.hatch.envs.test.scripts]
-cov = "pytest --cov=pytest_databases --cov-report=xml --cov-append"
+cov = "pytest --cov=pytest_databases --cov-report=xml"
 debug = "cov --no-cov -s --pdb --pdbcls=IPython.core.debugger:Pdb"
 no-cov = "cov --no-cov"
 
