@@ -124,7 +124,7 @@ template = "default"
 type = "virtual"
 
 [tool.hatch.envs.test.env-vars]
-PYTHONPATH = "."
+PYTHONPATH = ".:src/"
 PYTHONUNBUFFERED = "1"
 SOURCE_DATE_EPOCH = "1580601600"
 

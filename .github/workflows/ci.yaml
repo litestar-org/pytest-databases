@@ -57,16 +57,16 @@ jobs:
         name: Lint
         run: hatch run lint:check
       
-      
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
-        name: Run tests and track code coverage
+        name: Run tests with coverage tracking
         run: hatch run +py=${{ matrix.python-version }} test:cov
 
       - if: matrix.python-version != '3.12' || runner.os != 'Linux'
         name: Run tests without tracking coverage
         run: hatch run +py=${{ matrix.python-version }} test:no-cov
 
-      - uses: actions/upload-artifact@v4
+      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
           path: coverage.xml
