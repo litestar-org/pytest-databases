@@ -70,7 +70,13 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
-
+      
+      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
+        name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: litestar-org/pytest-databases
   sonar:
     needs:
       - run
