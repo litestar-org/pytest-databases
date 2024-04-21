@@ -64,7 +64,7 @@ async def test_mariadb_113_config(
 
 
 async def test_mariadb_services(
-    docker_ip: str,
+    mariadb_docker_ip: str,
     mariadb_service: DockerServiceRegistry,
     mariadb_port: int,
     mariadb_database: str,
@@ -72,7 +72,7 @@ async def test_mariadb_services(
     mariadb_password: str,
 ) -> None:
     ping = await mariadb_responsive(
-        docker_ip,
+        mariadb_docker_ip,
         port=mariadb_port,
         database=mariadb_database,
         user=mariadb_user,
@@ -82,7 +82,7 @@ async def test_mariadb_services(
 
 
 async def test_mariadb_113_services(
-    docker_ip: str,
+    mariadb_docker_ip: str,
     mariadb113_service: DockerServiceRegistry,
     mariadb113_port: int,
     mariadb_database: str,
@@ -90,7 +90,7 @@ async def test_mariadb_113_services(
     mariadb_password: str,
 ) -> None:
     ping = await mariadb_responsive(
-        docker_ip,
+        mariadb_docker_ip,
         port=mariadb113_port,
         database=mariadb_database,
         user=mariadb_user,

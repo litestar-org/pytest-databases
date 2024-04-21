@@ -85,28 +85,28 @@ async def test_mssql_2022_config(
 
 
 async def test_mssql_services(
-    docker_ip: str,
+    mssql_docker_ip: str,
     mssql_service: DockerServiceRegistry,
     mssql_port: int,
     mssql_database: str,
     mssql_user: str,
     mssql_password: str,
 ) -> None:
-    connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={docker_ip},{mssql_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
+    connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={mssql_docker_ip},{mssql_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
 
-    ping = await mssql_responsive(docker_ip, connstring=connstring)
+    ping = await mssql_responsive(mssql_docker_ip, connstring=connstring)
     assert ping
 
 
 async def test_mssql_2022_services(
-    docker_ip: str,
+    mssql_docker_ip: str,
     mssql2022_service: DockerServiceRegistry,
     mssql2022_port: int,
     mssql_database: str,
     mssql_user: str,
     mssql_password: str,
 ) -> None:
-    connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={docker_ip},{mssql2022_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
+    connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={mssql_docker_ip},{mssql2022_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
 
-    ping = await mssql_responsive(docker_ip, connstring=connstring)
+    ping = await mssql_responsive(mssql_docker_ip, connstring=connstring)
     assert ping

@@ -130,25 +130,3 @@ class DockerServiceRegistry:
     def down(self) -> None:
         if not SKIP_DOCKER_COMPOSE:
             self.run_command("down", "-t", "10")
-
-
-@pytest.fixture(scope="session")
-def compose_project_name() -> str:
-    return os.environ.get("COMPOSE_PROJECT_NAME", COMPOSE_PROJECT_NAME)
-
-
-@pytest.fixture(scope="session")
-def docker_services(compose_project_name: str, worker_id: str = "main") -> Generator[DockerServiceRegistry, None, None]:
-    if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
-        pytest.skip("Docker not available on this platform")
-
-    registry = DockerServiceRegistry(worker_id, compose_project_name=compose_project_name)
-    try:
-        yield registry
-    finally:
-        registry.down()
-
-
-@pytest.fixture(scope="session")
-def docker_ip(docker_services: DockerServiceRegistry) -> str:
-    return docker_services.docker_ip

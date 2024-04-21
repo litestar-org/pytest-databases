@@ -49,7 +49,7 @@ async def test_spanner_default_config(
 
 
 async def test_spanner_services(
-    docker_ip: str,
+    spanner_docker_ip: str,
     spanner_service: DockerServiceRegistry,
     spanner_port: int,
     spanner_instance: str,
@@ -58,7 +58,7 @@ async def test_spanner_services(
     spanner_credentials: Credentials,
 ) -> None:
     ping = spanner_responsive(
-        docker_ip,
+        spanner_docker_ip,
         spanner_port=spanner_port,
         spanner_instance=spanner_instance,
         spanner_database=spanner_database,

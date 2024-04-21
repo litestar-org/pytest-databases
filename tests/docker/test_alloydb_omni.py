@@ -52,7 +52,7 @@ async def test_alloydb_omni_default_config(
 
 
 async def test_alloydb_omni_services(
-    docker_ip: str,
+    alloydb_docker_ip: str,
     alloydb_omni_service: DockerServiceRegistry,
     alloydb_omni_port: int,
     postgres_database: str,
@@ -60,7 +60,7 @@ async def test_alloydb_omni_services(
     postgres_password: str,
 ) -> None:
     ping = await alloydb_omni_responsive(
-        docker_ip,
+        alloydb_docker_ip,
         port=alloydb_omni_port,
         database=postgres_database,
         user=postgres_user,
