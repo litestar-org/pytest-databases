@@ -43,9 +43,9 @@ def test_redis_default_config(redis_port: int) -> None:
 
 
 async def test_redis_service(
-    docker_ip: str,
+    redis_docker_ip: str,
     redis_service: DockerServiceRegistry,
     redis_port: int,
 ) -> None:
-    ping = await redis_responsive(docker_ip, redis_port)
+    ping = await redis_responsive(redis_docker_ip, redis_port)
     assert ping

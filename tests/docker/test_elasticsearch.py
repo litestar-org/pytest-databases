@@ -45,8 +45,8 @@ pytest_plugins = [
 
 @pytest.fixture
 async def elasticsearch7_service(
-    docker_services: DockerServiceRegistry,
-    docker_compose_files: list[Path],
+    elasticsearch_docker_services: DockerServiceRegistry,
+    elasticsearch_docker_compose_files: list[Path],
     elasticsearch7_port: int,
     elasticsearch_database: str,
     elasticsearch_user: str,
@@ -55,9 +55,9 @@ async def elasticsearch7_service(
 ) -> AsyncGenerator[Any, Any]:
     """Overwrites fixture to stop container after the test."""
     try:
-        await docker_services.start(
+        await elasticsearch_docker_services.start(
             "elasticsearch7",
-            docker_compose_files=docker_compose_files,
+            docker_compose_files=elasticsearch_docker_compose_files,
             timeout=45,
             pause=1,
             check=elasticsearch7_responsive,
@@ -69,13 +69,13 @@ async def elasticsearch7_service(
         )
         yield
     finally:
-        docker_services.stop("elasticsearch7")
+        elasticsearch_docker_services.stop("elasticsearch7")
 
 
 @pytest.fixture
 async def elasticsearch8_service(
-    docker_services: DockerServiceRegistry,
-    docker_compose_files: list[Path],
+    elasticsearch_docker_services: DockerServiceRegistry,
+    elasticsearch_docker_compose_files: list[Path],
     elasticsearch8_port: int,
     elasticsearch_database: str,
     elasticsearch_user: str,
@@ -84,9 +84,9 @@ async def elasticsearch8_service(
 ) -> AsyncGenerator[Any, Any]:
     """Overwrites fixture to stop container after the test."""
     try:
-        await docker_services.start(
+        await elasticsearch_docker_services.start(
             "elasticsearch8",
-            docker_compose_files=docker_compose_files,
+            docker_compose_files=elasticsearch_docker_compose_files,
             timeout=45,
             pause=1,
             check=elasticsearch8_responsive,
@@ -98,7 +98,7 @@ async def elasticsearch8_service(
         )
         yield
     finally:
-        docker_services.stop("elasticsearch8")
+        elasticsearch_docker_services.stop("elasticsearch8")
 
 
 def test_elasticsearch7_default_config(
@@ -120,7 +120,7 @@ def test_elasticsearch8_default_config(
 
 
 async def test_elasticsearch7_service(
-    docker_ip: str,
+    elasticsearch_docker_ip: str,
     elasticsearch7_service: DockerServiceRegistry,
     elasticsearch7_port: str,
     elasticsearch_user: str,
@@ -128,7 +128,7 @@ async def test_elasticsearch7_service(
     elasticsearch_scheme: str,
 ) -> None:
     async with Elasticsearch7(
-        hosts=[{"host": docker_ip, "port": elasticsearch7_port, "scheme": elasticsearch_scheme}],
+        hosts=[{"host": elasticsearch_docker_ip, "port": elasticsearch7_port, "scheme": elasticsearch_scheme}],
         verify_certs=False,
         http_auth=(elasticsearch_user, elasticsearch_password),
     ) as client:
@@ -138,7 +138,7 @@ async def test_elasticsearch7_service(
 
 
 async def test_elasticsearch8_service(
-    docker_ip: str,
+    elasticsearch_docker_ip: str,
     elasticsearch8_service: DockerServiceRegistry,
     elasticsearch8_port: str,
     elasticsearch_user: str,
@@ -146,7 +146,7 @@ async def test_elasticsearch8_service(
     elasticsearch_scheme: str,
 ) -> None:
     async with Elasticsearch8(
-        hosts=[{"host": docker_ip, "port": elasticsearch8_port, "scheme": elasticsearch_scheme}],
+        hosts=[{"host": elasticsearch_docker_ip, "port": elasticsearch8_port, "scheme": elasticsearch_scheme}],
         verify_certs=False,
         basic_auth=(elasticsearch_user, elasticsearch_password),
     ) as client:

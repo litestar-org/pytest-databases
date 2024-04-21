@@ -88,7 +88,7 @@ async def test_mysql_56_config(
 
 
 async def test_mysql_services(
-    docker_ip: str,
+    mysql_docker_ip: str,
     mysql_service: DockerServiceRegistry,
     mysql_port: int,
     mysql_database: str,
@@ -96,7 +96,7 @@ async def test_mysql_services(
     mysql_password: str,
 ) -> None:
     ping = await mysql_responsive(
-        docker_ip,
+        mysql_docker_ip,
         port=mysql_port,
         database=mysql_database,
         user=mysql_user,
@@ -106,7 +106,7 @@ async def test_mysql_services(
 
 
 async def test_mysql_57_services(
-    docker_ip: str,
+    mysql_docker_ip: str,
     mysql57_service: DockerServiceRegistry,
     mysql57_port: int,
     mysql_database: str,
@@ -114,7 +114,7 @@ async def test_mysql_57_services(
     mysql_password: str,
 ) -> None:
     ping = await mysql_responsive(
-        docker_ip,
+        mysql_docker_ip,
         port=mysql57_port,
         database=mysql_database,
         user=mysql_user,
@@ -124,7 +124,7 @@ async def test_mysql_57_services(
 
 
 async def test_mysql_56_services(
-    docker_ip: str,
+    mysql_docker_ip: str,
     mysql56_service: DockerServiceRegistry,
     mysql56_port: int,
     mysql_database: str,
@@ -132,7 +132,7 @@ async def test_mysql_56_services(
     mysql_password: str,
 ) -> None:
     ping = await mysql_responsive(
-        docker_ip,
+        mysql_docker_ip,
         port=mysql56_port,
         database=mysql_database,
         user=mysql_user,
@@ -142,7 +142,7 @@ async def test_mysql_56_services(
 
 
 async def test_mysql_8_services(
-    docker_ip: str,
+    mysql_docker_ip: str,
     mysql8_service: DockerServiceRegistry,
     mysql8_port: int,
     mysql_database: str,
@@ -150,7 +150,7 @@ async def test_mysql_8_services(
     mysql_password: str,
 ) -> None:
     ping = await mysql_responsive(
-        docker_ip,
+        mysql_docker_ip,
         port=mysql8_port,
         database=mysql_database,
         user=mysql_user,

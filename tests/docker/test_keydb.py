@@ -43,9 +43,9 @@ def test_keydb_default_config(keydb_port: int) -> None:
 
 
 async def test_keydb_service(
-    docker_ip: str,
+    keydb_docker_ip: str,
     keydb_service: DockerServiceRegistry,
     keydb_port: int,
 ) -> None:
-    ping = await keydb_responsive(docker_ip, keydb_port)
+    ping = await keydb_responsive(keydb_docker_ip, keydb_port)
     assert ping

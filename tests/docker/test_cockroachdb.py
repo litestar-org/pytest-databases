@@ -47,11 +47,13 @@ def test_cockroachdb_default_config(
 
 
 async def test_cockroachdb_service(
-    docker_ip: str,
+    cockroachdb_docker_ip: str,
     cockroachdb_service: DockerServiceRegistry,
     cockroachdb_database: str,
     cockroachdb_port: int,
     cockroachdb_driver_opts: dict[str, str],
 ) -> None:
-    ping = await cockroachdb_responsive(docker_ip, cockroachdb_port, cockroachdb_database, cockroachdb_driver_opts)
+    ping = await cockroachdb_responsive(
+        cockroachdb_docker_ip, cockroachdb_port, cockroachdb_database, cockroachdb_driver_opts
+    )
     assert ping

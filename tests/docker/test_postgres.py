@@ -112,7 +112,7 @@ async def test_postgres_16_config(
 
 
 async def test_postgres_services(
-    docker_ip: str,
+    postgres_docker_ip: str,
     postgres_service: DockerServiceRegistry,
     postgres_port: int,
     postgres_database: str,
@@ -120,7 +120,7 @@ async def test_postgres_services(
     postgres_password: str,
 ) -> None:
     ping = await postgres_responsive(
-        docker_ip,
+        postgres_docker_ip,
         port=postgres_port,
         database=postgres_database,
         user=postgres_user,
@@ -130,7 +130,7 @@ async def test_postgres_services(
 
 
 async def test_postgres_12_services(
-    docker_ip: str,
+    postgres_docker_ip: str,
     postgres12_service: DockerServiceRegistry,
     postgres12_port: int,
     postgres_database: str,
@@ -138,7 +138,7 @@ async def test_postgres_12_services(
     postgres_password: str,
 ) -> None:
     ping = await postgres_responsive(
-        docker_ip,
+        postgres_docker_ip,
         port=postgres12_port,
         database=postgres_database,
         user=postgres_user,
@@ -148,7 +148,7 @@ async def test_postgres_12_services(
 
 
 async def test_postgres_13_services(
-    docker_ip: str,
+    postgres_docker_ip: str,
     postgres13_service: DockerServiceRegistry,
     postgres13_port: int,
     postgres_database: str,
@@ -156,7 +156,7 @@ async def test_postgres_13_services(
     postgres_password: str,
 ) -> None:
     ping = await postgres_responsive(
-        docker_ip,
+        postgres_docker_ip,
         port=postgres13_port,
         database=postgres_database,
         user=postgres_user,
@@ -166,7 +166,7 @@ async def test_postgres_13_services(
 
 
 async def test_postgres_14_services(
-    docker_ip: str,
+    postgres_docker_ip: str,
     postgres14_service: DockerServiceRegistry,
     postgres14_port: int,
     postgres_database: str,
@@ -174,7 +174,7 @@ async def test_postgres_14_services(
     postgres_password: str,
 ) -> None:
     ping = await postgres_responsive(
-        docker_ip,
+        postgres_docker_ip,
         port=postgres14_port,
         database=postgres_database,
         user=postgres_user,
@@ -184,7 +184,7 @@ async def test_postgres_14_services(
 
 
 async def test_postgres_15_services(
-    docker_ip: str,
+    postgres_docker_ip: str,
     postgres15_service: DockerServiceRegistry,
     postgres15_port: int,
     postgres_database: str,
@@ -192,7 +192,7 @@ async def test_postgres_15_services(
     postgres_password: str,
 ) -> None:
     ping = await postgres_responsive(
-        docker_ip,
+        postgres_docker_ip,
         port=postgres15_port,
         database=postgres_database,
         user=postgres_user,
@@ -202,7 +202,7 @@ async def test_postgres_15_services(
 
 
 async def test_postgres_16_services(
-    docker_ip: str,
+    postgres_docker_ip: str,
     postgres16_service: DockerServiceRegistry,
     postgres16_port: int,
     postgres_database: str,
@@ -210,7 +210,7 @@ async def test_postgres_16_services(
     postgres_password: str,
 ) -> None:
     ping = await postgres_responsive(
-        docker_ip,
+        postgres_docker_ip,
         port=postgres16_port,
         database=postgres_database,
         user=postgres_user,

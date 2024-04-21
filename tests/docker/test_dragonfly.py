@@ -43,9 +43,9 @@ def test_dragonfly_default_config(dragonfly_port: int) -> None:
 
 
 async def test_dragonfly_service(
-    docker_ip: str,
+    dragonfly_docker_ip: str,
     dragonfly_service: DockerServiceRegistry,
     dragonfly_port: int,
 ) -> None:
-    ping = await dragonfly_responsive(docker_ip, dragonfly_port)
+    ping = await dragonfly_responsive(dragonfly_docker_ip, dragonfly_port)
     assert ping

@@ -72,7 +72,7 @@ def test_oracle_default_config(
 
 
 async def test_oracle18c_service(
-    docker_ip: str,
+    oracle_docker_ip: str,
     oracle18c_service: DockerServiceRegistry,
     oracle18c_service_name: str,
     oracle18c_port: int,
@@ -80,7 +80,9 @@ async def test_oracle18c_service(
     oracle_password: str,
 ) -> None:
     conn = oracledb.connect(
-        user=oracle_user, password=oracle_password, dsn=f"{docker_ip}:{oracle18c_port!s}/{oracle18c_service_name}"
+        user=oracle_user,
+        password=oracle_password,
+        dsn=f"{oracle_docker_ip}:{oracle18c_port!s}/{oracle18c_service_name}",
     )
     with conn.cursor() as cur:
         cur.execute("SELECT 'Hello World!' FROM dual")
@@ -89,7 +91,7 @@ async def test_oracle18c_service(
 
 
 async def test_oracle23c_service(
-    docker_ip: str,
+    oracle_docker_ip: str,
     oracle23c_service: DockerServiceRegistry,
     oracle23c_service_name: str,
     oracle23c_port: int,
@@ -97,7 +99,9 @@ async def test_oracle23c_service(
     oracle_password: str,
 ) -> None:
     conn = oracledb.connect(
-        user=oracle_user, password=oracle_password, dsn=f"{docker_ip}:{oracle23c_port!s}/{oracle23c_service_name}"
+        user=oracle_user,
+        password=oracle_password,
+        dsn=f"{oracle_docker_ip}:{oracle23c_port!s}/{oracle23c_service_name}",
     )
     with conn.cursor() as cur:
         cur.execute("SELECT 'Hello World!' FROM dual")

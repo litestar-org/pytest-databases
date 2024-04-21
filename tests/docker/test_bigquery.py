@@ -41,7 +41,7 @@ pytest_plugins = [
 
 
 def test_bigquery_default_config(
-    docker_ip: str,
+    bigquery_docker_ip: str,
     bigquery_port: int,
     bigquery_grpc_port: int,
     bigquery_dataset: str,
@@ -51,12 +51,12 @@ def test_bigquery_default_config(
     assert bigquery_port == 9051
     assert bigquery_grpc_port == 9061
     assert bigquery_dataset == "test-dataset"
-    assert bigquery_endpoint == f"http://{docker_ip}:9051"
+    assert bigquery_endpoint == f"http://{bigquery_docker_ip}:9051"
     assert bigquery_project == "emulator-test-project"
 
 
 async def test_bigquery_services(
-    docker_ip: str,
+    bigquery_docker_ip: str,
     bigquery_service: DockerServiceRegistry,
     bigquery_endpoint: str,
     bigquery_dataset: str,
@@ -65,7 +65,7 @@ async def test_bigquery_services(
     bigquery_credentials: Credentials,
 ) -> None:
     ping = await bigquery_responsive(
-        docker_ip,
+        bigquery_docker_ip,
         bigquery_endpoint=bigquery_endpoint,
         bigquery_dataset=bigquery_dataset,
         bigquery_project=bigquery_project,
