@@ -65,6 +65,7 @@ postgres = ["asyncpg>=0.29.0"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 sqlite = ["aiosqlite"]
+azure-storage = ["azure-storage-blob"]
 
 ######################
 # Build & Versioning #
@@ -119,6 +120,7 @@ features = [
   "elasticsearch7",
   "elasticsearch8",
   "bigquery",
+  "azure-storage",
 ]
 template = "default"
 type = "virtual"

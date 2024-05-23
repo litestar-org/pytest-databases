@@ -44,6 +44,7 @@ It is designed to offer pre-configured testing setups for many different types a
 - **Dragonfly**: Latest server
 - **KeyDB**: Latest server
 - **Elasticsearch**: Version 7 and 8 are available
+- **Azure blob storage**: Via azurite
 
 ## Contributing
 
