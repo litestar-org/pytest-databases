@@ -29,7 +29,7 @@ import re
 import subprocess  # noqa: S404
 import sys
 import timeit
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import pytest
 
@@ -72,7 +72,12 @@ COMPOSE_PROJECT_NAME: str = f"pytest-databases-{simple_string_hash(__file__)}"
 
 
 class DockerServiceRegistry:
-    def __init__(self, worker_id: str, compose_project_name: str = COMPOSE_PROJECT_NAME) -> None:
+    def __init__(
+        self,
+        worker_id: str,
+        compose_project_name: str = COMPOSE_PROJECT_NAME,
+        before_start: Iterable[Callable[[], Any]] | None = None,
+    ) -> None:
         self._running_services: set[str] = set()
         self.docker_ip = self._get_docker_ip()
         self._base_command = ["docker-compose"] if USE_LEGACY_DOCKER_COMPOSE else ["docker", "compose"]
@@ -82,6 +87,7 @@ class DockerServiceRegistry:
                 f"--project-name={compose_project_name}-{worker_id}",
             ],
         )
+        self._before_start = list(before_start) if before_start else []
 
     @staticmethod
     def _get_docker_ip() -> str:
@@ -109,6 +115,9 @@ class DockerServiceRegistry:
         pause: float = 0.1,
         **kwargs: Any,
     ) -> None:
+        for before_start in self._before_start:
+            before_start()
+
         if SKIP_DOCKER_COMPOSE:
             self._running_services.add(name)
         if name not in self._running_services:
