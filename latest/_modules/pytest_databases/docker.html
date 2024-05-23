@@ -370,7 +370,7 @@ document.write(`
 <span class="kn">import</span> <span class="nn">subprocess</span>  <span class="c1"># noqa: S404</span>
 <span class="kn">import</span> <span class="nn">sys</span>
 <span class="kn">import</span> <span class="nn">timeit</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Iterable</span>
 
 <span class="kn">import</span> <span class="nn">pytest</span>
 
@@ -416,7 +416,12 @@ document.write(`
 
 
 <span class="k">class</span> <span class="nc">DockerServiceRegistry</span><span class="p">:</span>
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">worker_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">compose_project_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">COMPOSE_PROJECT_NAME</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">worker_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">compose_project_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">COMPOSE_PROJECT_NAME</span><span class="p">,</span>
+        <span class="n">before_start</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[],</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_running_services</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">docker_ip</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_docker_ip</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_base_command</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;docker-compose&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="n">USE_LEGACY_DOCKER_COMPOSE</span> <span class="k">else</span> <span class="p">[</span><span class="s2">&quot;docker&quot;</span><span class="p">,</span> <span class="s2">&quot;compose&quot;</span><span class="p">]</span>
@@ -426,6 +431,7 @@ document.write(`
                 <span class="sa">f</span><span class="s2">&quot;--project-name=</span><span class="si">{</span><span class="n">compose_project_name</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">worker_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
             <span class="p">],</span>
         <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_before_start</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">before_start</span><span class="p">)</span> <span class="k">if</span> <span class="n">before_start</span> <span class="k">else</span> <span class="p">[]</span>
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">_get_docker_ip</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
@@ -453,6 +459,9 @@ document.write(`
         <span class="n">pause</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
         <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">before_start</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_before_start</span><span class="p">:</span>
+            <span class="n">before_start</span><span class="p">()</span>
+
         <span class="k">if</span> <span class="n">SKIP_DOCKER_COMPOSE</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_running_services</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_running_services</span><span class="p">:</span>
