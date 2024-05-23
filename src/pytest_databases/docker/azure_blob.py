@@ -1,9 +1,32 @@
+# MIT License
+
+# Copyright (c) 2024 Litestar
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+from __future__ import annotations
+
 import json
 import os
 import secrets
-import subprocess
+import subprocess  # noqa: S404
 from pathlib import Path
-from typing import Generator, AsyncGenerator
+from typing import AsyncGenerator, Generator
 
 import pytest
 from azure.storage.blob import ContainerClient
@@ -17,7 +40,7 @@ COMPOSE_PROJECT_NAME: str = f"pytest-databases-azure-blob-{simple_string_hash(__
 
 def _get_container_ids(compose_file_name: str) -> list[str]:
     proc = subprocess.run(
-        [
+        [  # noqa: S607
             "docker",
             "container",
             "ls",
@@ -35,7 +58,7 @@ def _get_container_logs(compose_file_name: str) -> str:
     logs = ""
     for container_id in _get_container_ids(compose_file_name):
         stdout = subprocess.run(
-            ["docker", "logs", container_id],
+            ["docker", "logs", container_id],  # noqa: S607
             capture_output=True,
             text=True,
             check=True,
@@ -75,17 +98,17 @@ def azure_blob_connection_string() -> str:
     return "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def azure_blob_account_name() -> str:
     return "devstoreaccount1"
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def azure_blob_account_key() -> str:
     return "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def azure_blob_account_url() -> str:
     return "http://127.0.0.1:10000/devstoreaccount1"
 
@@ -149,6 +172,9 @@ async def azure_blob_service(
     os.environ["AZURE_BLOB_PORT"] = str(azure_blob_port)
 
     def azurite_responsive(host: str, port: int) -> bool:
+        # because azurite has a bug where it will hang for a long time if you make a
+        # request against it before it has completed startup we can't ping it, so we're
+        # inspecting the container logs instead
         logs = _get_container_logs(str(azure_blob_docker_compose_files[0].absolute()))
         return "Azurite Blob service successfully listens on" in logs
 
