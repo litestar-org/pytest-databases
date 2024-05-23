@@ -120,6 +120,7 @@ features = [
   "elasticsearch7",
   "elasticsearch8",
   "bigquery",
+  "azure-storage",
 ]
 template = "default"
 type = "virtual"
