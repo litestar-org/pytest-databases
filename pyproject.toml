@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling", "hatch-pip-compile"]
+requires = ["hatchling"]
 
 ####################
 # Project Metadata #
@@ -52,6 +52,7 @@ Issues = "https://github.com/litestar-org/pytest-databases/issues"
 Source = "https://github.com/litestar-org/pytest-databases"
 
 [project.optional-dependencies]
+azure-storage = ["azure-storage-blob"]
 bigquery = ["google-cloud-bigquery"]
 cockroachdb = ["psycopg"]
 dragonfly = ["redis"]
@@ -65,7 +66,6 @@ postgres = ["asyncpg>=0.29.0"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 sqlite = ["aiosqlite"]
-azure-storage = ["azure-storage-blob"]
 
 ######################
 # Build & Versioning #
@@ -81,14 +81,8 @@ exclude = ["/.github", "/docs"]
 
 # Default environment with production dependencies
 [tool.hatch.envs.default]
-lock-filename = "requirements/requirements.txt"
-pip-compile-constraint = "default"
-pip-compile-hashes = false
-pip-compile-installer = "uv"
-pip-compile-resolver = "uv"
-python = "3.11"
-requires = ["hatch-pip-compile"]
-type = "pip-compile"
+installer = "uv"
+python = "3.12"
 
 [tool.hatch.envs.default.scripts]
 upgrade-all = "PIP_COMPILE_UPGRADE=1 hatch env run --env {env_name} -- python --version"
@@ -180,11 +174,9 @@ features = [
   "elasticsearch8",
   "bigquery",
 ]
-lock-filename = "requirements/requirements-docs.txt"
-pip-compile-constraint = "default"
 python = "3.11"
-template = "test"
-type = "pip-compile"
+template = "default"
+type = "virtual"
 
 [tool.hatch.envs.docs.env-vars]
 PYTHONPATH = "."
@@ -252,12 +244,10 @@ features = [
   "elasticsearch8",
   "bigquery",
 ]
-lock-filename = "requirements/requirements-dev.txt"
 path = ".venv/"
-pip-compile-constraint = "docs"
 python = "3.11"
 template = "docs"
-type = "pip-compile"
+type = "virtual"
 
 
 # Lint environment
@@ -293,6 +283,7 @@ features = [
 ]
 python = "3.11"
 template = "docs"
+type = "virtual"
 
 [tool.hatch.envs.lint.scripts]
 check = ["style", "typing"]
@@ -598,7 +589,11 @@ line-length = 120
 
 [tool.pytest.ini_options]
 addopts = "--dist loadfile -n 2 -ra -q --doctest-glob='*.md'"
-filterwarnings = ["ignore::DeprecationWarning:pkg_resources", "ignore::DeprecationWarning:xdist.*"]
+filterwarnings = [
+  "ignore::DeprecationWarning:pkg_resources",
+  "ignore::DeprecationWarning:xdist.*",
+  "ignore::DeprecationWarning:importlib._bootstrap",
+]
 markers = [
   "mysql: MySQL Tests",
   "postgres: Postgres Tests",
