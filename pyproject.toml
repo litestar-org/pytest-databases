@@ -84,9 +84,6 @@ exclude = ["/.github", "/docs"]
 installer = "uv"
 python = "3.12"
 
-[tool.hatch.envs.default.scripts]
-upgrade-all = "PIP_COMPILE_UPGRADE=1 hatch env run --env {env_name} -- python --version"
-upgrade-pkg = "PIP_COMPILE_UPGRADE='{args}' hatch env run --env {env_name} -- python --version"
 
 # Test environment with test-only dependencies
 [tool.hatch.envs.test]
@@ -517,6 +514,7 @@ lint.ignore = [
   "PERF203", # ignore for now; investigate
   "COM812",
   "PLR0917",
+  "CPY001",  # copywrite check
 ]
 lint.select = ["ALL"]
 # Allow unused variables when underscore-prefixed.
@@ -556,10 +554,6 @@ ban-relative-imports = "all"
   "FA102",
 ]
 
-# copyright
-# Enable once this is released: https://github.com/astral-sh/ruff/issues/10021
-# Ruff v0.3.4 has not included this release yet
-# "**/*.py" = ["CPY001"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12
