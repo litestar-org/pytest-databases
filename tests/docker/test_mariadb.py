@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -75,3 +75,23 @@ async def test_mariadb_113_services(
         password=mariadb_password,
     )
     assert ping
+
+
+async def test_mariadb_services_after_start(
+    mariadb_startup_connection: Any,
+) -> None:
+    async with mariadb_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)
+
+
+async def test_mariadb113_services_after_start(
+    mariadb113_startup_connection: Any,
+) -> None:
+    async with mariadb113_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)

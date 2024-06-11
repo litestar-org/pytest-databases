@@ -4,7 +4,7 @@ import contextlib
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 import asyncmy
 import pytest
@@ -162,3 +162,41 @@ async def mariadb_service(
         password=mariadb_password,
     )
     yield
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def mariadb_startup_connection(
+    mariadb_service: DockerServiceRegistry,
+    mariadb_docker_ip: str,
+    mariadb_port: int,
+    mariadb_database: str,
+    mariadb_user: str,
+    mariadb_password: str,
+) -> AsyncGenerator[Any, None]:
+    conn = await asyncmy.connect(
+        host=mariadb_docker_ip,
+        port=mariadb_port,
+        user=mariadb_user,
+        database=mariadb_database,
+        password=mariadb_password,
+    )
+    yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def mariadb113_startup_connection(
+    mariadb113_service: DockerServiceRegistry,
+    mariadb_docker_ip: str,
+    mariadb113_port: int,
+    mariadb_database: str,
+    mariadb_user: str,
+    mariadb_password: str,
+) -> AsyncGenerator[Any, None]:
+    conn = await asyncmy.connect(
+        host=mariadb_docker_ip,
+        port=mariadb113_port,
+        user=mariadb_user,
+        database=mariadb_database,
+        password=mariadb_password,
+    )
+    yield conn

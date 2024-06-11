@@ -133,3 +133,13 @@ async def spanner_service(
         spanner_credentials=spanner_credentials,
     )
     yield
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def spanner_startup_connection(
+    spanner_service: DockerServiceRegistry,
+    spanner_project: str,
+    spanner_credentials: Credentials,
+) -> AsyncGenerator[spanner.Client, None]:
+    c = spanner.Client(project=spanner_project, credentials=spanner_credentials)
+    yield c

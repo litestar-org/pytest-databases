@@ -7,6 +7,8 @@ import pytest
 from pytest_databases.docker.postgres import postgres_responsive
 
 if TYPE_CHECKING:
+    import asyncpg
+
     from pytest_databases.docker import DockerServiceRegistry
 
 pytestmark = pytest.mark.anyio
@@ -195,3 +197,51 @@ async def test_postgres_16_services(
         password=postgres_password,
     )
     assert ping
+
+
+async def test_postgres_services_after_start(
+    postgres_startup_connection: asyncpg.Connection[asyncpg.Record],
+) -> None:
+    await postgres_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = await postgres_startup_connection.fetchrow("select * from simple_table")
+    assert bool(result is not None and result[0] == 1)
+
+
+async def test_postgres_16_services_after_start(
+    postgres16_startup_connection: asyncpg.Connection[asyncpg.Record],
+) -> None:
+    await postgres16_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = await postgres16_startup_connection.fetchrow("select * from simple_table")
+    assert bool(result is not None and result[0] == 1)
+
+
+async def test_postgres_15_services_after_start(
+    postgres15_startup_connection: asyncpg.Connection[asyncpg.Record],
+) -> None:
+    await postgres15_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = await postgres15_startup_connection.fetchrow("select * from simple_table")
+    assert bool(result is not None and result[0] == 1)
+
+
+async def test_postgres_14_services_after_start(
+    postgres14_startup_connection: asyncpg.Connection[asyncpg.Record],
+) -> None:
+    await postgres14_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = await postgres14_startup_connection.fetchrow("select * from simple_table")
+    assert bool(result is not None and result[0] == 1)
+
+
+async def test_postgres_13_services_after_start(
+    postgres13_startup_connection: asyncpg.Connection[asyncpg.Record],
+) -> None:
+    await postgres13_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = await postgres13_startup_connection.fetchrow("select * from simple_table")
+    assert bool(result is not None and result[0] == 1)
+
+
+async def test_postgres_12_services_after_start(
+    postgres12_startup_connection: asyncpg.Connection[asyncpg.Record],
+) -> None:
+    await postgres12_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = await postgres12_startup_connection.fetchrow("select * from simple_table")
+    assert bool(result is not None and result[0] == 1)

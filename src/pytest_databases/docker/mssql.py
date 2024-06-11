@@ -93,6 +93,20 @@ def mssql_docker_ip(mssql_docker_services: DockerServiceRegistry) -> str:
     return mssql_docker_services.docker_ip
 
 
+@pytest.fixture(scope="session")
+def mssql_connection_string(
+    mssql_docker_ip: str, mssql_port: int, mssql_database: str, mssql_user: str, mssql_password: str
+) -> str:
+    return f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={mssql_docker_ip},{mssql_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
+
+
+@pytest.fixture(scope="session")
+def mssql2022_connection_string(
+    mssql_docker_ip: str, mssql2022_port: int, mssql_database: str, mssql_user: str, mssql_password: str
+) -> str:
+    return f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={mssql_docker_ip},{mssql2022_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
+
+
 @pytest.fixture(autouse=False, scope="session")
 async def mssql2022_service(
     mssql_docker_services: DockerServiceRegistry,
@@ -102,19 +116,19 @@ async def mssql2022_service(
     mssql_database: str,
     mssql_user: str,
     mssql_password: str,
+    mssql2022_connection_string: str,
 ) -> AsyncGenerator[None, None]:
     os.environ["MSSQL_PASSWORD"] = mssql_password
     os.environ["MSSQL_USER"] = mssql_user
     os.environ["MSSQL_DATABASE"] = mssql_database
     os.environ["MSSQL2022_PORT"] = str(mssql2022_port)
-    connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={mssql_docker_ip},{mssql2022_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
     await mssql_docker_services.start(
         "mssql2022",
         docker_compose_files=mssql_docker_compose_files,
         timeout=120,
         pause=1,
         check=mssql_responsive,
-        connstring=connstring,
+        connstring=mssql2022_connection_string,
     )
     yield
 
@@ -129,8 +143,8 @@ async def mssql_service(
     mssql_database: str,
     mssql_user: str,
     mssql_password: str,
+    mssql_connection_string: str,
 ) -> AsyncGenerator[None, None]:
-    connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={mssql_docker_ip},{mssql_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
     os.environ["MSSQL_PASSWORD"] = mssql_password
     os.environ["MSSQL_USER"] = mssql_user
     os.environ["MSSQL_DATABASE"] = mssql_database
@@ -141,6 +155,28 @@ async def mssql_service(
         timeout=120,
         pause=1,
         check=mssql_responsive,
-        connstring=connstring,
+        connstring=mssql_connection_string,
     )
     yield
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def mssql_startup_connection(
+    mssql_service: DockerServiceRegistry, mssql_connection_string: str
+) -> AsyncGenerator[aioodbc.Connection, None]:
+    async with await aioodbc.connect(
+        dsn=mssql_connection_string,
+        timeout=2,
+    ) as db_connection:
+        yield db_connection
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def mssql2022_startup_connection(
+    mssql2022_service: DockerServiceRegistry, mssql2022_connection_string: str
+) -> AsyncGenerator[aioodbc.Connection, None]:
+    async with await aioodbc.connect(
+        dsn=mssql2022_connection_string,
+        timeout=2,
+    ) as db_connection:
+        yield db_connection

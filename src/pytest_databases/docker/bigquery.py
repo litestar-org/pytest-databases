@@ -140,3 +140,15 @@ async def bigquery_service(
         bigquery_client_options=bigquery_client_options,
     )
     yield
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def bigquery_startup_connection(
+    bigquery_service: DockerServiceRegistry,
+    bigquery_project: str,
+    bigquery_credentials: Credentials,
+    bigquery_client_options: ClientOptions,
+) -> AsyncGenerator[bigquery.Client, None]:
+    yield bigquery.Client(
+        project=bigquery_project, client_options=bigquery_client_options, credentials=bigquery_credentials
+    )

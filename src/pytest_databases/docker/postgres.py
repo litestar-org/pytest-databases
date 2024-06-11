@@ -266,7 +266,7 @@ async def postgres_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[None, None]:
+) -> AsyncGenerator[DockerServiceRegistry, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -282,4 +282,136 @@ async def postgres_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def postgres_startup_connection(
+    postgres_service: DockerServiceRegistry,
+    postgres_docker_ip: str,
+    postgres_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
+    conn = await asyncpg.connect(
+        host=postgres_docker_ip,
+        port=postgres_port,
+        user=postgres_user,
+        database=postgres_database,
+        password=postgres_password,
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def postgres16_startup_connection(
+    postgres16_service: DockerServiceRegistry,
+    postgres_docker_ip: str,
+    postgres16_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
+    conn = await asyncpg.connect(
+        host=postgres_docker_ip,
+        port=postgres16_port,
+        user=postgres_user,
+        database=postgres_database,
+        password=postgres_password,
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def postgres15_startup_connection(
+    postgres15_service: DockerServiceRegistry,
+    postgres_docker_ip: str,
+    postgres15_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
+    conn = await asyncpg.connect(
+        host=postgres_docker_ip,
+        port=postgres15_port,
+        user=postgres_user,
+        database=postgres_database,
+        password=postgres_password,
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def postgres14_startup_connection(
+    postgres14_service: DockerServiceRegistry,
+    postgres_docker_ip: str,
+    postgres14_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
+    conn = await asyncpg.connect(
+        host=postgres_docker_ip,
+        port=postgres14_port,
+        user=postgres_user,
+        database=postgres_database,
+        password=postgres_password,
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def postgres13_startup_connection(
+    postgres13_service: DockerServiceRegistry,
+    postgres_docker_ip: str,
+    postgres13_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
+    conn = await asyncpg.connect(
+        host=postgres_docker_ip,
+        port=postgres13_port,
+        user=postgres_user,
+        database=postgres_database,
+        password=postgres_password,
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def postgres12_startup_connection(
+    postgres12_service: DockerServiceRegistry,
+    postgres_docker_ip: str,
+    postgres12_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
+    conn = await asyncpg.connect(
+        host=postgres_docker_ip,
+        port=postgres12_port,
+        user=postgres_user,
+        database=postgres_database,
+        password=postgres_password,
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()

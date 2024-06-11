@@ -118,3 +118,25 @@ async def alloydb_omni_service(
         password=postgres_password,
     )
     yield
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def alloydb_omni_startup_connection(
+    alloydb_omni_service: DockerServiceRegistry,
+    alloydb_docker_ip: str,
+    alloydb_omni_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
+    conn = await asyncpg.connect(
+        host=alloydb_docker_ip,
+        port=alloydb_omni_port,
+        user=postgres_user,
+        database=postgres_database,
+        password=postgres_password,
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
