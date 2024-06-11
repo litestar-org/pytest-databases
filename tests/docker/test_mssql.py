@@ -79,7 +79,7 @@ async def test_mssql_services_after_start(
         await cursor.execute("select * from simple_table")
         result = await cursor.fetchall()
         assert bool(result is not None and result[0][0] == 1)
-        await cursor.execute("drop simple_table")
+        await cursor.execute("drop view simple_table")
 
 
 async def test_mssql2022_services_after_start(
@@ -90,4 +90,4 @@ async def test_mssql2022_services_after_start(
         await cursor.execute("select * from simple_table")
         result = await cursor.fetchall()
         assert bool(result is not None and result[0][0] == 1)
-        await cursor.execute("drop simple_table")
+        await cursor.execute("drop view simple_table")
