@@ -180,10 +180,7 @@ async def mariadb_startup_connection(
         database=mariadb_database,
         password=mariadb_password,
     )
-    try:
-        yield conn
-    finally:
-        await conn.close()
+    yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -202,7 +199,4 @@ async def mariadb113_startup_connection(
         database=mariadb_database,
         password=mariadb_password,
     )
-    try:
-        yield conn
-    finally:
-        await conn.close()
+    yield conn

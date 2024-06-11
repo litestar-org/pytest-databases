@@ -75,17 +75,19 @@ async def test_mssql_services_after_start(
     mssql_startup_connection: aioodbc.Connection,
 ) -> None:
     async with mssql_startup_connection.cursor() as cursor:
-        await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value")
+        await cursor.execute("CREATE view simple_table as SELECT 1 as the_value")
         await cursor.execute("select * from simple_table")
         result = await cursor.fetchall()
         assert bool(result is not None and result[0][0] == 1)
+        await cursor.execute("drop simple_table")
 
 
 async def test_mssql2022_services_after_start(
     mssql2022_startup_connection: aioodbc.Connection,
 ) -> None:
     async with mssql2022_startup_connection.cursor() as cursor:
-        await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value")
+        await cursor.execute("CREATE view simple_table as SELECT 1 as the_value")
         await cursor.execute("select * from simple_table")
         result = await cursor.fetchall()
         assert bool(result is not None and result[0][0] == 1)
+        await cursor.execute("drop simple_table")

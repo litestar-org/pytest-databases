@@ -248,11 +248,7 @@ async def mysql_startup_connection(
         database=mysql_database,
         password=mysql_password,
     )
-    try:
-        yield conn
-    finally:
-        if conn is not None:
-            await conn.close()
+    yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -271,11 +267,7 @@ async def mysql56_startup_connection(
         database=mysql_database,
         password=mysql_password,
     )
-    try:
-        yield conn
-    finally:
-        if conn is not None:
-            await conn.close()
+    yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -294,11 +286,7 @@ async def mysql57_startup_connection(
         database=mysql_database,
         password=mysql_password,
     )
-    try:
-        yield conn
-    finally:
-        if conn is not None:
-            await conn.close()
+    yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -317,8 +305,4 @@ async def mysql8_startup_connection(
         database=mysql_database,
         password=mysql_password,
     )
-    try:
-        yield conn
-    finally:
-        if conn is not None:
-            await conn.close()
+    yield conn

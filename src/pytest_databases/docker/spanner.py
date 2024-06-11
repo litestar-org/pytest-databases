@@ -141,4 +141,5 @@ async def spanner_startup_connection(
     spanner_project: str,
     spanner_credentials: Credentials,
 ) -> AsyncGenerator[spanner.Client, None]:
-    yield spanner.Client(project=spanner_project, credentials=spanner_credentials)
+    c = spanner.Client(project=spanner_project, credentials=spanner_credentials)
+    yield c
