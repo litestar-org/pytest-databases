@@ -20,25 +20,20 @@ help:  ## Display this help
 # =============================================================================
 # Developer Utils
 # =============================================================================
-install-pipx: 										## Install pipx
-	@python3 -m pip install --upgrade --user pipx
-
-install-hatch: 										## Install Hatch, UV, and Ruff
-	@pipx install hatch --force
-	@pipx inject hatch ruff uv hatch-pip-compile hatch-vcs hatch-mypyc mypy --include-deps --include-apps --force
+install-hatch: 										## Install Hatch
+	@sh ./scripts/install-hatch.sh
 
 configure-hatch: 										## Configure Hatch defaults
 	@hatch config set dirs.env.virtual .direnv
 	@hatch config set dirs.env.pip-compile .direnv
 
 upgrade-hatch: 										## Update Hatch, UV, and Ruff
-	@pipx upgrade hatch --include-injected
+	@hatch self update
 
 install: 										## Install the project and all dependencies
 	@if [ "$(VENV_EXISTS)" ]; then echo "=> Removing existing virtual environment"; $(MAKE) destroy-venv; fi
 	@$(MAKE) clean
-	@if ! pipx --version > /dev/null; then echo '=> Installing `pipx`'; $(MAKE) install-pipx ; fi
-	@if ! hatch --version > /dev/null; then echo '=> Installing `hatch` with `pipx`'; $(MAKE) install-hatch ; fi
+	@if ! hatch --version > /dev/null; then echo '=> Installing `hatch` with standalone installation'; $(MAKE) install-hatch ; fi
 	@if ! hatch-pip-compile --version > /dev/null; then echo '=> Updating `hatch` and installing plugins'; $(MAKE) upgrade-hatch ; fi
 	@echo "=> Creating Python environments..."
 	@$(MAKE) configure-hatch
