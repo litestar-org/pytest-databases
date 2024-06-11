@@ -39,10 +39,11 @@ It is designed to offer pre-configured testing setups for many different types a
 - **Google AlloyDB Omni**: Simplified Omni installation for easy testing.
 - **Google Spanner**: The latest cloud-emulator from Google is available
 - **Google BigQuery**: Unofficial BigQuery emulator
-- **Cockroach**: Version 23.1-latest is available
-- **Redis**: Latest server
-- **Dragonfly**: Latest server
-- **KeyDB**: Latest server
+- **CockroachDB**: Version latest is available
+- **Redis**: Latest version
+- **Valkey**: Latest version
+- **Dragonfly**: Latest version
+- **KeyDB**: Latest version
 - **Elasticsearch**: Version 7 and 8 are available
 - **Azure blob storage**: Via azurite
 
