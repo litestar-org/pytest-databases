@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 
-COMPOSE_PROJECT_NAME: str = f"pytest-databases-redis-{simple_string_hash(__file__)}"
+COMPOSE_PROJECT_NAME: str = f"pytest-databases-valkey-{simple_string_hash(__file__)}"
 
 
 async def valkey_responsive(host: str, port: int) -> bool:

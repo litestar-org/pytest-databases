@@ -7,12 +7,15 @@ from typing import TYPE_CHECKING, AsyncGenerator
 
 import psycopg
 import pytest
+from psycopg.connection_async import AsyncConnection
 
 from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from psycopg.rows import TupleRow
 
 
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-cockroachdb-{simple_string_hash(__file__)}"
@@ -21,7 +24,7 @@ COMPOSE_PROJECT_NAME: str = f"pytest-databases-cockroachdb-{simple_string_hash(_
 async def cockroachdb_responsive(host: str, port: int, database: str, driver_opts: dict[str, str]) -> bool:
     opts = "&".join(f"{k}={v}" for k, v in driver_opts.items()) if driver_opts else ""
     try:
-        with psycopg.connect(f"postgresql://root@{host}:{port}/{database}?{opts}") as conn, conn.cursor() as cursor:
+        with psycopg.connect(f"cockroachdbql://root@{host}:{port}/{database}?{opts}") as conn, conn.cursor() as cursor:
             cursor.execute("select 1 as is_available")
             resp = cursor.fetchone()
             return resp[0] if resp is not None else 0 == 1  # noqa: PLR0133
@@ -100,3 +103,18 @@ async def cockroachdb_service(
         driver_opts=cockroachdb_driver_opts,
     )
     yield
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def cockroachdb_startup_connection(
+    cockroachdb_service: DockerServiceRegistry,
+    cockroachdb_docker_ip: str,
+    cockroachdb_port: int,
+    cockroachdb_database: str,
+    cockroachdb_driver_opts: dict[str, str],
+) -> AsyncGenerator[AsyncConnection[TupleRow], None]:
+    opts = "&".join(f"{k}={v}" for k, v in cockroachdb_driver_opts.items()) if cockroachdb_driver_opts else ""
+    async with await AsyncConnection.connect(
+        f"cockroachdbql://root@{cockroachdb_docker_ip}:{cockroachdb_port}/{cockroachdb_database}?{opts}"
+    ) as db_connection:
+        yield db_connection

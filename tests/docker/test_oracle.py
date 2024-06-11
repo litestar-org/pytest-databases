@@ -84,3 +84,33 @@ async def test_oracle23c_service(
         cur.execute("SELECT 'Hello World!' FROM dual")
         res = cur.fetchall()[0][0]
         assert "Hello World!" in res
+
+
+async def test_oracle_services_after_start(
+    oracle_startup_connection: oracledb.AsyncConnection,
+) -> None:
+    async with oracle_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)
+
+
+async def test_oracle18c_services_after_start(
+    oracle18c_startup_connection: oracledb.AsyncConnection,
+) -> None:
+    async with oracle18c_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)
+
+
+async def test_oracle23c_services_after_start(
+    oracle23c_startup_connection: oracledb.AsyncConnection,
+) -> None:
+    async with oracle23c_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)

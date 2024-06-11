@@ -7,6 +7,8 @@ import pytest
 from pytest_databases.docker.alloydb_omni import alloydb_omni_responsive
 
 if TYPE_CHECKING:
+    import asyncpg
+
     from pytest_databases.docker import DockerServiceRegistry
 
 pytestmark = pytest.mark.anyio
@@ -45,3 +47,11 @@ async def test_alloydb_omni_services(
         password=postgres_password,
     )
     assert ping
+
+
+async def test_alloydb_omni_service_after_start(
+    postgres_startup_connection: asyncpg.Connection[asyncpg.Record],
+) -> None:
+    await postgres_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = await postgres_startup_connection.fetchrow("select * from simple_table")
+    assert bool(result is not None and result[0] == 1)

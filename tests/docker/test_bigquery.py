@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from google.cloud import bigquery
 
 from pytest_databases.docker.bigquery import bigquery_responsive
 
@@ -51,3 +52,9 @@ async def test_bigquery_services(
         bigquery_client_options=bigquery_client_options,
     )
     assert ping
+
+
+async def test_bigquery_service_after_start(
+    bigquery_startup_connection: bigquery.Client,
+) -> None:
+    assert isinstance(bigquery_startup_connection, bigquery.Client)

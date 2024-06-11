@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -135,3 +135,43 @@ async def test_mysql_8_services(
         password=mysql_password,
     )
     assert ping
+
+
+async def test_mysql_services_after_start(
+    mysql_startup_connection: Any,
+) -> None:
+    async with mysql_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)
+
+
+async def test_mysql56_services_after_start(
+    mysql56_startup_connection: Any,
+) -> None:
+    async with mysql56_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)
+
+
+async def test_mysql57_services_after_start(
+    mysql57_startup_connection: Any,
+) -> None:
+    async with mysql57_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)
+
+
+async def test_mysql8_services_after_start(
+    mysql8_startup_connection: Any,
+) -> None:
+    async with mysql8_startup_connection.cursor() as cursor:
+        await cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
+        await cursor.execute("select * from simple_table")
+        result = await cursor.fetchall()
+        assert bool(result is not None and result[0][0] == 1)

@@ -7,6 +7,9 @@ import pytest
 from pytest_databases.docker.cockroachdb import cockroachdb_responsive
 
 if TYPE_CHECKING:
+    from psycopg.connection_async import AsyncConnection
+    from psycopg.rows import TupleRow
+
     from pytest_databases.docker import DockerServiceRegistry
 
 pytestmark = pytest.mark.anyio
@@ -34,3 +37,11 @@ async def test_cockroachdb_service(
         cockroachdb_docker_ip, cockroachdb_port, cockroachdb_database, cockroachdb_driver_opts
     )
     assert ping
+
+
+async def test_cockroachdb_services_after_start(
+    cockroachdb_startup_connection: AsyncConnection[TupleRow],
+) -> None:
+    await cockroachdb_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = await cockroachdb_startup_connection.fetchrow("select * from simple_table")
+    assert bool(result is not None and result[0] == 1)

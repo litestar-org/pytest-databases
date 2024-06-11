@@ -4,7 +4,7 @@ import contextlib
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 import asyncmy
 import pytest
@@ -230,3 +230,95 @@ async def mysql_service(
         password=mysql_password,
     )
     yield
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def mysql_startup_connection(
+    mysql_service: DockerServiceRegistry,
+    mysql_docker_ip: str,
+    mysql_port: int,
+    mysql_database: str,
+    mysql_user: str,
+    mysql_password: str,
+) -> AsyncGenerator[Any, None]:
+    conn = await asyncmy.connect(
+        host=mysql_docker_ip,
+        port=mysql_port,
+        user=mysql_user,
+        database=mysql_database,
+        password=mysql_password,
+    )
+    try:
+        yield conn
+    finally:
+        if conn is not None:
+            await conn.close()
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def mysql56_startup_connection(
+    mysql56_service: DockerServiceRegistry,
+    mysql_docker_ip: str,
+    mysql56_port: int,
+    mysql_database: str,
+    mysql_user: str,
+    mysql_password: str,
+) -> AsyncGenerator[Any, None]:
+    conn = await asyncmy.connect(
+        host=mysql_docker_ip,
+        port=mysql56_port,
+        user=mysql_user,
+        database=mysql_database,
+        password=mysql_password,
+    )
+    try:
+        yield conn
+    finally:
+        if conn is not None:
+            await conn.close()
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def mysql57_startup_connection(
+    mysql57_service: DockerServiceRegistry,
+    mysql_docker_ip: str,
+    mysql57_port: int,
+    mysql_database: str,
+    mysql_user: str,
+    mysql_password: str,
+) -> AsyncGenerator[Any, None]:
+    conn = await asyncmy.connect(
+        host=mysql_docker_ip,
+        port=mysql57_port,
+        user=mysql_user,
+        database=mysql_database,
+        password=mysql_password,
+    )
+    try:
+        yield conn
+    finally:
+        if conn is not None:
+            await conn.close()
+
+
+@pytest.fixture(autouse=False, scope="session")
+async def mysql8_startup_connection(
+    mysql8_service: DockerServiceRegistry,
+    mysql_docker_ip: str,
+    mysql8_port: int,
+    mysql_database: str,
+    mysql_user: str,
+    mysql_password: str,
+) -> AsyncGenerator[Any, None]:
+    conn = await asyncmy.connect(
+        host=mysql_docker_ip,
+        port=mysql8_port,
+        user=mysql_user,
+        database=mysql_database,
+        password=mysql_password,
+    )
+    try:
+        yield conn
+    finally:
+        if conn is not None:
+            await conn.close()

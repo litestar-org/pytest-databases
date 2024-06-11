@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from google.cloud import spanner
 
 from pytest_databases.docker.spanner import spanner_responsive
 
@@ -44,3 +45,9 @@ async def test_spanner_services(
         spanner_credentials=spanner_credentials,
     )
     assert ping
+
+
+async def test_spanner_service_after_start(
+    spanner_startup_connection: spanner.Client,
+) -> None:
+    assert isinstance(spanner_startup_connection, spanner.Client)
