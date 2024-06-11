@@ -5,17 +5,14 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
 
-import psycopg
+import asyncpg
 import pytest
-from psycopg.connection_async import AsyncConnection
 
 from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-
-    from psycopg.rows import TupleRow
 
 
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-cockroachdb-{simple_string_hash(__file__)}"
@@ -24,12 +21,15 @@ COMPOSE_PROJECT_NAME: str = f"pytest-databases-cockroachdb-{simple_string_hash(_
 async def cockroachdb_responsive(host: str, port: int, database: str, driver_opts: dict[str, str]) -> bool:
     opts = "&".join(f"{k}={v}" for k, v in driver_opts.items()) if driver_opts else ""
     try:
-        with psycopg.connect(f"cockroachdbql://root@{host}:{port}/{database}?{opts}") as conn, conn.cursor() as cursor:
-            cursor.execute("select 1 as is_available")
-            resp = cursor.fetchone()
-            return resp[0] if resp is not None else 0 == 1  # noqa: PLR0133
+        conn = await asyncpg.connect(f"postgresql://root@{host}:{port}/{database}?{opts}")
     except Exception:  # noqa: BLE001
         return False
+
+    try:
+        db_open = await conn.fetchrow("SELECT 1")
+        return bool(db_open is not None and db_open[0] == 1)
+    finally:
+        await conn.close()
 
 
 @pytest.fixture(scope="session")
@@ -112,9 +112,12 @@ async def cockroachdb_startup_connection(
     cockroachdb_port: int,
     cockroachdb_database: str,
     cockroachdb_driver_opts: dict[str, str],
-) -> AsyncGenerator[AsyncConnection[TupleRow], None]:
+) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
     opts = "&".join(f"{k}={v}" for k, v in cockroachdb_driver_opts.items()) if cockroachdb_driver_opts else ""
-    async with await AsyncConnection.connect(
-        f"cockroachdbql://root@{cockroachdb_docker_ip}:{cockroachdb_port}/{cockroachdb_database}?{opts}"
-    ) as db_connection:
-        yield db_connection
+    conn = await asyncpg.connect(
+        f"postgresql://root@{cockroachdb_docker_ip}:{cockroachdb_port}/{cockroachdb_database}?{opts}"
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
