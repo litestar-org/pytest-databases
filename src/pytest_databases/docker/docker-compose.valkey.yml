@@ -1,6 +1,6 @@
 services:
   valkey:
-    image: valkey/valkey
+    image: valkey/valkey:latest
     ports:
       - "${VALKEY_PORT:-6308}:6379"
 networks:
