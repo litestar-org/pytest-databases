@@ -22,7 +22,7 @@ class _ContextManagerWrapper:
         self._cm = cm
 
     async def __aenter__(self) -> T:
-        return self._cm.__enter__()
+        return self._cm.__enter__()  # type: ignore[return-value]
 
     async def __aexit__(
         self,

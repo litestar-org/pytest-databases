@@ -12,7 +12,7 @@ license = "MIT"
 name = "pytest-databases"
 readme = "README.md"
 requires-python = ">=3.8"
-version = "0.7.0"
+version = "0.7.1"
 #
 authors = [{ name = "Cody Fincher", email = "cody.fincher@gmail.com" }]
 keywords = [
@@ -55,34 +55,10 @@ Source = "https://github.com/litestar-org/pytest-databases"
 azure-storage = ["azure-storage-blob"]
 bigquery = ["google-cloud-bigquery"]
 cockroachdb = ["psycopg"]
-docs = [
-  "sphinx>=7.1.2",
-  "sphinx-autobuild>=2021.3.14",
-  "sphinx-copybutton>=0.5.2",
-  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
-  "sphinx-click>=5.0.1",
-  "sphinx-toolbox>=3.5.0",
-  "sphinx-design>=0.5.0",
-  "sphinxcontrib-mermaid>=0.9.2",
-  "auto-pytabs[sphinx]>=0.4.0",
-]
 dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7[async]"]
 elasticsearch8 = ["elasticsearch8[async]"]
 keydb = ["redis"]
-lint = [
-  "mypy",
-  "ruff",
-  "pylint",
-  "pre-commit",
-  "types-click",
-  "types-six",
-  "types-decorator",
-  "types-pyyaml",
-  "asyncpg-stubs",
-  "types-docutils",
-  "types-redis",
-]
 mssql = ["aioodbc"]
 mysql = ["asyncmy>=0.2.9"]
 oracle = ["oracledb"]
@@ -90,18 +66,6 @@ postgres = ["asyncpg>=0.29.0"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 sqlite = ["aiosqlite"]
-tests = [
-  "anyio",
-  "coverage[toml]>=6.2",
-  "coverage[toml]>=6.2",
-  "pytest",
-  "pytest-cov",
-  "pytest-mock",
-  "pytest-vcr",
-  "pytest-sugar",
-  "pytest-click",
-  "pytest-xdist",
-]
 
 
 ######################
@@ -120,13 +84,82 @@ allow-direct-references = true
 
 # Default environment with production dependencies
 [tool.hatch.envs.default]
+extra-dependencies = [
+  # tests
+  "anyio",
+  "coverage[toml]>=6.2",
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest-vcr",
+  "pytest-sugar",
+  "pytest-click",
+  "pytest-xdist",
+  # lint
+  "mypy",
+  "ruff",
+  "pylint",
+  "pre-commit",
+  "types-click",
+  "types-six",
+  "types-decorator",
+  "types-pyyaml",
+  "asyncpg-stubs",
+  "types-docutils",
+  "types-redis",
+  # docs
+  "sphinx>=7.1.2",
+  "sphinx-autobuild>=2021.3.14",
+  "sphinx-copybutton>=0.5.2",
+  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
+  "sphinx-click>=5.0.1",
+  "sphinx-toolbox>=3.5.0",
+  "sphinx-design>=0.5.0",
+  "sphinxcontrib-mermaid>=0.9.2",
+  "auto-pytabs[sphinx]>=0.4.0",
+]
 installer = "uv"
 python = "3.12"
 
 
 # Test environment with test-only dependencies
 [tool.hatch.envs.test]
-extra-dependencies = []
+extra-dependencies = [
+  # tests
+  "anyio",
+  "coverage[toml]>=6.2",
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest-vcr",
+  "pytest-sugar",
+  "pytest-click",
+  "pytest-xdist",
+  # lint
+  "mypy",
+  "ruff",
+  "pylint",
+  "pre-commit",
+  "types-click",
+  "types-six",
+  "types-decorator",
+  "types-pyyaml",
+  "asyncpg-stubs",
+  "types-docutils",
+  "types-redis",
+  # docs
+  "sphinx>=7.1.2",
+  "sphinx-autobuild>=2021.3.14",
+  "sphinx-copybutton>=0.5.2",
+  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
+  "sphinx-click>=5.0.1",
+  "sphinx-toolbox>=3.5.0",
+  "sphinx-design>=0.5.0",
+  "sphinxcontrib-mermaid>=0.9.2",
+  "auto-pytabs[sphinx]>=0.4.0",
+]
 features = [
   "oracle",
   "mysql",
@@ -140,8 +173,6 @@ features = [
   "elasticsearch8",
   "bigquery",
   "azure-storage",
-  "tests",
-  "docs",
 ]
 template = "default"
 type = "virtual"
@@ -163,6 +194,41 @@ no-cov = "cov --no-cov"
 
 # Docs environment
 [tool.hatch.envs.docs]
+extra-dependencies = [
+  # tests
+  "anyio",
+  "coverage[toml]>=6.2",
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest-vcr",
+  "pytest-sugar",
+  "pytest-click",
+  "pytest-xdist",
+  # lint
+  "mypy",
+  "ruff",
+  "pylint",
+  "pre-commit",
+  "types-click",
+  "types-six",
+  "types-decorator",
+  "types-pyyaml",
+  "asyncpg-stubs",
+  "types-docutils",
+  "types-redis",
+  # docs
+  "sphinx>=7.1.2",
+  "sphinx-autobuild>=2021.3.14",
+  "sphinx-copybutton>=0.5.2",
+  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
+  "sphinx-click>=5.0.1",
+  "sphinx-toolbox>=3.5.0",
+  "sphinx-design>=0.5.0",
+  "sphinxcontrib-mermaid>=0.9.2",
+  "auto-pytabs[sphinx]>=0.4.0",
+]
 features = [
   "oracle",
   "mysql",
@@ -175,8 +241,6 @@ features = [
   "elasticsearch7",
   "elasticsearch8",
   "bigquery",
-  "tests",
-  "docs",
 ]
 python = "3.11"
 template = "default"
@@ -195,6 +259,41 @@ validate = "linkchecker --config .linkcheckerrc --ignore-url=/reference --ignore
 build-check = ["build", "validate"]
 
 [tool.hatch.envs.local]
+extra-dependencies = [
+  # tests
+  "anyio",
+  "coverage[toml]>=6.2",
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest-vcr",
+  "pytest-sugar",
+  "pytest-click",
+  "pytest-xdist",
+  # lint
+  "mypy",
+  "ruff",
+  "pylint",
+  "pre-commit",
+  "types-click",
+  "types-six",
+  "types-decorator",
+  "types-pyyaml",
+  "asyncpg-stubs",
+  "types-docutils",
+  "types-redis",
+  # docs
+  "sphinx>=7.1.2",
+  "sphinx-autobuild>=2021.3.14",
+  "sphinx-copybutton>=0.5.2",
+  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
+  "sphinx-click>=5.0.1",
+  "sphinx-toolbox>=3.5.0",
+  "sphinx-design>=0.5.0",
+  "sphinxcontrib-mermaid>=0.9.2",
+  "auto-pytabs[sphinx]>=0.4.0",
+]
 features = [
   "oracle",
   "mysql",
@@ -206,9 +305,6 @@ features = [
   "elasticsearch7",
   "elasticsearch8",
   "bigquery",
-  "docs",
-  "lint",
-  "tests",
 ]
 path = ".venv/"
 python = "3.11"
@@ -218,9 +314,42 @@ type = "virtual"
 
 # Lint environment
 [tool.hatch.envs.lint]
-detached = true
-features = ["lint"]
-python = "3.11"
+extra-dependencies = [
+  # tests
+  "anyio",
+  "coverage[toml]>=6.2",
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest-vcr",
+  "pytest-sugar",
+  "pytest-click",
+  "pytest-xdist",
+  # lint
+  "mypy",
+  "ruff",
+  "pylint",
+  "pre-commit",
+  "types-click",
+  "types-six",
+  "types-decorator",
+  "types-pyyaml",
+  "asyncpg-stubs",
+  "types-docutils",
+  "types-redis",
+  # docs
+  "sphinx>=7.1.2",
+  "sphinx-autobuild>=2021.3.14",
+  "sphinx-copybutton>=0.5.2",
+  "litestar-sphinx-theme @ git+https://github.com/litestar-org/litestar-sphinx-theme.git",
+  "sphinx-click>=5.0.1",
+  "sphinx-toolbox>=3.5.0",
+  "sphinx-design>=0.5.0",
+  "sphinxcontrib-mermaid>=0.9.2",
+  "auto-pytabs[sphinx]>=0.4.0",
+]
+python = "3.12"
 type = "virtual"
 
 [tool.hatch.envs.lint.scripts]
@@ -456,6 +585,10 @@ lint.ignore = [
   "COM812",
   "PLR0917",
   "CPY001",  # copywrite check
+  "DOC201",  # `return` is not documented in docstring
+  "DOC501",  # Raised exception missing from docstring
+  "DOC502",  # Raised exception missing from docstring
+  "A005",    # module shadows builtin
 ]
 lint.select = ["ALL"]
 # Allow unused variables when underscore-prefixed.
