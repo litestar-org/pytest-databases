@@ -4,11 +4,8 @@ import asyncio
 import os
 import re
 import subprocess  # noqa: S404
-import sys
 import timeit
 from typing import TYPE_CHECKING, Any, Callable, Iterable
-
-import pytest
 
 from pytest_databases.helpers import simple_string_hash, wrap_sync
 
@@ -16,10 +13,12 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Generator
     from pathlib import Path
 
+TRUE_VALUES = {"True", "true", "1", "yes", "Y", "T"}
+
 
 async def wait_until_responsive(
     check: Callable[..., Awaitable],
-    timeout: float,
+    timeout: float,  # noqa: ASYNC109
     pause: float,
     **kwargs: Any,
 ) -> None:
@@ -43,8 +42,8 @@ async def wait_until_responsive(
     raise RuntimeError(msg)
 
 
-SKIP_DOCKER_COMPOSE: bool = bool(os.environ.get("SKIP_DOCKER_COMPOSE", False))
-USE_LEGACY_DOCKER_COMPOSE: bool = bool(os.environ.get("USE_LEGACY_DOCKER_COMPOSE", False))
+SKIP_DOCKER_COMPOSE: bool = os.environ.get("SKIP_DOCKER_COMPOSE", "False") in TRUE_VALUES
+USE_LEGACY_DOCKER_COMPOSE: bool = os.environ.get("USE_LEGACY_DOCKER_COMPOSE", "False") in TRUE_VALUES
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-{simple_string_hash(__file__)}"
 
 
@@ -88,7 +87,7 @@ class DockerServiceRegistry:
         docker_compose_files: list[Path],
         *,
         check: Callable[..., Any],
-        timeout: float = 30,
+        timeout: float = 30,  # noqa: ASYNC109
         pause: float = 0.1,
         **kwargs: Any,
     ) -> None:
