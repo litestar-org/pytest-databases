@@ -127,8 +127,8 @@ async def oracle23c_service(
     os.environ["ORACLE_PASSWORD"] = oracle_password
     os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
     os.environ["ORACLE_USER"] = oracle_user
-    os.environ["ORACLE23C_SERVICE_NAME"] = oracle23c_service_name
-    os.environ["ORACLE23C_PORT"] = str(oracle23c_port)
+    os.environ["ORACLE23AI_SERVICE_NAME"] = oracle23c_service_name
+    os.environ["ORACLE23AI_PORT"] = str(oracle23c_port)
     await oracle_docker_services.start(
         "oracle23c",
         docker_compose_files=oracle_docker_compose_files,
