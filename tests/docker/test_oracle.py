@@ -40,7 +40,7 @@ def test_oracle_default_config(
     oracle23c_port: int,
     default_oracle_service_name: str,
 ) -> None:
-    assert default_oracle_service_name == "oracle23c"
+    assert default_oracle_service_name == "oracle23ai"
     assert oracle_user == "app"
     assert oracle_password == "super-secret"
     assert oracle_service_name == "FREEPDB1"

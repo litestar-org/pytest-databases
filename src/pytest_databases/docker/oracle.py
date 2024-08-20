@@ -96,7 +96,7 @@ def oracle23c_port() -> int:
 
 @pytest.fixture(scope="session")
 def default_oracle_service_name() -> str:
-    return "oracle23c"
+    return "oracle23ai"
 
 
 @pytest.fixture(scope="session")
