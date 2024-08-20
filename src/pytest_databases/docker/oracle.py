@@ -75,13 +75,13 @@ def oracle18c_service_name() -> str:
 
 
 @pytest.fixture(scope="session")
-def oracle23c_service_name() -> str:
+def oracle23ai_service_name() -> str:
     return "FREEPDB1"
 
 
 @pytest.fixture(scope="session")
-def oracle_service_name(oracle23c_service_name: str) -> str:
-    return oracle23c_service_name
+def oracle_service_name(oracle23ai_service_name: str) -> str:
+    return oracle23ai_service_name
 
 
 @pytest.fixture(scope="session")
@@ -90,18 +90,18 @@ def oracle18c_port() -> int:
 
 
 @pytest.fixture(scope="session")
-def oracle23c_port() -> int:
+def oracle23ai_port() -> int:
     return 1513
 
 
 @pytest.fixture(scope="session")
 def default_oracle_service_name() -> str:
-    return "oracle23c"
+    return "oracle23ai"
 
 
 @pytest.fixture(scope="session")
-def oracle_port(oracle23c_port: int) -> int:
-    return oracle23c_port
+def oracle_port(oracle23ai_port: int) -> int:
+    return oracle23ai_port
 
 
 @pytest.fixture(scope="session")
@@ -115,11 +115,11 @@ def oracle_docker_ip(oracle_docker_services: DockerServiceRegistry) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def oracle23c_service(
+async def oracle23ai_service(
     oracle_docker_services: DockerServiceRegistry,
     oracle_docker_compose_files: list[Path],
-    oracle23c_port: int,
-    oracle23c_service_name: str,
+    oracle23ai_port: int,
+    oracle23ai_service_name: str,
     oracle_system_password: str,
     oracle_user: str,
     oracle_password: str,
@@ -127,16 +127,16 @@ async def oracle23c_service(
     os.environ["ORACLE_PASSWORD"] = oracle_password
     os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
     os.environ["ORACLE_USER"] = oracle_user
-    os.environ["ORACLE23C_SERVICE_NAME"] = oracle23c_service_name
-    os.environ["ORACLE23C_PORT"] = str(oracle23c_port)
+    os.environ["ORACLE23AI_SERVICE_NAME"] = oracle23ai_service_name
+    os.environ["ORACLE23AI_PORT"] = str(oracle23ai_port)
     await oracle_docker_services.start(
-        "oracle23c",
+        "oracle23ai",
         docker_compose_files=oracle_docker_compose_files,
         timeout=90,
         pause=1,
         check=oracle_responsive,
-        port=oracle23c_port,
-        service_name=oracle23c_service_name,
+        port=oracle23ai_port,
+        service_name=oracle23ai_service_name,
         user=oracle_user,
         password=oracle_password,
     )
@@ -242,19 +242,19 @@ async def oracle18c_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def oracle23c_startup_connection(
-    oracle23c_service: DockerServiceRegistry,
+async def oracle23ai_startup_connection(
+    oracle23ai_service: DockerServiceRegistry,
     oracle_docker_ip: str,
-    oracle23c_port: int,
-    oracle23c_service_name: str,
+    oracle23ai_port: int,
+    oracle23ai_service_name: str,
     oracle_user: str,
     oracle_password: str,
 ) -> AsyncGenerator[oracledb.AsyncConnection, None]:
     async with oracledb.connect_async(
         host=oracle_docker_ip,
-        port=oracle23c_port,
+        port=oracle23ai_port,
         user=oracle_user,
-        service_name=oracle23c_service_name,
+        service_name=oracle23ai_service_name,
         password=oracle_password,
     ) as db_connection:
         yield db_connection

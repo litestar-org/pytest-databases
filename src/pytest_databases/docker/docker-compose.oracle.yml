@@ -9,12 +9,12 @@ services:
       ORACLE_PASSWORD: ${ORACLE_SYSTEM_PASSWORD:-super-secret}
       APP_USER_PASSWORD: ${ORACLE_PASSWORD:-super-secret}
       APP_USER: ${ORACLE_USER:-app}
-  oracle23c:
+  oracle23ai:
     networks:
       - default
     image: gvenzl/oracle-free:23-slim-faststart
     ports:
-      - "${ORACLE23C_PORT:-1513}:1521" # use a non-standard port here
+      - "${ORACLE23AI_PORT:-1513}:1521" # use a non-standard port here
     environment:
       ORACLE_PASSWORD: ${ORACLE_SYSTEM_PASSWORD:-super-secret}
       APP_USER_PASSWORD: ${ORACLE_PASSWORD:-super-secret}
