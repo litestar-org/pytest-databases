@@ -23,13 +23,13 @@ def test_oracle18c_default_config(
     assert oracle18c_port == 1514
 
 
-def test_oracle23c_default_config(
-    oracle_user: str, oracle_password: str, oracle23c_service_name: str, oracle23c_port: int
+def test_oracle23ai_default_config(
+    oracle_user: str, oracle_password: str, oracle23ai_service_name: str, oracle23ai_port: int
 ) -> None:
     assert oracle_user == "app"
     assert oracle_password == "super-secret"
-    assert oracle23c_service_name == "FREEPDB1"
-    assert oracle23c_port == 1513
+    assert oracle23ai_service_name == "FREEPDB1"
+    assert oracle23ai_port == 1513
 
 
 def test_oracle_default_config(
@@ -37,7 +37,7 @@ def test_oracle_default_config(
     oracle_password: str,
     oracle_service_name: str,
     oracle_port: int,
-    oracle23c_port: int,
+    oracle23ai_port: int,
     default_oracle_service_name: str,
 ) -> None:
     assert default_oracle_service_name == "oracle23ai"
@@ -45,7 +45,7 @@ def test_oracle_default_config(
     assert oracle_password == "super-secret"
     assert oracle_service_name == "FREEPDB1"
     assert oracle_port == 1513
-    assert oracle_port == oracle23c_port
+    assert oracle_port == oracle23ai_port
 
 
 async def test_oracle18c_service(
@@ -67,18 +67,18 @@ async def test_oracle18c_service(
         assert "Hello World!" in res
 
 
-async def test_oracle23c_service(
+async def test_oracle23ai_service(
     oracle_docker_ip: str,
-    oracle23c_service: DockerServiceRegistry,
-    oracle23c_service_name: str,
-    oracle23c_port: int,
+    oracle23ai_service: DockerServiceRegistry,
+    oracle23ai_service_name: str,
+    oracle23ai_port: int,
     oracle_user: str,
     oracle_password: str,
 ) -> None:
     conn = oracledb.connect(
         user=oracle_user,
         password=oracle_password,
-        dsn=f"{oracle_docker_ip}:{oracle23c_port!s}/{oracle23c_service_name}",
+        dsn=f"{oracle_docker_ip}:{oracle23ai_port!s}/{oracle23ai_service_name}",
     )
     with conn.cursor() as cur:
         cur.execute("SELECT 'Hello World!' FROM dual")
@@ -106,10 +106,10 @@ async def test_oracle18c_services_after_start(
         assert bool(result is not None and result[0][0] == 1)
 
 
-async def test_oracle23c_services_after_start(
-    oracle23c_startup_connection: oracledb.AsyncConnection,
+async def test_oracle23ai_services_after_start(
+    oracle23ai_startup_connection: oracledb.AsyncConnection,
 ) -> None:
-    async with oracle23c_startup_connection.cursor() as cursor:
+    async with oracle23ai_startup_connection.cursor() as cursor:
         await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
         await cursor.execute("select * from simple_table")
         result = await cursor.fetchall()
