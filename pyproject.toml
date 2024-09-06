@@ -87,7 +87,6 @@ allow-direct-references = true
 [tool.hatch.envs.default]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
@@ -127,7 +126,6 @@ python = "3.12"
 [tool.hatch.envs.test]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
@@ -195,7 +193,6 @@ no-cov = "cov --no-cov"
 [tool.hatch.envs.docs]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
@@ -260,7 +257,6 @@ build-check = ["build", "validate"]
 [tool.hatch.envs.local]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
@@ -315,7 +311,6 @@ type = "virtual"
 [tool.hatch.envs.lint]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
