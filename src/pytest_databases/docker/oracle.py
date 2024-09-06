@@ -115,7 +115,7 @@ def oracle_docker_ip(oracle_docker_services: DockerServiceRegistry) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def oracle23ai_service(
+def oracle23ai_service(
     oracle_docker_services: DockerServiceRegistry,
     oracle_docker_compose_files: list[Path],
     oracle23ai_port: int,
@@ -123,13 +123,13 @@ async def oracle23ai_service(
     oracle_system_password: str,
     oracle_user: str,
     oracle_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["ORACLE_PASSWORD"] = oracle_password
     os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
     os.environ["ORACLE_USER"] = oracle_user
     os.environ["ORACLE23AI_SERVICE_NAME"] = oracle23ai_service_name
     os.environ["ORACLE23AI_PORT"] = str(oracle23ai_port)
-    await oracle_docker_services.start(
+    oracle_docker_services.start(
         "oracle23ai",
         docker_compose_files=oracle_docker_compose_files,
         timeout=90,
@@ -144,7 +144,7 @@ async def oracle23ai_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def oracle18c_service(
+def oracle18c_service(
     oracle_docker_services: DockerServiceRegistry,
     oracle_docker_compose_files: list[Path],
     oracle18c_port: int,
@@ -152,13 +152,13 @@ async def oracle18c_service(
     oracle_system_password: str,
     oracle_user: str,
     oracle_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["ORACLE_PASSWORD"] = oracle_password
     os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
     os.environ["ORACLE_USER"] = oracle_user
     os.environ["ORACLE18C_SERVICE_NAME"] = oracle18c_service_name
     os.environ["ORACLE18C_PORT"] = str(oracle18c_port)
-    await oracle_docker_services.start(
+    oracle_docker_services.start(
         "oracle18c",
         docker_compose_files=oracle_docker_compose_files,
         timeout=90,
@@ -174,7 +174,7 @@ async def oracle18c_service(
 
 # alias to the latest
 @pytest.fixture(autouse=False, scope="session")
-async def oracle_service(
+def oracle_service(
     oracle_docker_services: DockerServiceRegistry,
     default_oracle_service_name: str,
     oracle_docker_compose_files: list[Path],
@@ -183,13 +183,13 @@ async def oracle_service(
     oracle_system_password: str,
     oracle_user: str,
     oracle_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None]:
     os.environ["ORACLE_PASSWORD"] = oracle_password
     os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
     os.environ["ORACLE_USER"] = oracle_user
     os.environ["ORACLE_SERVICE_NAME"] = oracle_service_name
     os.environ[f"{default_oracle_service_name.upper()}_PORT"] = str(oracle_port)
-    await oracle_docker_services.start(
+    oracle_docker_services.start(
         name=default_oracle_service_name,
         docker_compose_files=oracle_docker_compose_files,
         timeout=90,
@@ -204,15 +204,15 @@ async def oracle_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def oracle_startup_connection(
+def oracle_startup_connection(
     oracle_service: DockerServiceRegistry,
     oracle_docker_ip: str,
     oracle_port: int,
     oracle_service_name: str,
     oracle_user: str,
     oracle_password: str,
-) -> AsyncGenerator[oracledb.AsyncConnection, None]:
-    async with oracledb.connect_async(
+) -> Generator[oracledb.Connection, None, None]:
+    with oracledb.connect(
         host=oracle_docker_ip,
         port=oracle_port,
         user=oracle_user,
@@ -230,8 +230,8 @@ async def oracle18c_startup_connection(
     oracle18c_service_name: str,
     oracle_user: str,
     oracle_password: str,
-) -> AsyncGenerator[oracledb.AsyncConnection, None]:
-    async with oracledb.connect_async(
+) -> Generator[oracledb.Connection, None, None]:
+    with oracledb.connect(
         host=oracle_docker_ip,
         port=oracle18c_port,
         user=oracle_user,
@@ -249,8 +249,8 @@ async def oracle23ai_startup_connection(
     oracle23ai_service_name: str,
     oracle_user: str,
     oracle_password: str,
-) -> AsyncGenerator[oracledb.AsyncConnection, None]:
-    async with oracledb.connect_async(
+) -> Generator[oracledb.Connection, None, None]:
+    with oracledb.connect(
         host=oracle_docker_ip,
         port=oracle23ai_port,
         user=oracle_user,

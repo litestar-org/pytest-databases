@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-bigquery-{simple_string_hash(__file__)}"
 
 
-async def bigquery_responsive(
+def bigquery_responsive(
     host: str,
     bigquery_endpoint: str,
     bigquery_dataset: str,
@@ -111,7 +111,7 @@ def bigquery_endpoint(bigquery_docker_ip: str, bigquery_port: int) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def bigquery_service(
+def bigquery_service(
     bigquery_docker_services: DockerServiceRegistry,
     default_bigquery_service_name: str,
     bigquery_docker_compose_files: list[Path],
@@ -128,7 +128,7 @@ async def bigquery_service(
     os.environ["BIGQUERY_PORT"] = str(bigquery_port)
     os.environ["BIGQUERY_GRPC_PORT"] = str(bigquery_grpc_port)
     os.environ["GOOGLE_CLOUD_PROJECT"] = bigquery_project
-    await bigquery_docker_services.start(
+    bigquery_docker_services.start(
         name=default_bigquery_service_name,
         docker_compose_files=bigquery_docker_compose_files,
         timeout=60,
@@ -143,12 +143,12 @@ async def bigquery_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def bigquery_startup_connection(
+def bigquery_startup_connection(
     bigquery_service: DockerServiceRegistry,
     bigquery_project: str,
     bigquery_credentials: Credentials,
     bigquery_client_options: ClientOptions,
-) -> AsyncGenerator[bigquery.Client, None]:
+) -> Generator[bigquery.Client, None, None]:
     yield bigquery.Client(
         project=bigquery_project, client_options=bigquery_client_options, credentials=bigquery_credentials
     )

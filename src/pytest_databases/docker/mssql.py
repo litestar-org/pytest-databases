@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
 
-import aioodbc
+import pyodbc
 import pytest
 
 from pytest_databases.docker import DockerServiceRegistry
@@ -19,16 +19,16 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-mssql-{simple_string_hash(__file__)}"
 
 
-async def mssql_responsive(host: str, connstring: str) -> bool:
-    await asyncio.sleep(1)
+def mssql_responsive(host: str, connstring: str) -> bool:
+    asyncio.sleep(1)
     try:
-        conn = await aioodbc.connect(
+        conn = pyodbc.connect(
             dsn=connstring,
             timeout=2,
         )
-        async with conn.cursor() as cursor:
-            await cursor.execute("select 1 as is_available")
-            resp = await cursor.fetchone()
+        with conn.cursor() as cursor:
+            cursor.execute("select 1 as is_available")
+            resp = cursor.fetchone()
             return resp[0] == 1 if resp is not None else False
     except Exception:  # noqa: BLE001
         return False
@@ -108,7 +108,7 @@ def mssql2022_connection_string(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mssql2022_service(
+def mssql2022_service(
     mssql_docker_services: DockerServiceRegistry,
     mssql_docker_compose_files: list[Path],
     mssql_docker_ip: str,
@@ -117,12 +117,12 @@ async def mssql2022_service(
     mssql_user: str,
     mssql_password: str,
     mssql2022_connection_string: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["MSSQL_PASSWORD"] = mssql_password
     os.environ["MSSQL_USER"] = mssql_user
     os.environ["MSSQL_DATABASE"] = mssql_database
     os.environ["MSSQL2022_PORT"] = str(mssql2022_port)
-    await mssql_docker_services.start(
+    mssql_docker_services.start(
         "mssql2022",
         docker_compose_files=mssql_docker_compose_files,
         timeout=120,
@@ -134,7 +134,7 @@ async def mssql2022_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mssql_service(
+def mssql_service(
     mssql_docker_services: DockerServiceRegistry,
     default_mssql_service_name: str,
     mssql_docker_compose_files: list[Path],
@@ -144,12 +144,12 @@ async def mssql_service(
     mssql_user: str,
     mssql_password: str,
     mssql_connection_string: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["MSSQL_PASSWORD"] = mssql_password
     os.environ["MSSQL_USER"] = mssql_user
     os.environ["MSSQL_DATABASE"] = mssql_database
     os.environ[f"{default_mssql_service_name.upper()}_PORT"] = str(mssql_port)
-    await mssql_docker_services.start(
+    mssql_docker_services.start(
         name=default_mssql_service_name,
         docker_compose_files=mssql_docker_compose_files,
         timeout=120,
@@ -161,10 +161,10 @@ async def mssql_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mssql_startup_connection(
+def mssql_startup_connection(
     mssql_service: DockerServiceRegistry, mssql_connection_string: str
-) -> AsyncGenerator[aioodbc.Connection, None]:
-    async with await aioodbc.connect(
+) -> Generator[pyodbc.Connection, None, None]:
+    with pyodbc.connect(
         dsn=mssql_connection_string,
         timeout=2,
     ) as db_connection:
@@ -172,10 +172,10 @@ async def mssql_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mssql2022_startup_connection(
+def mssql2022_startup_connection(
     mssql2022_service: DockerServiceRegistry, mssql2022_connection_string: str
-) -> AsyncGenerator[aioodbc.Connection, None]:
-    async with await aioodbc.connect(
+) -> Generator[pyodbc.Connection, None, None]:
+    with pyodbc.connect(
         dsn=mssql2022_connection_string,
         timeout=2,
     ) as db_connection:

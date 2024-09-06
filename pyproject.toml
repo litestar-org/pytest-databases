@@ -30,6 +30,7 @@ keywords = [
   "cockroachdb",
   "redis",
   "elasticsearch",
+  "azure",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -59,10 +60,10 @@ dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7[async]"]
 elasticsearch8 = ["elasticsearch8[async]"]
 keydb = ["redis"]
-mssql = ["aioodbc"]
-mysql = ["asyncmy>=0.2.9"]
+mssql = ["pyodbc"]
+mysql = ["pymysql"]
 oracle = ["oracledb"]
-postgres = ["asyncpg>=0.29.0"]
+postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 sqlite = ["aiosqlite"]
@@ -105,7 +106,6 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
   # docs
@@ -146,7 +146,6 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
   # docs
@@ -215,7 +214,6 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
   # docs
@@ -241,6 +239,7 @@ features = [
   "elasticsearch7",
   "elasticsearch8",
   "bigquery",
+  "azure-storage",
 ]
 python = "3.11"
 template = "default"
@@ -280,7 +279,6 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
   # docs
@@ -305,6 +303,7 @@ features = [
   "elasticsearch7",
   "elasticsearch8",
   "bigquery",
+  "azure-storage",
 ]
 path = ".venv/"
 python = "3.11"
@@ -335,7 +334,6 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
   # docs

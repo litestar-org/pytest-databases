@@ -34,7 +34,7 @@ def test_bigquery_default_config(
     assert bigquery_project == "emulator-test-project"
 
 
-async def test_bigquery_services(
+def test_bigquery_services(
     bigquery_docker_ip: str,
     bigquery_service: DockerServiceRegistry,
     bigquery_endpoint: str,
@@ -43,7 +43,7 @@ async def test_bigquery_services(
     bigquery_project: str,
     bigquery_credentials: Credentials,
 ) -> None:
-    ping = await bigquery_responsive(
+    ping = bigquery_responsive(
         bigquery_docker_ip,
         bigquery_endpoint=bigquery_endpoint,
         bigquery_dataset=bigquery_dataset,
@@ -54,7 +54,7 @@ async def test_bigquery_services(
     assert ping
 
 
-async def test_bigquery_service_after_start(
+def test_bigquery_service_after_start(
     bigquery_startup_connection: bigquery.Client,
 ) -> None:
     assert isinstance(bigquery_startup_connection, bigquery.Client)

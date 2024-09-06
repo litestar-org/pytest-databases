@@ -140,7 +140,7 @@ async def azure_blob_async_container_client(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def azure_blob_service(
+def azure_blob_service(
     azure_blob_docker_services: DockerServiceRegistry,
     default_azure_blob_redis_service_name: str,
     azure_blob_docker_compose_files: list[Path],
@@ -157,7 +157,7 @@ async def azure_blob_service(
         logs = _get_container_logs(str(azure_blob_docker_compose_files[0].absolute()))
         return "Azurite Blob service successfully listens on" in logs
 
-    await azure_blob_docker_services.start(
+    azure_blob_docker_services.start(
         name=default_azure_blob_redis_service_name,
         docker_compose_files=azure_blob_docker_compose_files,
         check=azurite_responsive,

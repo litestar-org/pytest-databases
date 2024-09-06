@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import subprocess  # noqa: S404
+import time
 import timeit
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 TRUE_VALUES = {"True", "true", "1", "yes", "Y", "T"}
 
 
-async def wait_until_responsive(
+async def _wait_until_responsive(
     check: Callable[..., Awaitable],
     timeout: float,  # noqa: ASYNC109
     pause: float,
@@ -36,6 +37,32 @@ async def wait_until_responsive(
         if await check(**kwargs):
             return
         await asyncio.sleep(pause)
+        now = timeit.default_timer()
+
+    msg = "Timeout reached while waiting on service!"
+    raise RuntimeError(msg)
+
+
+def wait_until_responsive_sync(
+    check: Callable[..., bool],
+    timeout: float,
+    pause: float,
+    **kwargs: Any,
+) -> None:
+    """Wait until a service is responsive.
+
+    Args:
+        check: Coroutine, return truthy value when waiting should stop.
+        timeout: Maximum seconds to wait.
+        pause: Seconds to wait between calls to `check`.
+        **kwargs: Given as kwargs to `check`.
+    """
+    ref = timeit.default_timer()
+    now = ref
+    while (now - ref) < timeout:  # sourcery skip
+        if check(**kwargs):
+            return
+        time.sleep(pause)
         now = timeit.default_timer()
 
     msg = "Timeout reached while waiting on service!"
@@ -81,13 +108,13 @@ class DockerServiceRegistry:
         command = [*self._base_command, *self._compose_files, *args]
         subprocess.run(command, check=True, capture_output=True)
 
-    async def start(
+    def start(
         self,
         name: str,
         docker_compose_files: list[Path],
         *,
-        check: Callable[..., Any],
-        timeout: float = 30,  # noqa: ASYNC109
+        check: Callable[..., bool],
+        timeout: float = 30,
         pause: float = 0.1,
         **kwargs: Any,
     ) -> None:
@@ -101,8 +128,8 @@ class DockerServiceRegistry:
             self.run_command("up", "--force-recreate", "-d", name)
             self._running_services.add(name)
 
-        await wait_until_responsive(
-            check=wrap_sync(check),
+        wait_until_responsive_sync(
+            check=check,
             timeout=timeout,
             pause=pause,
             host=self.docker_ip,

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
 
-import asyncpg
+import psycopg
 import pytest
 
 from pytest_databases.docker import DockerServiceRegistry
@@ -18,9 +18,9 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-alloydb-{simple_string_hash(__file__)}"
 
 
-async def alloydb_omni_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
+def alloydb_omni_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
     try:
-        conn = await asyncpg.connect(
+        conn = psycopg.connect(
             host=host,
             port=port,
             user=user,
@@ -31,10 +31,10 @@ async def alloydb_omni_responsive(host: str, port: int, user: str, password: str
         return False
 
     try:
-        db_open = await conn.fetchrow("SELECT 1")
+        db_open = conn.fetchrow("SELECT 1")
         return bool(db_open is not None and db_open[0] == 1)
     finally:
-        await conn.close()
+        conn.close()
 
 
 @pytest.fixture(scope="session")
@@ -93,7 +93,7 @@ def alloydb_docker_ip(alloydb_docker_services: DockerServiceRegistry) -> str:
 
 # alias to the latest
 @pytest.fixture(autouse=False, scope="session")
-async def alloydb_omni_service(
+def alloydb_omni_service(
     alloydb_docker_services: DockerServiceRegistry,
     default_alloydb_omni_service_name: str,
     alloydb_docker_compose_files: list[Path],
@@ -106,7 +106,7 @@ async def alloydb_omni_service(
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
     os.environ[f"{default_alloydb_omni_service_name.upper()}_PORT"] = str(alloydb_omni_port)
-    await alloydb_docker_services.start(
+    alloydb_docker_services.start(
         name=default_alloydb_omni_service_name,
         docker_compose_files=alloydb_docker_compose_files,
         timeout=45,
@@ -121,22 +121,19 @@ async def alloydb_omni_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def alloydb_omni_startup_connection(
+def alloydb_omni_startup_connection(
     alloydb_omni_service: DockerServiceRegistry,
     alloydb_docker_ip: str,
     alloydb_omni_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
-    conn = await asyncpg.connect(
+) -> AsyncGenerator[psycopg.Connection, None]:
+    with psycopg.connect(
         host=alloydb_docker_ip,
         port=alloydb_omni_port,
         user=postgres_user,
         database=postgres_database,
         password=postgres_password,
-    )
-    try:
+    ) as conn:
         yield conn
-    finally:
-        await conn.close()

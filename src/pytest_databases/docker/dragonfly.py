@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
 
 import pytest
-from redis.asyncio import Redis as AsyncRedis
+from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash
+from pytest_databases.docker.redis import redis_responsive
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -18,14 +19,7 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-dragonfly-{simple_string_hash(__file__)}"
 
 
-async def dragonfly_responsive(host: str, port: int) -> bool:
-    client: AsyncRedis = AsyncRedis(host=host, port=port)
-    try:
-        return await client.ping()
-    except (ConnectionError, RedisConnectionError):
-        return False
-    finally:
-        await client.aclose()  # type: ignore[attr-defined]
+
 
 
 @pytest.fixture(scope="session")
@@ -68,17 +62,17 @@ def dragonfly_docker_ip(dragonfly_docker_services: DockerServiceRegistry) -> str
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def dragonfly_service(
+def dragonfly_service(
     dragonfly_docker_services: DockerServiceRegistry,
     default_dragonfly_service_name: str,
     dragonfly_docker_compose_files: list[Path],
     dragonfly_port: int,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["DRAGONFLY_PORT"] = str(dragonfly_port)
-    await dragonfly_docker_services.start(
+    dragonfly_docker_services.start(
         name=default_dragonfly_service_name,
         docker_compose_files=dragonfly_docker_compose_files,
-        check=dragonfly_responsive,
+        check=redis_responsive,
         port=dragonfly_port,
     )
     yield

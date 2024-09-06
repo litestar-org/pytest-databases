@@ -48,7 +48,7 @@ def test_oracle_default_config(
     assert oracle_port == oracle23ai_port
 
 
-async def test_oracle18c_service(
+def test_oracle18c_service(
     oracle_docker_ip: str,
     oracle18c_service: DockerServiceRegistry,
     oracle18c_service_name: str,
@@ -67,7 +67,7 @@ async def test_oracle18c_service(
         assert "Hello World!" in res
 
 
-async def test_oracle23ai_service(
+def test_oracle23ai_service(
     oracle_docker_ip: str,
     oracle23ai_service: DockerServiceRegistry,
     oracle23ai_service_name: str,
@@ -86,31 +86,31 @@ async def test_oracle23ai_service(
         assert "Hello World!" in res
 
 
-async def test_oracle_services_after_start(
-    oracle_startup_connection: oracledb.AsyncConnection,
+def test_oracle_services_after_start(
+    oracle_startup_connection: oracledb.Connection,
 ) -> None:
-    async with oracle_startup_connection.cursor() as cursor:
-        await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
-        await cursor.execute("select * from simple_table")
-        result = await cursor.fetchall()
+     with oracle_startup_connection.cursor() as cursor:
+        cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
+        cursor.execute("select * from simple_table")
+        result =  cursor.fetchall()
         assert bool(result is not None and result[0][0] == 1)
 
 
-async def test_oracle18c_services_after_start(
-    oracle18c_startup_connection: oracledb.AsyncConnection,
+def test_oracle18c_services_after_start(
+    oracle18c_startup_connection: oracledb.Connection,
 ) -> None:
-    async with oracle18c_startup_connection.cursor() as cursor:
-        await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
-        await cursor.execute("select * from simple_table")
-        result = await cursor.fetchall()
+    with oracle18c_startup_connection.cursor() as cursor:
+        cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
+        cursor.execute("select * from simple_table")
+        result = cursor.fetchall()
         assert bool(result is not None and result[0][0] == 1)
 
 
-async def test_oracle23ai_services_after_start(
-    oracle23ai_startup_connection: oracledb.AsyncConnection,
+def test_oracle23ai_services_after_start(
+    oracle23ai_startup_connection: oracledb.Connection,
 ) -> None:
-    async with oracle23ai_startup_connection.cursor() as cursor:
-        await cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
-        await cursor.execute("select * from simple_table")
-        result = await cursor.fetchall()
+    with oracle23ai_startup_connection.cursor() as cursor:
+        cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
+        cursor.execute("select * from simple_table")
+        result = cursor.fetchall()
         assert bool(result is not None and result[0][0] == 1)

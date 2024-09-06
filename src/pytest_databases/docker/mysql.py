@@ -6,11 +6,11 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-import asyncmy
 import pytest
 
 from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash
+import pymysql
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -19,9 +19,9 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-mysql-{simple_string_hash(__file__)}"
 
 
-async def mysql_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
+def mysql_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
     try:
-        conn = await asyncmy.connect(
+        conn = pymysql.connect(
             host=host,
             port=port,
             user=user,
@@ -32,13 +32,13 @@ async def mysql_responsive(host: str, port: int, user: str, password: str, datab
         return False
 
     try:
-        async with conn.cursor() as cursor:
-            await cursor.execute("select 1 as is_available")
-            resp = await cursor.fetchone()
+        with conn.cursor() as cursor:
+            cursor.execute("select 1 as is_available")
+            resp = cursor.fetchone()
         return resp[0] == 1
     finally:
         with contextlib.suppress(Exception):
-            await conn.close()
+            conn.close()
 
 
 @pytest.fixture(scope="session")
@@ -116,7 +116,7 @@ def mysql_docker_ip(mysql_docker_services: DockerServiceRegistry) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mysql8_service(
+def mysql8_service(
     mysql_docker_services: DockerServiceRegistry,
     mysql_docker_compose_files: list[Path],
     mysql8_port: int,
@@ -124,13 +124,13 @@ async def mysql8_service(
     mysql_user: str,
     mysql_password: str,
     mysql_root_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["MYSQL_ROOT_PASSWORD"] = mysql_root_password
     os.environ["MYSQL_PASSWORD"] = mysql_password
     os.environ["MYSQL_USER"] = mysql_user
     os.environ["MYSQL_DATABASE"] = mysql_database
     os.environ["MYSQL8_PORT"] = str(mysql8_port)
-    await mysql_docker_services.start(
+    mysql_docker_services.start(
         "mysql8",
         docker_compose_files=mysql_docker_compose_files,
         timeout=45,
@@ -145,7 +145,7 @@ async def mysql8_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mysql57_service(
+def mysql57_service(
     mysql_docker_services: DockerServiceRegistry,
     mysql_docker_compose_files: list[Path],
     mysql57_port: int,
@@ -153,13 +153,13 @@ async def mysql57_service(
     mysql_user: str,
     mysql_password: str,
     mysql_root_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["MYSQL_ROOT_PASSWORD"] = mysql_root_password
     os.environ["MYSQL_PASSWORD"] = mysql_password
     os.environ["MYSQL_USER"] = mysql_user
     os.environ["MYSQL_DATABASE"] = mysql_database
     os.environ["MYSQL57_PORT"] = str(mysql57_port)
-    await mysql_docker_services.start(
+    mysql_docker_services.start(
         "mysql57",
         docker_compose_files=mysql_docker_compose_files,
         timeout=45,
@@ -174,7 +174,7 @@ async def mysql57_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mysql56_service(
+def mysql56_service(
     mysql_docker_services: DockerServiceRegistry,
     mysql_docker_compose_files: list[Path],
     mysql56_port: int,
@@ -182,13 +182,13 @@ async def mysql56_service(
     mysql_user: str,
     mysql_password: str,
     mysql_root_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["MYSQL_ROOT_PASSWORD"] = mysql_root_password
     os.environ["MYSQL_PASSWORD"] = mysql_password
     os.environ["MYSQL_USER"] = mysql_user
     os.environ["MYSQL_DATABASE"] = mysql_database
     os.environ["MYSQL56_PORT"] = str(mysql56_port)
-    await mysql_docker_services.start(
+    mysql_docker_services.start(
         "mysql56",
         docker_compose_files=mysql_docker_compose_files,
         timeout=45,
@@ -203,7 +203,7 @@ async def mysql56_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mysql_service(
+def mysql_service(
     mysql_docker_services: DockerServiceRegistry,
     default_mysql_service_name: str,
     mysql_docker_compose_files: list[Path],
@@ -212,13 +212,13 @@ async def mysql_service(
     mysql_user: str,
     mysql_password: str,
     mysql_root_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["MYSQL_ROOT_PASSWORD"] = mysql_root_password
     os.environ["MYSQL_PASSWORD"] = mysql_password
     os.environ["MYSQL_USER"] = mysql_user
     os.environ["MYSQL_DATABASE"] = mysql_database
     os.environ[f"{default_mysql_service_name.upper()}_PORT"] = str(mysql_port)
-    await mysql_docker_services.start(
+    mysql_docker_services.start(
         name=default_mysql_service_name,
         docker_compose_files=mysql_docker_compose_files,
         timeout=45,
@@ -233,15 +233,15 @@ async def mysql_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mysql_startup_connection(
+def mysql_startup_connection(
     mysql_service: DockerServiceRegistry,
     mysql_docker_ip: str,
     mysql_port: int,
     mysql_database: str,
     mysql_user: str,
     mysql_password: str,
-) -> AsyncGenerator[Any, None]:
-    conn = await asyncmy.connect(
+) -> Generator[Any, None, None]:
+    conn = pymysql.connect(
         host=mysql_docker_ip,
         port=mysql_port,
         user=mysql_user,
@@ -252,15 +252,15 @@ async def mysql_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mysql56_startup_connection(
+def mysql56_startup_connection(
     mysql56_service: DockerServiceRegistry,
     mysql_docker_ip: str,
     mysql56_port: int,
     mysql_database: str,
     mysql_user: str,
     mysql_password: str,
-) -> AsyncGenerator[Any, None]:
-    conn = await asyncmy.connect(
+) -> Generator[Any, None, None]:
+    conn = pymysql.connect(
         host=mysql_docker_ip,
         port=mysql56_port,
         user=mysql_user,
@@ -278,8 +278,8 @@ async def mysql57_startup_connection(
     mysql_database: str,
     mysql_user: str,
     mysql_password: str,
-) -> AsyncGenerator[Any, None]:
-    conn = await asyncmy.connect(
+) -> Generator[Any, None, None]:
+    conn = pymysql.connect(
         host=mysql_docker_ip,
         port=mysql57_port,
         user=mysql_user,
@@ -290,15 +290,15 @@ async def mysql57_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mysql8_startup_connection(
+def mysql8_startup_connection(
     mysql8_service: DockerServiceRegistry,
     mysql_docker_ip: str,
     mysql8_port: int,
     mysql_database: str,
     mysql_user: str,
     mysql_password: str,
-) -> AsyncGenerator[Any, None]:
-    conn = await asyncmy.connect(
+) -> Generator[Any, None, None]:
+    conn = pymysql.connect(
         host=mysql_docker_ip,
         port=mysql8_port,
         user=mysql_user,

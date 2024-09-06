@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from pytest_databases.docker.valkey import valkey_responsive
+from pytest_databases.docker.valkey import redis_responsive
 
 if TYPE_CHECKING:
     from pytest_databases.docker import DockerServiceRegistry
@@ -19,10 +19,20 @@ def test_valkey_default_config(valkey_port: int) -> None:
     assert valkey_port == 6308
 
 
-async def test_valkey_service(
+def test_valkey_service(
     valkey_docker_ip: str,
     valkey_service: DockerServiceRegistry,
     valkey_port: int,
 ) -> None:
-    ping = await valkey_responsive(valkey_docker_ip, valkey_port)
+    ping = redis_responsive(valkey_docker_ip, valkey_port)
+    assert ping
+
+
+
+async def test_valkey_service_async(
+    valkey_docker_ip: str,
+    valkey_service: DockerServiceRegistry,
+    valkey_port: int,
+) -> None:
+    ping = redis_responsive(valkey_docker_ip, valkey_port)
     assert ping
