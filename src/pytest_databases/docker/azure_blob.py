@@ -147,7 +147,7 @@ def azure_blob_service(
     azure_blob_connection_string: str,
     azure_blob_port: int,
     azure_blob_default_container_name: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["AZURE_BLOB_PORT"] = str(azure_blob_port)
 
     def azurite_responsive(host: str, port: int) -> bool:

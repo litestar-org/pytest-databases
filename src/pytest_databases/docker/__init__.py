@@ -17,33 +17,7 @@ if TYPE_CHECKING:
 TRUE_VALUES = {"True", "true", "1", "yes", "Y", "T"}
 
 
-async def _wait_until_responsive(
-    check: Callable[..., Awaitable],
-    timeout: float,  # noqa: ASYNC109
-    pause: float,
-    **kwargs: Any,
-) -> None:
-    """Wait until a service is responsive.
-
-    Args:
-        check: Coroutine, return truthy value when waiting should stop.
-        timeout: Maximum seconds to wait.
-        pause: Seconds to wait between calls to `check`.
-        **kwargs: Given as kwargs to `check`.
-    """
-    ref = timeit.default_timer()
-    now = ref
-    while (now - ref) < timeout:  # sourcery skip
-        if await check(**kwargs):
-            return
-        await asyncio.sleep(pause)
-        now = timeit.default_timer()
-
-    msg = "Timeout reached while waiting on service!"
-    raise RuntimeError(msg)
-
-
-def wait_until_responsive_sync(
+def wait_until_responsive(
     check: Callable[..., bool],
     timeout: float,
     pause: float,
@@ -128,7 +102,7 @@ class DockerServiceRegistry:
             self.run_command("up", "--force-recreate", "-d", name)
             self._running_services.add(name)
 
-        wait_until_responsive_sync(
+        wait_until_responsive(
             check=check,
             timeout=timeout,
             pause=pause,

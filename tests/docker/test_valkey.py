@@ -28,7 +28,6 @@ def test_valkey_service(
     assert ping
 
 
-
 async def test_valkey_service_async(
     valkey_docker_ip: str,
     valkey_service: DockerServiceRegistry,

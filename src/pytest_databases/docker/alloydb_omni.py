@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
@@ -101,7 +101,7 @@ def alloydb_omni_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -128,7 +128,7 @@ def alloydb_omni_startup_connection(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[psycopg.Connection, None]:
+) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
         host=alloydb_docker_ip,
         port=alloydb_omni_port,

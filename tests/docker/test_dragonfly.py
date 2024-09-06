@@ -26,5 +26,3 @@ def test_dragonfly_service(
 ) -> None:
     ping = redis_responsive(dragonfly_docker_ip, dragonfly_port)
     assert ping
-
-

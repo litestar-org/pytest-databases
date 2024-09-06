@@ -4,13 +4,13 @@ import contextlib
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
+import pymysql
 import pytest
 
 from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash
-import pymysql
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -35,7 +35,7 @@ def mysql_responsive(host: str, port: int, user: str, password: str, database: s
         with conn.cursor() as cursor:
             cursor.execute("select 1 as is_available")
             resp = cursor.fetchone()
-        return resp[0] == 1
+        return resp is not None and resp[0] == 1
     finally:
         with contextlib.suppress(Exception):
             conn.close()
@@ -241,14 +241,14 @@ def mysql_startup_connection(
     mysql_user: str,
     mysql_password: str,
 ) -> Generator[Any, None, None]:
-    conn = pymysql.connect(
+    with pymysql.connect(
         host=mysql_docker_ip,
         port=mysql_port,
         user=mysql_user,
         database=mysql_database,
         password=mysql_password,
-    )
-    yield conn
+    ) as conn:
+        yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -260,18 +260,18 @@ def mysql56_startup_connection(
     mysql_user: str,
     mysql_password: str,
 ) -> Generator[Any, None, None]:
-    conn = pymysql.connect(
+    with pymysql.connect(
         host=mysql_docker_ip,
         port=mysql56_port,
         user=mysql_user,
         database=mysql_database,
         password=mysql_password,
-    )
-    yield conn
+    ) as conn:
+        yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mysql57_startup_connection(
+def mysql57_startup_connection(
     mysql57_service: DockerServiceRegistry,
     mysql_docker_ip: str,
     mysql57_port: int,
@@ -279,14 +279,14 @@ async def mysql57_startup_connection(
     mysql_user: str,
     mysql_password: str,
 ) -> Generator[Any, None, None]:
-    conn = pymysql.connect(
+    with pymysql.connect(
         host=mysql_docker_ip,
         port=mysql57_port,
         user=mysql_user,
         database=mysql_database,
         password=mysql_password,
-    )
-    yield conn
+    ) as conn:
+        yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -298,11 +298,11 @@ def mysql8_startup_connection(
     mysql_user: str,
     mysql_password: str,
 ) -> Generator[Any, None, None]:
-    conn = pymysql.connect(
+    with pymysql.connect(
         host=mysql_docker_ip,
         port=mysql8_port,
         user=mysql_user,
         database=mysql_database,
         password=mysql_password,
-    )
-    yield conn
+    ) as conn:
+        yield conn

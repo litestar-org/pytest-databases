@@ -89,10 +89,10 @@ def test_oracle23ai_service(
 def test_oracle_services_after_start(
     oracle_startup_connection: oracledb.Connection,
 ) -> None:
-     with oracle_startup_connection.cursor() as cursor:
+    with oracle_startup_connection.cursor() as cursor:
         cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
         cursor.execute("select * from simple_table")
-        result =  cursor.fetchall()
+        result = cursor.fetchall()
         assert bool(result is not None and result[0][0] == 1)
 
 

@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
-import pytest
 import psycopg
+import pytest
 
 from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash
@@ -27,7 +27,7 @@ def postgres_responsive(host: str, port: int, user: str, password: str, database
         conn = psycopg.connect(
             _make_connection_string(host=host, port=port, user=user, password=password, database=database)
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return False
     try:
         db_open = conn.execute("SELECT 1").fetchone()
@@ -265,7 +265,7 @@ def postgres_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[DockerServiceRegistry, None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -292,7 +292,7 @@ def postgres_startup_connection(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[psycopg.Connection, None, None]:
+) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
         _make_connection_string(
             host=postgres_docker_ip,
@@ -334,7 +334,7 @@ def postgres15_startup_connection(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[psycopg.Connection, None, None]:
+) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
         _make_connection_string(
             host=postgres_docker_ip,
@@ -355,7 +355,7 @@ def postgres14_startup_connection(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[psycopg.Connection, None, None]:
+) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
         _make_connection_string(
             host=postgres_docker_ip,
@@ -376,7 +376,7 @@ def postgres13_startup_connection(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[psycopg.Connection, None, None]:
+) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
         _make_connection_string(
             host=postgres_docker_ip,

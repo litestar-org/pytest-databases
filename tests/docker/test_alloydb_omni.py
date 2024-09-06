@@ -7,7 +7,7 @@ import pytest
 from pytest_databases.docker.alloydb_omni import alloydb_omni_responsive
 
 if TYPE_CHECKING:
-    import asyncpg
+    import psycopg
 
     from pytest_databases.docker import DockerServiceRegistry
 
@@ -17,7 +17,7 @@ pytest_plugins = [
 ]
 
 
-async def test_alloydb_omni_default_config(
+def test_alloydb_omni_default_config(
     default_alloydb_omni_service_name: str,
     alloydb_omni_port: int,
     postgres_database: str,
@@ -31,7 +31,7 @@ async def test_alloydb_omni_default_config(
     assert postgres_password == "super-secret"
 
 
-async def test_alloydb_omni_services(
+def test_alloydb_omni_services(
     alloydb_docker_ip: str,
     alloydb_omni_service: DockerServiceRegistry,
     alloydb_omni_port: int,
@@ -39,7 +39,7 @@ async def test_alloydb_omni_services(
     postgres_user: str,
     postgres_password: str,
 ) -> None:
-    ping = await alloydb_omni_responsive(
+    ping = alloydb_omni_responsive(
         alloydb_docker_ip,
         port=alloydb_omni_port,
         database=postgres_database,
@@ -49,9 +49,9 @@ async def test_alloydb_omni_services(
     assert ping
 
 
-async def test_alloydb_omni_service_after_start(
-    postgres_startup_connection: asyncpg.Connection[asyncpg.Record],
+def test_alloydb_omni_service_after_start(
+    postgres_startup_connection: psycopg.Connection,
 ) -> None:
-    await postgres_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
-    result = await postgres_startup_connection.fetchrow("select * from simple_table")
+    postgres_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = postgres_startup_connection.execute("select * from simple_table").fetchone()
     assert bool(result is not None and result[0] == 1)

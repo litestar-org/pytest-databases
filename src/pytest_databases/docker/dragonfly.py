@@ -3,23 +3,18 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
-from redis import Redis
-from redis.exceptions import ConnectionError as RedisConnectionError
 
 from pytest_databases.docker import DockerServiceRegistry
-from pytest_databases.helpers import simple_string_hash
 from pytest_databases.docker.redis import redis_responsive
+from pytest_databases.helpers import simple_string_hash
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-dragonfly-{simple_string_hash(__file__)}"
-
-
-
 
 
 @pytest.fixture(scope="session")

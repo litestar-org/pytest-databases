@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable
+from typing import TYPE_CHECKING, Callable, Generator
 from unittest import mock
 
 import pytest
@@ -29,7 +29,7 @@ def elasticsearch7_service(
     elasticsearch_user: str,
     elasticsearch_password: str,
     elasticsearch_scheme: str,
-) -> AsyncGenerator[Any, Any]:
+) -> Generator[None, None, None]:
     """Overwrites fixture to stop container after the test."""
     try:
         elasticsearch_docker_services.start(
@@ -58,7 +58,7 @@ def elasticsearch8_service(
     elasticsearch_user: str,
     elasticsearch_password: str,
     elasticsearch_scheme: str,
-) -> AsyncGenerator[Any, Any]:
+) -> Generator[None, None, None]:
     """Overwrites fixture to stop container after the test."""
     try:
         elasticsearch_docker_services.start(

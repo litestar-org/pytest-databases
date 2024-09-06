@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import oracledb
 import pytest
@@ -223,7 +223,7 @@ def oracle_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def oracle18c_startup_connection(
+def oracle18c_startup_connection(
     oracle18c_service: DockerServiceRegistry,
     oracle_docker_ip: str,
     oracle18c_port: int,
@@ -242,7 +242,7 @@ async def oracle18c_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def oracle23ai_startup_connection(
+def oracle23ai_startup_connection(
     oracle23ai_service: DockerServiceRegistry,
     oracle_docker_ip: str,
     oracle23ai_port: int,

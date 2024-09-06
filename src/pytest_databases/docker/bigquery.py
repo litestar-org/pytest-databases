@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
 from google.api_core.client_options import ClientOptions
@@ -122,7 +122,7 @@ def bigquery_service(
     bigquery_project: str,
     bigquery_credentials: Credentials,
     bigquery_client_options: ClientOptions,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["BIGQUERY_ENDPOINT"] = bigquery_endpoint
     os.environ["BIGQUERY_DATASET"] = bigquery_dataset
     os.environ["BIGQUERY_PORT"] = str(bigquery_port)

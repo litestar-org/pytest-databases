@@ -4,7 +4,7 @@ import contextlib
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
 from google.auth.credentials import AnonymousCredentials, Credentials
@@ -115,7 +115,7 @@ def spanner_service(
     spanner_database: str,
     spanner_project: str,
     spanner_credentials: Credentials,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["SPANNER_EMULATOR_HOST"] = f"{spanner_docker_ip}:{spanner_port}"
     os.environ["SPANNER_DATABASE"] = spanner_database
     os.environ["SPANNER_INSTANCE"] = spanner_instance

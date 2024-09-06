@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pyodbc
 import pytest
@@ -20,7 +19,6 @@ COMPOSE_PROJECT_NAME: str = f"pytest-databases-mssql-{simple_string_hash(__file_
 
 
 def mssql_responsive(host: str, connstring: str) -> bool:
-    asyncio.sleep(1)
     try:
         conn = pyodbc.connect(
             dsn=connstring,

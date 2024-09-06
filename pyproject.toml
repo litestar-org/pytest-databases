@@ -108,6 +108,7 @@ extra-dependencies = [
   "types-pyyaml",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -148,6 +149,7 @@ extra-dependencies = [
   "types-pyyaml",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -216,6 +218,7 @@ extra-dependencies = [
   "types-pyyaml",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -281,6 +284,7 @@ extra-dependencies = [
   "types-pyyaml",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -336,6 +340,7 @@ extra-dependencies = [
   "types-pyyaml",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
@@ -89,7 +89,7 @@ def cockroachdb_service(
     cockroachdb_port: int,
     cockroachdb_database: str,
     cockroachdb_driver_opts: dict[str, str],
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["COCKROACHDB_DATABASE"] = cockroachdb_database
     os.environ["COCKROACHDB_PORT"] = str(cockroachdb_port)
     cockroachdb_docker_services.start(

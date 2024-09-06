@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
 from redis import Redis
@@ -26,7 +26,7 @@ def redis_responsive(host: str, port: int) -> bool:
     except (ConnectionError, RedisConnectionError):
         return False
     finally:
-        client.close()  # type: ignore[attr-defined]
+        client.close()
 
 
 @pytest.fixture(scope="session")
@@ -74,7 +74,7 @@ def redis_service(
     default_redis_service_name: str,
     redis_docker_compose_files: list[Path],
     redis_port: int,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["REDIS_PORT"] = str(redis_port)
     redis_docker_services.start(
         name=default_redis_service_name,
