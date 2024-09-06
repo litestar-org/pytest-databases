@@ -66,7 +66,6 @@ oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
-sqlite = ["aiosqlite"]
 
 
 ######################

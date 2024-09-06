@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pytest_databases.docker.alloydb_omni import alloydb_omni_responsive
 import pytest
+
+from pytest_databases.docker.alloydb_omni import alloydb_omni_responsive
 
 if TYPE_CHECKING:
     import psycopg
