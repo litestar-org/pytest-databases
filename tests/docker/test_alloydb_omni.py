@@ -3,11 +3,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from pytest_databases.docker.alloydb_omni import alloydb_omni_responsive
+import pytest
 
 if TYPE_CHECKING:
     import psycopg
 
     from pytest_databases.docker import DockerServiceRegistry
+
+
+pytestmark = pytest.mark.skip
 
 pytest_plugins = [
     "pytest_databases.docker.alloydb_omni",

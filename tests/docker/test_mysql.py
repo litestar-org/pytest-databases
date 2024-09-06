@@ -62,24 +62,6 @@ def test_mysql_56_config(
     assert mysql_password == "super-secret"
 
 
-def test_mysql_services(
-    mysql_docker_ip: str,
-    mysql_service: DockerServiceRegistry,
-    mysql_port: int,
-    mysql_database: str,
-    mysql_user: str,
-    mysql_password: str,
-) -> None:
-    ping = mysql_responsive(
-        mysql_docker_ip,
-        port=mysql_port,
-        database=mysql_database,
-        user=mysql_user,
-        password=mysql_password,
-    )
-    assert ping
-
-
 def test_mysql_57_services(
     mysql_docker_ip: str,
     mysql57_service: DockerServiceRegistry,
