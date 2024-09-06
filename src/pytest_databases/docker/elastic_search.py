@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from elasticsearch7 import AsyncElasticsearch as Elasticsearch8
 from elasticsearch7 import Elasticsearch as Elasticsearch7
+from elasticsearch7 import Elasticsearch as Elasticsearch8
 
 from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash

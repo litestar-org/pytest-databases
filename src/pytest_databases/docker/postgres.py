@@ -24,16 +24,13 @@ def _make_connection_string(host: str, port: int, user: str, password: str, data
 
 def postgres_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
     try:
-        conn = psycopg.connect(
+        with psycopg.connect(
             _make_connection_string(host=host, port=port, user=user, password=password, database=database)
-        )
+        ) as conn:
+            db_open = conn.execute("SELECT 1").fetchone()
+            return bool(db_open is not None and db_open[0] == 1)
     except Exception:  # noqa: BLE001
         return False
-    try:
-        db_open = conn.execute("SELECT 1").fetchone()
-        return bool(db_open is not None and db_open[0] == 1)
-    finally:
-        conn.close()
 
 
 @pytest.fixture(scope="session")
@@ -128,7 +125,7 @@ def postgres12_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[None, None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -144,7 +141,7 @@ def postgres12_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -155,7 +152,7 @@ def postgres13_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[None, None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -171,7 +168,7 @@ def postgres13_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -182,7 +179,7 @@ def postgres14_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[None, None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -198,7 +195,7 @@ def postgres14_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -209,7 +206,7 @@ def postgres15_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[None, None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -225,7 +222,7 @@ def postgres15_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -236,7 +233,7 @@ def postgres16_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[None, None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -252,7 +249,7 @@ def postgres16_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 # alias to the latest

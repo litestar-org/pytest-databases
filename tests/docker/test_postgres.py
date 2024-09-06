@@ -199,14 +199,6 @@ def test_postgres_16_services(
     assert ping
 
 
-def test_postgres_services_after_start(
-    postgres_startup_connection: psycopg.Connection,
-) -> None:
-    postgres_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
-    result = postgres_startup_connection.execute("select * from simple_table").fetchone()
-    assert bool(result is not None and result[0] == 1)
-
-
 def test_postgres_16_services_after_start(
     postgres16_startup_connection: psycopg.Connection,
 ) -> None:
