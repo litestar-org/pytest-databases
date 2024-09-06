@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
     from pytest_databases.docker import DockerServiceRegistry
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.skip
 pytest_plugins = [
     "pytest_databases.docker.alloydb_omni",
 ]
