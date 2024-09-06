@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pyodbc
+import pymssql
 import pytest
 
 from pytest_databases.docker import DockerServiceRegistry
@@ -18,10 +18,14 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-mssql-{simple_string_hash(__file__)}"
 
 
-def mssql_responsive(host: str, connstring: str) -> bool:
+def mssql_responsive(host: str, user: str, password: str, database: str, port: int) -> bool:
     try:
-        conn = pyodbc.connect(
-            dsn=connstring,
+        conn = pymssql.connect(
+            user=user,
+            password=password,
+            database=database,
+            host=host,
+            port=str(port),
             timeout=2,
         )
         with conn.cursor() as cursor:
@@ -114,7 +118,6 @@ def mssql2022_service(
     mssql_database: str,
     mssql_user: str,
     mssql_password: str,
-    mssql2022_connection_string: str,
 ) -> Generator[None, None, None]:
     os.environ["MSSQL_PASSWORD"] = mssql_password
     os.environ["MSSQL_USER"] = mssql_user
@@ -126,7 +129,10 @@ def mssql2022_service(
         timeout=120,
         pause=1,
         check=mssql_responsive,
-        connstring=mssql2022_connection_string,
+        port=mssql2022_port,
+        database=mssql_database,
+        user=mssql_user,
+        password=mssql_password,
     )
     yield
 
@@ -153,17 +159,29 @@ def mssql_service(
         timeout=120,
         pause=1,
         check=mssql_responsive,
-        connstring=mssql_connection_string,
+        port=mssql_port,
+        database=mssql_database,
+        user=mssql_user,
+        password=mssql_password,
     )
     yield
 
 
 @pytest.fixture(autouse=False, scope="session")
 def mssql_startup_connection(
-    mssql_service: DockerServiceRegistry, mssql_connection_string: str
-) -> Generator[pyodbc.Connection, None, None]:
-    with pyodbc.connect(
-        dsn=mssql_connection_string,
+    mssql_service: DockerServiceRegistry,
+    mssql_docker_ip: str,
+    mssql_port: int,
+    mssql_database: str,
+    mssql_user: str,
+    mssql_password: str,
+) -> Generator[pymssql.Connection, None, None]:
+    with pymssql.connect(
+        host=mssql_docker_ip,
+        port=mssql_port,
+        database=mssql_database,
+        user=mssql_user,
+        password=mssql_password,
         timeout=2,
     ) as db_connection:
         yield db_connection
@@ -171,10 +189,17 @@ def mssql_startup_connection(
 
 @pytest.fixture(autouse=False, scope="session")
 def mssql2022_startup_connection(
-    mssql2022_service: DockerServiceRegistry, mssql2022_connection_string: str
-) -> Generator[pyodbc.Connection, None, None]:
-    with pyodbc.connect(
-        dsn=mssql2022_connection_string,
+    mssql2022_service: DockerServiceRegistry,
+    mssql2022_port: int,
+    mssql_database: str,
+    mssql_user: str,
+    mssql_password: str,
+) -> Generator[pymssql.Connection, None, None]:
+    with pymssql.connect(
+        port=mssql2022_port,
+        database=mssql_database,
+        user=mssql_user,
+        password=mssql_password,
         timeout=2,
     ) as db_connection:
         yield db_connection

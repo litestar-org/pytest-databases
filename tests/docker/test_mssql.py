@@ -51,9 +51,13 @@ def test_mssql_services(
     mssql_user: str,
     mssql_password: str,
 ) -> None:
-    connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={mssql_docker_ip},{mssql_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
-
-    ping = mssql_responsive(mssql_docker_ip, connstring=connstring)
+    ping = mssql_responsive(
+        mssql_docker_ip,
+        port=mssql_port,
+        database=mssql_database,
+        user=mssql_user,
+        password=mssql_password,
+    )
     assert ping
 
 
@@ -65,9 +69,13 @@ def test_mssql_2022_services(
     mssql_user: str,
     mssql_password: str,
 ) -> None:
-    connstring = f"encrypt=no; TrustServerCertificate=yes; driver={{ODBC Driver 18 for SQL Server}}; server={mssql_docker_ip},{mssql2022_port}; database={mssql_database}; UID={mssql_user}; PWD={mssql_password}"
-
-    ping = mssql_responsive(mssql_docker_ip, connstring=connstring)
+    ping = mssql_responsive(
+        mssql_docker_ip,
+        port=mssql2022_port,
+        database=mssql_database,
+        user=mssql_user,
+        password=mssql_password,
+    )
     assert ping
 
 

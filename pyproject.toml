@@ -60,7 +60,7 @@ dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7[async]"]
 elasticsearch8 = ["elasticsearch8[async]"]
 keydb = ["redis"]
-mssql = ["pyodbc"]
+mssql = ["pymssql"]
 mysql = ["pymysql"]
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
@@ -94,7 +94,6 @@ extra-dependencies = [
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -135,7 +134,6 @@ extra-dependencies = [
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -204,7 +202,6 @@ extra-dependencies = [
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -270,7 +267,6 @@ extra-dependencies = [
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -326,7 +322,6 @@ extra-dependencies = [
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
