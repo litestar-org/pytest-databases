@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
     from pytest_databases.docker import DockerServiceRegistry
 
-pytestmark = pytest.mark.anyio
 pytest_plugins = [
     "pytest_databases.docker.elastic_search",
 ]

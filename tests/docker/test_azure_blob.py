@@ -1,8 +1,4 @@
-import pytest
 from azure.storage.blob import ContainerClient
-
-pytestmark = pytest.mark.anyio
-
 
 pytest_plugins = [
     "pytest_databases.docker.azure_blob",

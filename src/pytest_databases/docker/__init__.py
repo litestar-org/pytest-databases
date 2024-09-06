@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 import subprocess  # noqa: S404
@@ -8,7 +7,7 @@ import time
 import timeit
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
-from pytest_databases.helpers import simple_string_hash, wrap_sync
+from pytest_databases.helpers import simple_string_hash
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Generator

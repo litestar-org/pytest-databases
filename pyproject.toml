@@ -57,8 +57,8 @@ azure-storage = ["azure-storage-blob"]
 bigquery = ["google-cloud-bigquery"]
 cockroachdb = ["psycopg"]
 dragonfly = ["redis"]
-elasticsearch7 = ["elasticsearch7[async]"]
-elasticsearch8 = ["elasticsearch8[async]"]
+elasticsearch7 = ["elasticsearch7"]
+elasticsearch8 = ["elasticsearch8"]
 keydb = ["redis"]
 mssql = ["pymssql"]
 mysql = ["pymysql"]
@@ -478,7 +478,6 @@ module = ["docutils.nodes.*"]
 [[tool.mypy.overrides]]
 ignore_missing_imports = true
 module = [
-  "asyncmy",
   "pyodbc",
   "google.auth.*",
   "google.cloud.*",

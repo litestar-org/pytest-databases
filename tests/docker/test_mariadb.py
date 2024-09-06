@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import pytest
-
 from pytest_databases.docker.mysql import mysql_responsive
 
 if TYPE_CHECKING:
     from pytest_databases.docker import DockerServiceRegistry
 
-pytestmark = pytest.mark.anyio
+
 pytest_plugins = [
     "pytest_databases.docker.mariadb",
 ]

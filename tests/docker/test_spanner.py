@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
 from google.cloud import spanner
 
 from pytest_databases.docker.spanner import spanner_responsive
@@ -12,7 +11,6 @@ if TYPE_CHECKING:
 
     from pytest_databases.docker import DockerServiceRegistry
 
-pytestmark = pytest.mark.anyio
 pytest_plugins = [
     "pytest_databases.docker.spanner",
 ]
