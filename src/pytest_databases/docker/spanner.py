@@ -4,7 +4,7 @@ import contextlib
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
 from google.auth.credentials import AnonymousCredentials, Credentials
@@ -105,7 +105,7 @@ def spanner_docker_ip(spanner_docker_services: DockerServiceRegistry) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def spanner_service(
+def spanner_service(
     spanner_docker_services: DockerServiceRegistry,
     default_spanner_service_name: str,
     spanner_docker_compose_files: list[Path],
@@ -115,13 +115,13 @@ async def spanner_service(
     spanner_database: str,
     spanner_project: str,
     spanner_credentials: Credentials,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["SPANNER_EMULATOR_HOST"] = f"{spanner_docker_ip}:{spanner_port}"
     os.environ["SPANNER_DATABASE"] = spanner_database
     os.environ["SPANNER_INSTANCE"] = spanner_instance
     os.environ["SPANNER_PORT"] = str(spanner_port)
     os.environ["GOOGLE_CLOUD_PROJECT"] = spanner_project
-    await spanner_docker_services.start(
+    spanner_docker_services.start(
         name=default_spanner_service_name,
         docker_compose_files=spanner_docker_compose_files,
         timeout=60,
@@ -136,10 +136,10 @@ async def spanner_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def spanner_startup_connection(
+def spanner_startup_connection(
     spanner_service: DockerServiceRegistry,
     spanner_project: str,
     spanner_credentials: Credentials,
-) -> AsyncGenerator[spanner.Client, None]:
+) -> Generator[spanner.Client, None, None]:
     c = spanner.Client(project=spanner_project, credentials=spanner_credentials)
     yield c

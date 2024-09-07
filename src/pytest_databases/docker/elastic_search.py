@@ -3,11 +3,11 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
-from elasticsearch7 import AsyncElasticsearch as Elasticsearch7
-from elasticsearch7 import AsyncElasticsearch as Elasticsearch8
+from elasticsearch7 import Elasticsearch as Elasticsearch7
+from elasticsearch7 import Elasticsearch as Elasticsearch8
 
 from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash
@@ -19,22 +19,22 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-elasticsearch-{simple_string_hash(__file__)}"
 
 
-async def elasticsearch7_responsive(scheme: str, host: str, port: int, user: str, password: str, database: str) -> bool:
+def elasticsearch7_responsive(scheme: str, host: str, port: int, user: str, password: str, database: str) -> bool:
     try:
-        async with Elasticsearch7(
+        with Elasticsearch7(
             hosts=[{"host": host, "port": port, "scheme": scheme}], verify_certs=False, http_auth=(user, password)
         ) as client:
-            return await client.ping()
+            return client.ping()
     except Exception:  # noqa: BLE001
         return False
 
 
-async def elasticsearch8_responsive(scheme: str, host: str, port: int, user: str, password: str, database: str) -> bool:
+def elasticsearch8_responsive(scheme: str, host: str, port: int, user: str, password: str, database: str) -> bool:
     try:
-        async with Elasticsearch8(
+        with Elasticsearch8(
             hosts=[{"host": host, "port": port, "scheme": scheme}], verify_certs=False, basic_auth=(user, password)
         ) as client:
-            return await client.ping()
+            return client.ping()
     except Exception:  # noqa: BLE001
         return False
 
@@ -104,7 +104,7 @@ def elasticsearch_docker_ip(elasticsearch_docker_services: DockerServiceRegistry
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def elasticsearch7_service(
+def elasticsearch7_service(
     elasticsearch_docker_services: DockerServiceRegistry,
     elasticsearch_docker_compose_files: list[Path],
     elasticsearch7_port: int,
@@ -112,8 +112,8 @@ async def elasticsearch7_service(
     elasticsearch_user: str,
     elasticsearch_password: str,
     elasticsearch_scheme: str,
-) -> AsyncGenerator[None, None]:
-    await elasticsearch_docker_services.start(
+) -> Generator[None, None, None]:
+    elasticsearch_docker_services.start(
         "elasticsearch7",
         docker_compose_files=elasticsearch_docker_compose_files,
         timeout=45,
@@ -129,7 +129,7 @@ async def elasticsearch7_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def elasticsearch8_service(
+def elasticsearch8_service(
     elasticsearch_docker_services: DockerServiceRegistry,
     elasticsearch_docker_compose_files: list[Path],
     elasticsearch8_port: int,
@@ -137,8 +137,8 @@ async def elasticsearch8_service(
     elasticsearch_user: str,
     elasticsearch_password: str,
     elasticsearch_scheme: str,
-) -> AsyncGenerator[None, None]:
-    await elasticsearch_docker_services.start(
+) -> Generator[None, None, None]:
+    elasticsearch_docker_services.start(
         "elasticsearch8",
         docker_compose_files=elasticsearch_docker_compose_files,
         timeout=45,
@@ -154,7 +154,7 @@ async def elasticsearch8_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def elasticsearch_service(
+def elasticsearch_service(
     elasticsearch_docker_services: DockerServiceRegistry,
     default_elasticsearch_service_name: str,
     elasticsearch_docker_compose_files: list[Path],
@@ -163,8 +163,8 @@ async def elasticsearch_service(
     elasticsearch_user: str,
     elasticsearch_password: str,
     elasticsearch_scheme: str,
-) -> AsyncGenerator[None, None]:
-    await elasticsearch_docker_services.start(
+) -> Generator[None, None, None]:
+    elasticsearch_docker_services.start(
         name=default_elasticsearch_service_name,
         docker_compose_files=elasticsearch_docker_compose_files,
         timeout=45,

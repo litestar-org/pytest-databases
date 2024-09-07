@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
-from redis.asyncio import Redis as AsyncRedis
+from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from pytest_databases.docker import DockerServiceRegistry
@@ -19,14 +19,14 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-redis-{simple_string_hash(__file__)}"
 
 
-async def redis_responsive(host: str, port: int) -> bool:
-    client: AsyncRedis = AsyncRedis(host=host, port=port)
+def redis_responsive(host: str, port: int) -> bool:
+    client = Redis(host=host, port=port)
     try:
-        return await client.ping()
+        return client.ping()
     except (ConnectionError, RedisConnectionError):
         return False
     finally:
-        await client.aclose()  # type: ignore[attr-defined]
+        client.close()
 
 
 @pytest.fixture(scope="session")
@@ -69,14 +69,14 @@ def redis_docker_ip(redis_docker_services: DockerServiceRegistry) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def redis_service(
+def redis_service(
     redis_docker_services: DockerServiceRegistry,
     default_redis_service_name: str,
     redis_docker_compose_files: list[Path],
     redis_port: int,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["REDIS_PORT"] = str(redis_port)
-    await redis_docker_services.start(
+    redis_docker_services.start(
         name=default_redis_service_name,
         docker_compose_files=redis_docker_compose_files,
         check=redis_responsive,

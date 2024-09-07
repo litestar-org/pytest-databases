@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 import subprocess  # noqa: S404
+import time
 import timeit
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
-from pytest_databases.helpers import simple_string_hash, wrap_sync
+from pytest_databases.helpers import simple_string_hash
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Generator
@@ -16,9 +16,9 @@ if TYPE_CHECKING:
 TRUE_VALUES = {"True", "true", "1", "yes", "Y", "T"}
 
 
-async def wait_until_responsive(
-    check: Callable[..., Awaitable],
-    timeout: float,  # noqa: ASYNC109
+def wait_until_responsive(
+    check: Callable[..., bool],
+    timeout: float,
     pause: float,
     **kwargs: Any,
 ) -> None:
@@ -33,9 +33,9 @@ async def wait_until_responsive(
     ref = timeit.default_timer()
     now = ref
     while (now - ref) < timeout:  # sourcery skip
-        if await check(**kwargs):
+        if check(**kwargs):
             return
-        await asyncio.sleep(pause)
+        time.sleep(pause)
         now = timeit.default_timer()
 
     msg = "Timeout reached while waiting on service!"
@@ -81,13 +81,13 @@ class DockerServiceRegistry:
         command = [*self._base_command, *self._compose_files, *args]
         subprocess.run(command, check=True, capture_output=True)
 
-    async def start(
+    def start(
         self,
         name: str,
         docker_compose_files: list[Path],
         *,
-        check: Callable[..., Any],
-        timeout: float = 30,  # noqa: ASYNC109
+        check: Callable[..., bool],
+        timeout: float = 30,
         pause: float = 0.1,
         **kwargs: Any,
     ) -> None:
@@ -101,8 +101,8 @@ class DockerServiceRegistry:
             self.run_command("up", "--force-recreate", "-d", name)
             self._running_services.add(name)
 
-        await wait_until_responsive(
-            check=wrap_sync(check),
+        wait_until_responsive(
+            check=check,
             timeout=timeout,
             pause=pause,
             host=self.docker_ip,

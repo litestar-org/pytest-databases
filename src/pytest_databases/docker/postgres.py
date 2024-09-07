@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
-import asyncpg
+import psycopg
 import pytest
 
 from pytest_databases.docker import DockerServiceRegistry
@@ -18,23 +18,19 @@ if TYPE_CHECKING:
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-postgres-{simple_string_hash(__file__)}"
 
 
-async def postgres_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
+def _make_connection_string(host: str, port: int, user: str, password: str, database: str) -> str:
+    return f"dbname={database} user={user} host={host} port={port} password={password}"
+
+
+def postgres_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
     try:
-        conn = await asyncpg.connect(
-            host=host,
-            port=port,
-            user=user,
-            database=database,
-            password=password,
-        )
+        with psycopg.connect(
+            _make_connection_string(host=host, port=port, user=user, password=password, database=database)
+        ) as conn:
+            db_open = conn.execute("SELECT 1").fetchone()
+            return bool(db_open is not None and db_open[0] == 1)
     except Exception:  # noqa: BLE001
         return False
-
-    try:
-        db_open = await conn.fetchrow("SELECT 1")
-        return bool(db_open is not None and db_open[0] == 1)
-    finally:
-        await conn.close()
 
 
 @pytest.fixture(scope="session")
@@ -122,19 +118,19 @@ def postgres_docker_ip(postgres_docker_services: DockerServiceRegistry) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres12_service(
+def postgres12_service(
     postgres_docker_services: DockerServiceRegistry,
     postgres_docker_compose_files: list[Path],
     postgres12_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
     os.environ["POSTGRES12_PORT"] = str(postgres12_port)
-    await postgres_docker_services.start(
+    postgres_docker_services.start(
         "postgres12",
         docker_compose_files=postgres_docker_compose_files,
         timeout=45,
@@ -145,23 +141,23 @@ async def postgres12_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres13_service(
+def postgres13_service(
     postgres_docker_services: DockerServiceRegistry,
     postgres_docker_compose_files: list[Path],
     postgres13_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
     os.environ["POSTGRES13_PORT"] = str(postgres13_port)
-    await postgres_docker_services.start(
+    postgres_docker_services.start(
         "postgres13",
         docker_compose_files=postgres_docker_compose_files,
         timeout=45,
@@ -172,23 +168,23 @@ async def postgres13_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres14_service(
+def postgres14_service(
     postgres_docker_services: DockerServiceRegistry,
     postgres_docker_compose_files: list[Path],
     postgres14_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
     os.environ["POSTGRES14_PORT"] = str(postgres14_port)
-    await postgres_docker_services.start(
+    postgres_docker_services.start(
         "postgres14",
         docker_compose_files=postgres_docker_compose_files,
         timeout=45,
@@ -199,23 +195,23 @@ async def postgres14_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres15_service(
+def postgres15_service(
     postgres_docker_services: DockerServiceRegistry,
     postgres_docker_compose_files: list[Path],
     postgres15_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
     os.environ["POSTGRES15_PORT"] = str(postgres15_port)
-    await postgres_docker_services.start(
+    postgres_docker_services.start(
         "postgres15",
         docker_compose_files=postgres_docker_compose_files,
         timeout=45,
@@ -226,23 +222,23 @@ async def postgres15_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres16_service(
+def postgres16_service(
     postgres_docker_services: DockerServiceRegistry,
     postgres_docker_compose_files: list[Path],
     postgres16_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
     os.environ["POSTGRES16_PORT"] = str(postgres16_port)
-    await postgres_docker_services.start(
+    postgres_docker_services.start(
         "postgres16",
         docker_compose_files=postgres_docker_compose_files,
         timeout=45,
@@ -253,12 +249,12 @@ async def postgres16_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield
+    yield postgres_docker_services
 
 
 # alias to the latest
 @pytest.fixture(autouse=False, scope="session")
-async def postgres_service(
+def postgres_service(
     postgres_docker_services: DockerServiceRegistry,
     default_postgres_service_name: str,
     postgres_docker_compose_files: list[Path],
@@ -266,12 +262,12 @@ async def postgres_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[DockerServiceRegistry, None]:
+) -> Generator[DockerServiceRegistry, None, None]:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
     os.environ[f"{default_postgres_service_name.upper()}_PORT"] = str(postgres_port)
-    await postgres_docker_services.start(
+    postgres_docker_services.start(
         name=default_postgres_service_name,
         docker_compose_files=postgres_docker_compose_files,
         timeout=45,
@@ -286,132 +282,126 @@ async def postgres_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres_startup_connection(
+def postgres_startup_connection(
     postgres_service: DockerServiceRegistry,
     postgres_docker_ip: str,
     postgres_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
-    conn = await asyncpg.connect(
-        host=postgres_docker_ip,
-        port=postgres_port,
-        user=postgres_user,
-        database=postgres_database,
-        password=postgres_password,
-    )
-    try:
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=postgres_docker_ip,
+            port=postgres_port,
+            user=postgres_user,
+            password=postgres_password,
+            database=postgres_database,
+        ),
+    ) as conn:
         yield conn
-    finally:
-        await conn.close()
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres16_startup_connection(
+def postgres16_startup_connection(
     postgres16_service: DockerServiceRegistry,
     postgres_docker_ip: str,
     postgres16_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
-    conn = await asyncpg.connect(
-        host=postgres_docker_ip,
-        port=postgres16_port,
-        user=postgres_user,
-        database=postgres_database,
-        password=postgres_password,
-    )
-    try:
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=postgres_docker_ip,
+            port=postgres16_port,
+            user=postgres_user,
+            password=postgres_password,
+            database=postgres_database,
+        ),
+    ) as conn:
         yield conn
-    finally:
-        await conn.close()
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres15_startup_connection(
+def postgres15_startup_connection(
     postgres15_service: DockerServiceRegistry,
     postgres_docker_ip: str,
     postgres15_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
-    conn = await asyncpg.connect(
-        host=postgres_docker_ip,
-        port=postgres15_port,
-        user=postgres_user,
-        database=postgres_database,
-        password=postgres_password,
-    )
-    try:
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=postgres_docker_ip,
+            port=postgres15_port,
+            user=postgres_user,
+            password=postgres_password,
+            database=postgres_database,
+        ),
+    ) as conn:
         yield conn
-    finally:
-        await conn.close()
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres14_startup_connection(
+def postgres14_startup_connection(
     postgres14_service: DockerServiceRegistry,
     postgres_docker_ip: str,
     postgres14_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
-    conn = await asyncpg.connect(
-        host=postgres_docker_ip,
-        port=postgres14_port,
-        user=postgres_user,
-        database=postgres_database,
-        password=postgres_password,
-    )
-    try:
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=postgres_docker_ip,
+            port=postgres14_port,
+            user=postgres_user,
+            password=postgres_password,
+            database=postgres_database,
+        ),
+    ) as conn:
         yield conn
-    finally:
-        await conn.close()
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres13_startup_connection(
+def postgres13_startup_connection(
     postgres13_service: DockerServiceRegistry,
     postgres_docker_ip: str,
     postgres13_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
-    conn = await asyncpg.connect(
-        host=postgres_docker_ip,
-        port=postgres13_port,
-        user=postgres_user,
-        database=postgres_database,
-        password=postgres_password,
-    )
-    try:
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=postgres_docker_ip,
+            port=postgres13_port,
+            user=postgres_user,
+            password=postgres_password,
+            database=postgres_database,
+        ),
+    ) as conn:
         yield conn
-    finally:
-        await conn.close()
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def postgres12_startup_connection(
+def postgres12_startup_connection(
     postgres12_service: DockerServiceRegistry,
     postgres_docker_ip: str,
     postgres12_port: int,
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> AsyncGenerator[asyncpg.Connection[asyncpg.Record], None]:
-    conn = await asyncpg.connect(
-        host=postgres_docker_ip,
-        port=postgres12_port,
-        user=postgres_user,
-        database=postgres_database,
-        password=postgres_password,
-    )
-    try:
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=postgres_docker_ip,
+            port=postgres12_port,
+            user=postgres_user,
+            password=postgres_password,
+            database=postgres_database,
+        ),
+    ) as conn:
         yield conn
-    finally:
-        await conn.close()

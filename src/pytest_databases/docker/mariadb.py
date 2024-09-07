@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import contextlib
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, Generator
 
-import asyncmy
+import pymysql
 import pytest
 
 from pytest_databases.docker import DockerServiceRegistry
+from pytest_databases.docker.mysql import mysql_responsive
 from pytest_databases.helpers import simple_string_hash
 
 if TYPE_CHECKING:
@@ -17,28 +17,6 @@ if TYPE_CHECKING:
 
 
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-mariadb-{simple_string_hash(__file__)}"
-
-
-async def mariadb_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
-    try:
-        conn = await asyncmy.connect(
-            host=host,
-            port=port,
-            user=user,
-            database=database,
-            password=password,
-        )
-    except Exception:  # noqa: BLE001
-        return False
-
-    try:
-        async with conn.cursor() as cursor:
-            await cursor.execute("select 1 as is_available")
-            resp = await cursor.fetchone()
-        return resp[0] == 1
-    finally:
-        with contextlib.suppress(Exception):
-            await conn.close()
 
 
 @pytest.fixture(scope="session")
@@ -106,7 +84,7 @@ def mariadb_docker_ip(mariadb_docker_services: DockerServiceRegistry) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mariadb113_service(
+def mariadb113_service(
     mariadb_docker_services: DockerServiceRegistry,
     mariadb_docker_compose_files: list[Path],
     mariadb113_port: int,
@@ -114,18 +92,18 @@ async def mariadb113_service(
     mariadb_user: str,
     mariadb_password: str,
     mariadb_root_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["MARIADB_ROOT_PASSWORD"] = mariadb_root_password
     os.environ["MARIADB_PASSWORD"] = mariadb_password
     os.environ["MARIADB_USER"] = mariadb_user
     os.environ["MARIADB_DATABASE"] = mariadb_database
     os.environ["MARIADB113_PORT"] = str(mariadb113_port)
-    await mariadb_docker_services.start(
+    mariadb_docker_services.start(
         "mariadb113",
         docker_compose_files=mariadb_docker_compose_files,
         timeout=45,
         pause=1,
-        check=mariadb_responsive,
+        check=mysql_responsive,
         port=mariadb113_port,
         database=mariadb_database,
         user=mariadb_user,
@@ -135,7 +113,7 @@ async def mariadb113_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mariadb_service(
+def mariadb_service(
     mariadb_docker_services: DockerServiceRegistry,
     default_mariadb_service_name: str,
     mariadb_docker_compose_files: list[Path],
@@ -144,18 +122,18 @@ async def mariadb_service(
     mariadb_user: str,
     mariadb_password: str,
     mariadb_root_password: str,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["MARIADB_ROOT_PASSWORD"] = mariadb_root_password
     os.environ["MARIADB_PASSWORD"] = mariadb_password
     os.environ["MARIADB_USER"] = mariadb_user
     os.environ["MARIADB_DATABASE"] = mariadb_database
     os.environ[f"{default_mariadb_service_name.upper()}_PORT"] = str(mariadb_port)
-    await mariadb_docker_services.start(
+    mariadb_docker_services.start(
         name=default_mariadb_service_name,
         docker_compose_files=mariadb_docker_compose_files,
         timeout=45,
         pause=1,
-        check=mariadb_responsive,
+        check=mysql_responsive,
         port=mariadb_port,
         database=mariadb_database,
         user=mariadb_user,
@@ -165,38 +143,38 @@ async def mariadb_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mariadb_startup_connection(
+def mariadb_startup_connection(
     mariadb_service: DockerServiceRegistry,
     mariadb_docker_ip: str,
     mariadb_port: int,
     mariadb_database: str,
     mariadb_user: str,
     mariadb_password: str,
-) -> AsyncGenerator[Any, None]:
-    conn = await asyncmy.connect(
+) -> Generator[Any, None, None]:
+    with pymysql.connect(
         host=mariadb_docker_ip,
         port=mariadb_port,
         user=mariadb_user,
         database=mariadb_database,
         password=mariadb_password,
-    )
-    yield conn
+    ) as conn:
+        yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def mariadb113_startup_connection(
+def mariadb113_startup_connection(
     mariadb113_service: DockerServiceRegistry,
     mariadb_docker_ip: str,
     mariadb113_port: int,
     mariadb_database: str,
     mariadb_user: str,
     mariadb_password: str,
-) -> AsyncGenerator[Any, None]:
-    conn = await asyncmy.connect(
+) -> Generator[Any, None, None]:
+    with pymysql.connect(
         host=mariadb_docker_ip,
         port=mariadb113_port,
         user=mariadb_user,
         database=mariadb_database,
         password=mariadb_password,
-    )
-    yield conn
+    ) as conn:
+        yield conn

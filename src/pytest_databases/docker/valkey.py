@@ -3,13 +3,12 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
-from redis.asyncio import Redis as AsyncRedis
-from redis.exceptions import ConnectionError as RedisConnectionError
 
 from pytest_databases.docker import DockerServiceRegistry
+from pytest_databases.docker.redis import redis_responsive
 from pytest_databases.helpers import simple_string_hash
 
 if TYPE_CHECKING:
@@ -17,16 +16,6 @@ if TYPE_CHECKING:
 
 
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-valkey-{simple_string_hash(__file__)}"
-
-
-async def valkey_responsive(host: str, port: int) -> bool:
-    client: AsyncRedis = AsyncRedis(host=host, port=port)
-    try:
-        return await client.ping()
-    except (ConnectionError, RedisConnectionError):
-        return False
-    finally:
-        await client.aclose()  # type: ignore[attr-defined]
 
 
 @pytest.fixture(scope="session")
@@ -69,17 +58,17 @@ def valkey_docker_ip(valkey_docker_services: DockerServiceRegistry) -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
-async def valkey_service(
+def valkey_service(
     valkey_docker_services: DockerServiceRegistry,
     default_valkey_service_name: str,
     valkey_docker_compose_files: list[Path],
     valkey_port: int,
-) -> AsyncGenerator[None, None]:
+) -> Generator[None, None, None]:
     os.environ["REDIS_PORT"] = str(valkey_port)
-    await valkey_docker_services.start(
+    valkey_docker_services.start(
         name=default_valkey_service_name,
         docker_compose_files=valkey_docker_compose_files,
-        check=valkey_responsive,
+        check=redis_responsive,
         port=valkey_port,
     )
     yield

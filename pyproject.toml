@@ -30,6 +30,7 @@ keywords = [
   "cockroachdb",
   "redis",
   "elasticsearch",
+  "azure",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -56,16 +57,15 @@ azure-storage = ["azure-storage-blob"]
 bigquery = ["google-cloud-bigquery"]
 cockroachdb = ["psycopg"]
 dragonfly = ["redis"]
-elasticsearch7 = ["elasticsearch7[async]"]
-elasticsearch8 = ["elasticsearch8[async]"]
+elasticsearch7 = ["elasticsearch7"]
+elasticsearch8 = ["elasticsearch8"]
 keydb = ["redis"]
-mssql = ["aioodbc"]
-mysql = ["asyncmy>=0.2.9"]
+mssql = ["pymssql"]
+mysql = ["pymysql"]
 oracle = ["oracledb"]
-postgres = ["asyncpg>=0.29.0"]
+postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
-sqlite = ["aiosqlite"]
 
 
 ######################
@@ -86,14 +86,12 @@ allow-direct-references = true
 [tool.hatch.envs.default]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -105,9 +103,9 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -127,14 +125,12 @@ python = "3.12"
 [tool.hatch.envs.test]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -146,9 +142,9 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -196,14 +192,12 @@ no-cov = "cov --no-cov"
 [tool.hatch.envs.docs]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -215,9 +209,9 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -241,6 +235,7 @@ features = [
   "elasticsearch7",
   "elasticsearch8",
   "bigquery",
+  "azure-storage",
 ]
 python = "3.11"
 template = "default"
@@ -261,14 +256,12 @@ build-check = ["build", "validate"]
 [tool.hatch.envs.local]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -280,9 +273,9 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -305,6 +298,7 @@ features = [
   "elasticsearch7",
   "elasticsearch8",
   "bigquery",
+  "azure-storage",
 ]
 path = ".venv/"
 python = "3.11"
@@ -316,14 +310,12 @@ type = "virtual"
 [tool.hatch.envs.lint]
 extra-dependencies = [
   # tests
-  "anyio",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
   "pytest-mock",
   "pytest-vcr",
-  "pytest-sugar",
   "pytest-click",
   "pytest-xdist",
   # lint
@@ -335,9 +327,9 @@ extra-dependencies = [
   "types-six",
   "types-decorator",
   "types-pyyaml",
-  "asyncpg-stubs",
   "types-docutils",
   "types-redis",
+  "types-pymysql",
   # docs
   "sphinx>=7.1.2",
   "sphinx-autobuild>=2021.3.14",
@@ -480,7 +472,6 @@ module = ["docutils.nodes.*"]
 [[tool.mypy.overrides]]
 ignore_missing_imports = true
 module = [
-  "asyncmy",
   "pyodbc",
   "google.auth.*",
   "google.cloud.*",
