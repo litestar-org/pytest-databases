@@ -93,6 +93,10 @@ def postgres15_port() -> int:
 def postgres16_port() -> int:
     return 5427
 
+@pytest.fixture(scope="session")
+def postgres17_port() -> int:
+    return 5428
+
 
 @pytest.fixture(scope="session")
 def default_postgres_service_name() -> str:
@@ -247,6 +251,33 @@ def postgres16_service(
         password=postgres_password,
     )
     return postgres_docker_services
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres17_service(
+    postgres_docker_services: DockerServiceRegistry,
+    postgres_docker_compose_files: list[Path],
+    postgres17_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> Generator[DockerServiceRegistry, None, None]:
+    os.environ["POSTGRES_PASSWORD"] = postgres_password
+    os.environ["POSTGRES_USER"] = postgres_user
+    os.environ["POSTGRES_DATABASE"] = postgres_database
+    os.environ["POSTGRES17_PORT"] = str(postgres17_port)
+    postgres_docker_services.start(
+        "postgres17",
+        docker_compose_files=postgres_docker_compose_files,
+        timeout=45,
+        pause=1,
+        check=postgres_responsive,
+        port=postgres17_port,
+        database=postgres_database,
+        user=postgres_user,
+        password=postgres_password,
+    )
+    yield postgres_docker_services
 
 
 # alias to the latest
