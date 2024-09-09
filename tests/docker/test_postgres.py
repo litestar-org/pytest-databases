@@ -87,6 +87,16 @@ def test_postgres_16_config(
     assert postgres_user == "postgres"
     assert postgres_password == "super-secret"
 
+def test_postgres_17_config(
+    postgres17_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> None:
+    assert postgres17_port == 5428
+    assert postgres_database == "postgres"
+    assert postgres_user == "postgres"
+    assert postgres_password == "super-secret"
 
 def test_postgres_services(
     postgres_docker_ip: str,
@@ -195,6 +205,29 @@ def test_postgres_16_services(
     )
     assert ping
 
+def test_postgres_17_services(
+    postgres_docker_ip: str,
+    postgres17_service: DockerServiceRegistry,
+    postgres17_port: int,
+    postgres_database: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> None:
+    ping = postgres_responsive(
+        postgres_docker_ip,
+        port=postgres17_port,
+        database=postgres_database,
+        user=postgres_user,
+        password=postgres_password,
+    )
+    assert ping
+
+def test_postgres_17_services_after_start(
+    postgres17_startup_connection: psycopg.Connection,
+) -> None:
+    postgres17_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+    result = postgres17_startup_connection.execute("select * from simple_table").fetchone()
+    assert bool(result is not None and result[0] == 1)
 
 def test_postgres_16_services_after_start(
     postgres16_startup_connection: psycopg.Connection,
