@@ -62,14 +62,11 @@ def azure_blob_docker_services(
     azure_blob_service_startup_delay: int,
     worker_id: str = "main",
 ) -> Generator[DockerServiceRegistry, None, None]:
-    registry = DockerServiceRegistry(
+    with DockerServiceRegistry(
         worker_id,
         compose_project_name=azure_blob_compose_project_name,
-    )
-    try:
+    ) as registry:
         yield registry
-    finally:
-        registry.down()
 
 
 @pytest.fixture(scope="session")

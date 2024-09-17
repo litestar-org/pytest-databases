@@ -5,6 +5,7 @@ import re
 import subprocess  # noqa: S404
 import time
 import timeit
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from pytest_databases.helpers import simple_string_hash
@@ -12,6 +13,7 @@ from pytest_databases.helpers import simple_string_hash
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Generator
     from pathlib import Path
+    from types import TracebackType
 
 TRUE_VALUES = {"True", "true", "1", "yes", "Y", "T"}
 
@@ -47,7 +49,7 @@ USE_LEGACY_DOCKER_COMPOSE: bool = os.environ.get("USE_LEGACY_DOCKER_COMPOSE", "F
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-{simple_string_hash(__file__)}"
 
 
-class DockerServiceRegistry:
+class DockerServiceRegistry(AbstractContextManager):
     def __init__(
         self,
         worker_id: str,
@@ -64,6 +66,15 @@ class DockerServiceRegistry:
             ],
         )
         self._before_start = list(before_start) if before_start else []
+
+    def __exit__(
+        self,
+        /,
+        __exc_type: type[BaseException] | None,
+        __exc_value: BaseException | None,
+        __traceback: TracebackType | None,
+    ) -> None:
+        self.down()
 
     @staticmethod
     def _get_docker_ip() -> str:
@@ -114,4 +125,4 @@ class DockerServiceRegistry:
 
     def down(self) -> None:
         if not SKIP_DOCKER_COMPOSE:
-            self.run_command("down", "-t", "10")
+            self.run_command("down", "-t", "10", "--volumes")

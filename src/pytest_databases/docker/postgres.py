@@ -45,11 +45,8 @@ def postgres_docker_services(
     if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
         pytest.skip("Docker not available on this platform")
 
-    registry = DockerServiceRegistry(worker_id, compose_project_name=postgres_compose_project_name)
-    try:
+    with DockerServiceRegistry(worker_id, compose_project_name=postgres_compose_project_name) as registry:
         yield registry
-    finally:
-        registry.down()
 
 
 @pytest.fixture(scope="session")
@@ -125,7 +122,7 @@ def postgres12_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[DockerServiceRegistry, None, None]:
+) -> DockerServiceRegistry:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -141,7 +138,7 @@ def postgres12_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield postgres_docker_services
+    return postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -152,7 +149,7 @@ def postgres13_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[DockerServiceRegistry, None, None]:
+) -> DockerServiceRegistry:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -168,7 +165,7 @@ def postgres13_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield postgres_docker_services
+    return postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -179,7 +176,7 @@ def postgres14_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[DockerServiceRegistry, None, None]:
+) -> DockerServiceRegistry:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -195,7 +192,7 @@ def postgres14_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield postgres_docker_services
+    return postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -206,7 +203,7 @@ def postgres15_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[DockerServiceRegistry, None, None]:
+) -> DockerServiceRegistry:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -222,7 +219,7 @@ def postgres15_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield postgres_docker_services
+    return postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -233,7 +230,7 @@ def postgres16_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[DockerServiceRegistry, None, None]:
+) -> DockerServiceRegistry:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -249,7 +246,7 @@ def postgres16_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield postgres_docker_services
+    return postgres_docker_services
 
 
 # alias to the latest
@@ -262,7 +259,7 @@ def postgres_service(
     postgres_database: str,
     postgres_user: str,
     postgres_password: str,
-) -> Generator[DockerServiceRegistry, None, None]:
+) -> DockerServiceRegistry:
     os.environ["POSTGRES_PASSWORD"] = postgres_password
     os.environ["POSTGRES_USER"] = postgres_user
     os.environ["POSTGRES_DATABASE"] = postgres_database
@@ -278,7 +275,7 @@ def postgres_service(
         user=postgres_user,
         password=postgres_password,
     )
-    yield postgres_docker_services
+    return postgres_docker_services
 
 
 @pytest.fixture(autouse=False, scope="session")
