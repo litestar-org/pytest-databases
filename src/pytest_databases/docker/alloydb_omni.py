@@ -31,7 +31,7 @@ def alloydb_omni_responsive(host: str, port: int, user: str, password: str, data
         return False
 
     try:
-        db_open = conn.fetchrow("SELECT 1")
+        db_open = conn.fetchrow("SELECT 1")  # type: ignore[attr-defined]
         return bool(db_open is not None and db_open[0] == 1)
     finally:
         conn.close()
@@ -49,11 +49,8 @@ def alloydb_docker_services(
     if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
         pytest.skip("Docker not available on this platform")
 
-    registry = DockerServiceRegistry(worker_id, compose_project_name=alloydb_compose_project_name)
-    try:
+    with DockerServiceRegistry(worker_id, compose_project_name=alloydb_compose_project_name) as registry:
         yield registry
-    finally:
-        registry.down()
 
 
 @pytest.fixture(scope="session")

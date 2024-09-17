@@ -51,11 +51,8 @@ def elasticsearch_docker_services(
     if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
         pytest.skip("Docker not available on this platform")
 
-    registry = DockerServiceRegistry(worker_id, compose_project_name=elasticsearch_compose_project_name)
-    try:
+    with DockerServiceRegistry(worker_id, compose_project_name=elasticsearch_compose_project_name) as registry:
         yield registry
-    finally:
-        registry.down()
 
 
 @pytest.fixture(scope="session")
