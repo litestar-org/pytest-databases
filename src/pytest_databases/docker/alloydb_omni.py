@@ -31,7 +31,7 @@ def alloydb_omni_responsive(host: str, port: int, user: str, password: str, data
         return False
 
     try:
-        db_open = conn.fetchrow("SELECT 1")  # type: ignore[attr-defined]
+        db_open = conn.fetchrow("SELECT 1")
         return bool(db_open is not None and db_open[0] == 1)
     finally:
         conn.close()
