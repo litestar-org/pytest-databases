@@ -21,8 +21,8 @@ def test_postgres_default_config(
     postgres_user: str,
     postgres_password: str,
 ) -> None:
-    assert default_postgres_service_name == "postgres16"
-    assert postgres_port == 5427
+    assert default_postgres_service_name == "postgres17"
+    assert postgres_port == 5428
     assert postgres_database == "postgres"
     assert postgres_user == "postgres"
     assert postgres_password == "super-secret"
