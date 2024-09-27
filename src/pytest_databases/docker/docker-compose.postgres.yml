@@ -42,7 +42,7 @@ services:
   postgres17:
     networks:
       - default
-    image: postgres:17rc1
+    image: postgres:17
     ports:
       - "${POSTGRES17_PORT:-5428}:5432" # use a non-standard port here
     environment:
