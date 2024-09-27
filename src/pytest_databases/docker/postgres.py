@@ -100,7 +100,7 @@ def postgres17_port() -> int:
 
 @pytest.fixture(scope="session")
 def default_postgres_service_name() -> str:
-    return "postgres16"
+    return "postgres17"
 
 
 @pytest.fixture(scope="session")
