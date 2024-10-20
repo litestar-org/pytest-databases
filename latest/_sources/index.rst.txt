@@ -20,8 +20,16 @@ Installing ``pytest-databases`` is as easy as calling your favorite Python packa
 
             python3 -m pip install pytest-databases
 
-    .. tab-item:: pipx
+    .. tab-item:: uv
         :sync: key2
+
+        .. code-block:: bash
+            :caption: Using `uv <https://docs.astral.sh/uv/>`_
+
+            uv add pytest-databases
+
+    .. tab-item:: pipx
+        :sync: key3
 
         .. code-block:: bash
             :caption: Using `pipx <https://pypa.github.io/pipx/>`_
