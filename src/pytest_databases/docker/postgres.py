@@ -104,8 +104,8 @@ def default_postgres_service_name() -> str:
 
 
 @pytest.fixture(scope="session")
-def postgres_port(postgres16_port: int) -> int:
-    return postgres16_port
+def postgres_port(postgres17_port: int) -> int:
+    return postgres17_port
 
 
 @pytest.fixture(scope="session")
