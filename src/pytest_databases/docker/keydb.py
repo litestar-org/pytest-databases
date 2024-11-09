@@ -1,71 +1,73 @@
 from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
-from typing import TYPE_CHECKING
+import dataclasses
+from typing import TYPE_CHECKING, Generator
 
 import pytest
+import redis
+from redis.exceptions import ConnectionError as KeydbConnectionError
 
-from pytest_databases.docker import DockerServiceRegistry
-from pytest_databases.docker.redis import redis_responsive
-from pytest_databases.helpers import simple_string_hash
+from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from pytest_databases._service import DockerService
 
 
-COMPOSE_PROJECT_NAME: str = f"pytest-databases-keydb-{simple_string_hash(__file__)}"
+
+@dataclasses.dataclass
+class KeydbService(ServiceContainer):
+    db: int
 
 
-@pytest.fixture(autouse=False, scope="session")
-def keydb_compose_project_name() -> str:
-    return os.environ.get("COMPOSE_PROJECT_NAME", COMPOSE_PROJECT_NAME)
-
-
-@pytest.fixture(scope="session")
-def keydb_docker_services(
-    keydb_compose_project_name: str, worker_id: str = "main"
-) -> Generator[DockerServiceRegistry, None, None]:
-    if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
-        pytest.skip("Docker not available on this platform")
-
-    with DockerServiceRegistry(worker_id, compose_project_name=keydb_compose_project_name) as registry:
-        yield registry
+def keydb_responsive(service_container: ServiceContainer) -> bool:
+    client = redis.Redis.from_url("redis://", host=service_container.host, port=service_container.port)
+    try:
+        return client.ping()
+    except (ConnectionError, KeydbConnectionError):
+        return False
+    finally:
+        client.close()
 
 
 @pytest.fixture(scope="session")
-def keydb_port() -> int:
-    return 6396
+def keydb_port(keydb_service: KeydbService) -> int:
+    return keydb_service.port
 
 
 @pytest.fixture(scope="session")
-def keydb_docker_compose_files() -> list[Path]:
-    return [Path(Path(__file__).parent / "docker-compose.keydb.yml")]
+def keydb_host(keydb_service: KeydbService) -> str:
+    return keydb_service.host
 
 
 @pytest.fixture(scope="session")
-def default_keydb_service_name() -> str:
-    return "keydb"
+def reuse_keydb() -> bool:
+    return True
 
 
 @pytest.fixture(scope="session")
-def keydb_docker_ip(keydb_docker_services: DockerServiceRegistry) -> str:
-    return keydb_docker_services.docker_ip
+def keydb_image() -> str:
+    return "eqalpha/keydb"
 
 
 @pytest.fixture(autouse=False, scope="session")
 def keydb_service(
-    keydb_docker_services: DockerServiceRegistry,
-    default_keydb_service_name: str,
-    keydb_docker_compose_files: list[Path],
-    keydb_port: int,
-) -> Generator[None, None, None]:
-    os.environ["KEYDB_PORT"] = str(keydb_port)
-    keydb_docker_services.start(
-        name=default_keydb_service_name,
-        docker_compose_files=keydb_docker_compose_files,
-        check=redis_responsive,
-        port=keydb_port,
-    )
-    yield
+    docker_service: DockerService,
+    reuse_keydb: bool,
+    keydb_image: str,
+) -> Generator[KeydbService, None, None]:
+    worker_num = get_xdist_worker_num()
+    if reuse_keydb:
+        container_num = worker_num // 1
+        name = f"keydb_{container_num + 1}"
+        db = worker_num
+    else:
+        name = f"keydb_{worker_num + 1}"
+        db = 0
+    with docker_service.run(
+        keydb_image,
+        check=keydb_responsive,
+        container_port=6379,
+        name=name,
+    ) as service:
+        yield KeydbService(host=service.host, port=service.port, db=db)
