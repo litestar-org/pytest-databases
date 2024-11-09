@@ -1,25 +1,46 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pytest
+import redis
 
-from pytest_databases.docker.redis import redis_responsive
-
-if TYPE_CHECKING:
-    from pytest_databases.docker import DockerServiceRegistry
+from pytest_databases.docker.keydb import KeydbService
+from pytest_databases.helpers import get_xdist_worker_num
 
 pytest_plugins = [
     "pytest_databases.docker.keydb",
 ]
 
 
-def test_keydb_default_config(keydb_port: int) -> None:
-    assert keydb_port == 6396
-
-
+@pytest.mark.parametrize("worker", ["1", "2"])
 def test_keydb_service(
-    keydb_docker_ip: str,
-    keydb_service: DockerServiceRegistry,
-    keydb_port: int,
+    keydb_service: KeydbService,
+    worker: str,
 ) -> None:
-    ping = redis_responsive(keydb_docker_ip, keydb_port)
-    assert ping
+    assert redis.Redis.from_url("redis://", host=keydb_service.host, port=keydb_service.port).ping()
+
+
+@pytest.mark.parametrize(
+    "worker",
+    [
+        pytest.param(
+            0,
+            marks=[pytest.mark.xdist_group("keydb_1")],
+        ),
+        pytest.param(
+            1,
+            marks=[
+                pytest.mark.xdist_group("keydb_2"),
+            ],
+        ),
+    ],
+)
+def test_keydb_service_split_db(worker: int, keydb_service: KeydbService) -> None:
+    assert keydb_service.db == get_xdist_worker_num()
+
+
+def test_keydb_port(keydb_port: int, keydb_service: KeydbService) -> None:
+    assert keydb_port == keydb_service.port
+
+
+def test_keydb_host(keydb_host: str, keydb_service: KeydbService) -> None:
+    assert keydb_host == keydb_service.host
