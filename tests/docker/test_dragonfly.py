@@ -1,25 +1,46 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pytest
+import redis
 
-from pytest_databases.docker.redis import redis_responsive
-
-if TYPE_CHECKING:
-    from pytest_databases.docker import DockerServiceRegistry
+from pytest_databases.docker.dragonfly import DragonflyService
+from pytest_databases.helpers import get_xdist_worker_num
 
 pytest_plugins = [
     "pytest_databases.docker.dragonfly",
 ]
 
 
-def test_dragonfly_default_config(dragonfly_port: int) -> None:
-    assert dragonfly_port == 6398
-
-
+@pytest.mark.parametrize("worker", ["1", "2"])
 def test_dragonfly_service(
-    dragonfly_docker_ip: str,
-    dragonfly_service: DockerServiceRegistry,
-    dragonfly_port: int,
+    dragonfly_service: DragonflyService,
+    worker: str,
 ) -> None:
-    ping = redis_responsive(dragonfly_docker_ip, dragonfly_port)
-    assert ping
+    assert redis.Redis.from_url("redis://", host=dragonfly_service.host, port=dragonfly_service.port).ping()
+
+
+@pytest.mark.parametrize(
+    "worker",
+    [
+        pytest.param(
+            0,
+            marks=[pytest.mark.xdist_group("dragonfly_1")],
+        ),
+        pytest.param(
+            1,
+            marks=[
+                pytest.mark.xdist_group("dragonfly_2"),
+            ],
+        ),
+    ],
+)
+def test_dragonfly_service_split_db(worker: int, dragonfly_service: DragonflyService) -> None:
+    assert dragonfly_service.db == get_xdist_worker_num()
+
+
+def test_dragonfly_port(dragonfly_port: int, dragonfly_service: DragonflyService) -> None:
+    assert dragonfly_port == dragonfly_service.port
+
+
+def test_dragonfly_host(dragonfly_host: str, dragonfly_service: DragonflyService) -> None:
+    assert dragonfly_host == dragonfly_service.host

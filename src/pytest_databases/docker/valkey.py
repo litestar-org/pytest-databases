@@ -1,71 +1,73 @@
 from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
-from typing import TYPE_CHECKING
+import dataclasses
+from typing import TYPE_CHECKING, Generator
 
 import pytest
+import redis
+from redis.exceptions import ConnectionError as valkeyConnectionError
 
-from pytest_databases.docker import DockerServiceRegistry
-from pytest_databases.docker.redis import redis_responsive
-from pytest_databases.helpers import simple_string_hash
+from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from pytest_databases._service import DockerService
 
 
-COMPOSE_PROJECT_NAME: str = f"pytest-databases-valkey-{simple_string_hash(__file__)}"
+
+@dataclasses.dataclass
+class ValkeyService(ServiceContainer):
+    db: int
 
 
-@pytest.fixture(scope="session")
-def valkey_compose_project_name() -> str:
-    return os.environ.get("COMPOSE_PROJECT_NAME", COMPOSE_PROJECT_NAME)
-
-
-@pytest.fixture(autouse=False, scope="session")
-def valkey_docker_services(
-    valkey_compose_project_name: str, worker_id: str = "main"
-) -> Generator[DockerServiceRegistry, None, None]:
-    if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
-        pytest.skip("Docker not available on this platform")
-
-    with DockerServiceRegistry(worker_id, compose_project_name=valkey_compose_project_name) as registry:
-        yield registry
+def valkey_responsive(service_container: ServiceContainer) -> bool:
+    client = redis.Redis.from_url("redis://", host=service_container.host, port=service_container.port)
+    try:
+        return client.ping()
+    except (ConnectionError, valkeyConnectionError):
+        return False
+    finally:
+        client.close()
 
 
 @pytest.fixture(scope="session")
-def valkey_port() -> int:
-    return 6308
+def valkey_port(valkey_service: ValkeyService) -> int:
+    return valkey_service.port
 
 
 @pytest.fixture(scope="session")
-def valkey_docker_compose_files() -> list[Path]:
-    return [Path(Path(__file__).parent / "docker-compose.valkey.yml")]
+def valkey_host(valkey_service: ValkeyService) -> str:
+    return valkey_service.host
 
 
 @pytest.fixture(scope="session")
-def default_valkey_service_name() -> str:
-    return "valkey"
+def reuse_valkey() -> bool:
+    return True
 
 
 @pytest.fixture(scope="session")
-def valkey_docker_ip(valkey_docker_services: DockerServiceRegistry) -> str:
-    return valkey_docker_services.docker_ip
+def valkey_image() -> str:
+    return "valkey/valkey:latest"
 
 
 @pytest.fixture(autouse=False, scope="session")
 def valkey_service(
-    valkey_docker_services: DockerServiceRegistry,
-    default_valkey_service_name: str,
-    valkey_docker_compose_files: list[Path],
-    valkey_port: int,
-) -> Generator[None, None, None]:
-    os.environ["REDIS_PORT"] = str(valkey_port)
-    valkey_docker_services.start(
-        name=default_valkey_service_name,
-        docker_compose_files=valkey_docker_compose_files,
-        check=redis_responsive,
-        port=valkey_port,
-    )
-    yield
+    docker_service: DockerService,
+    reuse_valkey: bool,
+        valkey_image: str
+) -> Generator[ValkeyService, None, None]:
+    worker_num = get_xdist_worker_num()
+    if reuse_valkey:
+        container_num = worker_num // 1
+        name = f"valkey_{container_num + 1}"
+        db = worker_num
+    else:
+        name = f"valkey_{worker_num + 1}"
+        db = 0
+    with docker_service.run(
+        valkey_image,
+        check=valkey_responsive,
+        container_port=6379,
+        name=name,
+    ) as service:
+        yield ValkeyService(host=service.host, port=service.port, db=db)

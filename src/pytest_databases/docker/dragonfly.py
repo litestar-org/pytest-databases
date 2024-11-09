@@ -1,70 +1,72 @@
 from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
-from typing import TYPE_CHECKING
+import dataclasses
+from typing import TYPE_CHECKING, Generator
 
 import pytest
+import redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 
-from pytest_databases.docker import DockerServiceRegistry
-from pytest_databases.docker.redis import redis_responsive
-from pytest_databases.helpers import simple_string_hash
+from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
-COMPOSE_PROJECT_NAME: str = f"pytest-databases-dragonfly-{simple_string_hash(__file__)}"
+    from pytest_databases._service import DockerService
 
 
-@pytest.fixture(scope="session")
-def dragonfly_compose_project_name() -> str:
-    return os.environ.get("COMPOSE_PROJECT_NAME", COMPOSE_PROJECT_NAME)
+@dataclasses.dataclass
+class DragonflyService(ServiceContainer):
+    db: int
 
 
-@pytest.fixture(autouse=False, scope="session")
-def dragonfly_docker_services(
-    dragonfly_compose_project_name: str, worker_id: str = "main"
-) -> Generator[DockerServiceRegistry, None, None]:
-    if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
-        pytest.skip("Docker not available on this platform")
-
-    with DockerServiceRegistry(worker_id, compose_project_name=dragonfly_compose_project_name) as registry:
-        yield registry
+def dragonfly_responsive(service_container: ServiceContainer) -> bool:
+    client = redis.Redis.from_url("redis://", host=service_container.host, port=service_container.port)
+    try:
+        return client.ping()
+    except (ConnectionError, RedisConnectionError):
+        return False
+    finally:
+        client.close()
 
 
 @pytest.fixture(scope="session")
-def dragonfly_port() -> int:
-    return 6398
+def dragonfly_port(dragonfly_service: DragonflyService) -> int:
+    return dragonfly_service.port
 
 
 @pytest.fixture(scope="session")
-def dragonfly_docker_compose_files() -> list[Path]:
-    return [Path(Path(__file__).parent / "docker-compose.dragonfly.yml")]
+def dragonfly_host(dragonfly_service: DragonflyService) -> str:
+    return dragonfly_service.host
 
 
 @pytest.fixture(scope="session")
-def default_dragonfly_service_name() -> str:
-    return "dragonfly"
+def reuse_dragonfly() -> bool:
+    return True
 
 
 @pytest.fixture(scope="session")
-def dragonfly_docker_ip(dragonfly_docker_services: DockerServiceRegistry) -> str:
-    return dragonfly_docker_services.docker_ip
+def dragonfly_image() -> str:
+    return "docker.dragonflydb.io/dragonflydb/dragonfly"
 
 
 @pytest.fixture(autouse=False, scope="session")
 def dragonfly_service(
-    dragonfly_docker_services: DockerServiceRegistry,
-    default_dragonfly_service_name: str,
-    dragonfly_docker_compose_files: list[Path],
-    dragonfly_port: int,
-) -> Generator[None, None, None]:
-    os.environ["DRAGONFLY_PORT"] = str(dragonfly_port)
-    dragonfly_docker_services.start(
-        name=default_dragonfly_service_name,
-        docker_compose_files=dragonfly_docker_compose_files,
-        check=redis_responsive,
-        port=dragonfly_port,
-    )
-    yield
+    docker_service: DockerService,
+    reuse_dragonfly: bool,
+    dragonfly_image: str,
+) -> Generator[DragonflyService, None, None]:
+    worker_num = get_xdist_worker_num()
+    if reuse_dragonfly:
+        container_num = worker_num // 1
+        name = f"dragonfly_{container_num + 1}"
+        db = worker_num
+    else:
+        name = f"dragonfly_{worker_num + 1}"
+        db = 0
+    with docker_service.run(
+        dragonfly_image,
+        check=dragonfly_responsive,
+        container_port=6379,
+        name=name,
+    ) as service:
+        yield DragonflyService(host=service.host, port=service.port, db=db)
