@@ -1,25 +1,46 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pytest
+import redis
 
-from pytest_databases.docker.redis import redis_responsive
-
-if TYPE_CHECKING:
-    from pytest_databases.docker import DockerServiceRegistry
+from pytest_databases.docker.redis import RedisService
+from pytest_databases.helpers import get_xdist_worker_num
 
 pytest_plugins = [
     "pytest_databases.docker.redis",
 ]
 
 
-def test_redis_default_config(redis_port: int) -> None:
-    assert redis_port == 6397
-
-
+@pytest.mark.parametrize("worker", ["1", "2"])
 def test_redis_service(
-    redis_docker_ip: str,
-    redis_service: DockerServiceRegistry,
-    redis_port: int,
+    redis_service: RedisService,
+    worker: str,
 ) -> None:
-    ping = redis_responsive(redis_docker_ip, redis_port)
-    assert ping
+    assert redis.Redis.from_url("redis://", host=redis_service.host, port=redis_service.port).ping()
+
+
+@pytest.mark.parametrize(
+    "worker",
+    [
+        pytest.param(
+            0,
+            marks=[pytest.mark.xdist_group("redis_1")],
+        ),
+        pytest.param(
+            1,
+            marks=[
+                pytest.mark.xdist_group("redis_2"),
+            ],
+        ),
+    ],
+)
+def test_redis_service_split_db(worker: int, redis_service: RedisService) -> None:
+    assert redis_service.db == get_xdist_worker_num()
+
+
+def test_redis_port(redis_port: int, redis_service: RedisService) -> None:
+    assert redis_port == redis_service.port
+
+
+def test_redis_host(redis_host: str, redis_service: RedisService) -> None:
+    assert redis_host == redis_service.host
