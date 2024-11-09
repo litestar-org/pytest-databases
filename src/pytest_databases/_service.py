@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import multiprocessing
 import os
 import pathlib
+import secrets
 import subprocess
 import time
 from contextlib import AbstractContextManager, contextmanager
+from functools import partial
 from typing import Callable, Generator, Any
 
 import docker
 import filelock
 import pytest
 from docker.models.containers import Container
+from docker.errors import ImageNotFound
 
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
@@ -36,6 +40,18 @@ def get_docker_client() -> docker.DockerClient:
     return docker.DockerClient.from_env(environment=env)
 
 
+def log(msg):
+    log_file = pathlib.Path("out.log")
+    with log_file.open("a") as f:
+        f.write(msg + "\n")
+
+
+def _stop_all_containers(client: docker.DockerClient) -> None:
+    containers: list[Container] = client.containers.list(all=True, filters={"label": "pytest_databases"})
+    for container in containers:
+        container.stop()
+
+
 class DockerService(AbstractContextManager):
     def __init__(
         self,
@@ -55,17 +71,12 @@ class DockerService(AbstractContextManager):
         self._stop_all_containers()
 
     def __enter__(self) -> DockerService:
-        if self._is_xdist:
-            with filelock.FileLock(self._tmp_path / "startup.lock"):
-                ctrl_file = _get_ctrl_file(self._session)
+        if self._is_xdist or True:
+            ctrl_file = _get_ctrl_file(self._session)
+            with filelock.FileLock(ctrl_file.with_suffix(".lock")):
                 if not ctrl_file.exists():
                     ctrl_file.touch()
                     self._stop_all_containers()
-                    self._daemon_proc = multiprocessing.Process(
-                        target=self._daemon,
-                        daemon=True,
-                    )
-                    self._daemon_proc.start()
         else:
             self._stop_all_containers()
         return self
@@ -85,9 +96,7 @@ class DockerService(AbstractContextManager):
         return None
 
     def _stop_all_containers(self) -> None:
-        containers: list[Container] = self._client.containers.list(all=True, filters={"label": "pytest_databases"})
-        for container in containers:
-            container.kill()
+        _stop_all_containers(self._client)
 
     @contextmanager
     def run(
@@ -98,10 +107,18 @@ class DockerService(AbstractContextManager):
         name: str,
         env: dict[str, Any] | None,
         exec_after_start: str | list[str] | None = None,
+        timeout: int = 10,
+        pause: int = 0.1,
     ) -> Generator[ServiceContainer, None, None]:
         name = f"pytest_databases_{name}"
-        with filelock.FileLock(self._tmp_path.joinpath(name).with_suffix(".lock")):
+        lock = filelock.FileLock(self._tmp_path / name) if self._is_xdist else contextlib.nullcontext()
+        with lock:
             container = self._get_container(name)
+            try:
+                self._client.images.get(image)
+            except ImageNotFound:
+                self._client.images.pull(*image.rsplit(":", maxsplit=1))
+
             if container is None:
                 container = self._client.containers.run(
                     image,
@@ -118,18 +135,19 @@ class DockerService(AbstractContextManager):
             container.ports[next(k for k in container.ports if k.startswith(str(container_port)))][0]["HostPort"]
         )
         service = ServiceContainer(host="127.0.0.1", port=host_port)
-        for i in range(10):
+        started = time.time()
+        while time.time() - started < timeout:
             result = check(service)
             if result is True:
                 break
-            time.sleep(0.1 * i)
+            time.sleep(pause)
         else:
-            raise RuntimeError(f"Service {name!r} failed to come online")
+            raise ValueError(f"Service {name!r} failed to come online")
 
         if exec_after_start:
             container.exec_run(exec_after_start)
 
-            yield service
+        yield service
 
 
 @pytest.fixture(scope="session")
@@ -174,9 +192,8 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus):
     try:
         return (yield)
     finally:
-        if get_xdist_worker_id() and not hasattr(session.config, "workerinput"):
+        if not hasattr(session.config, "workerinput") and _get_ctrl_file(session).exists():
             # if we're running on xdist, delete the ctrl file, telling the deamon proc
             # to stop all running containers.
             # when not running on xdist, containers are stopped by the service itself
-            ctrl_file = _get_ctrl_file(session)
-            ctrl_file.unlink()
+            _stop_all_containers(get_docker_client())
