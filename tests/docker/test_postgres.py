@@ -2,234 +2,132 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pytest_databases.docker.postgres import postgres_responsive
+import psycopg
 
 if TYPE_CHECKING:
-    import psycopg
+    from pytest_databases.docker.postgres import PostgresService
 
-    from pytest_databases.docker import DockerServiceRegistry
 
 pytest_plugins = [
     "pytest_databases.docker.postgres",
 ]
 
 
-def test_postgres_default_config(
-    default_postgres_service_name: str,
-    postgres_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
-) -> None:
-    assert default_postgres_service_name == "postgres17"
-    assert postgres_port == 5428
-    assert postgres_database == "postgres"
-    assert postgres_user == "postgres"
-    assert postgres_password == "super-secret"
+def postgres_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
+    from pytest_databases.docker.postgres import _make_connection_string
+
+    with psycopg.connect(
+        _make_connection_string(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+        )
+    ) as conn:
+        db_open = conn.execute("SELECT 1").fetchone()
+        return bool(db_open is not None and db_open[0] == 1)
 
 
-def test_postgres_12_config(
-    postgres12_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
-) -> None:
-    assert postgres12_port == 5423
-    assert postgres_database == "postgres"
-    assert postgres_user == "postgres"
-    assert postgres_password == "super-secret"
 
-
-def test_postgres_13_config(
-    postgres13_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
-) -> None:
-    assert postgres13_port == 5424
-    assert postgres_database == "postgres"
-    assert postgres_user == "postgres"
-    assert postgres_password == "super-secret"
-
-
-def test_postgres_14_config(
-    postgres14_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
-) -> None:
-    assert postgres14_port == 5425
-    assert postgres_database == "postgres"
-    assert postgres_user == "postgres"
-    assert postgres_password == "super-secret"
-
-
-def test_postgres_15_config(
-    postgres15_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
-) -> None:
-    assert postgres15_port == 5426
-    assert postgres_database == "postgres"
-    assert postgres_user == "postgres"
-    assert postgres_password == "super-secret"
-
-
-def test_postgres_16_config(
-    postgres16_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
-) -> None:
-    assert postgres16_port == 5427
-    assert postgres_database == "postgres"
-    assert postgres_user == "postgres"
-    assert postgres_password == "super-secret"
-
-def test_postgres_17_config(
-    postgres17_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
-) -> None:
-    assert postgres17_port == 5428
-    assert postgres_database == "postgres"
-    assert postgres_user == "postgres"
-    assert postgres_password == "super-secret"
-
-def test_postgres_services(
-    postgres_docker_ip: str,
-    postgres_service: DockerServiceRegistry,
-    postgres_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
-) -> None:
+def test_postgres_service(postgres_service: PostgresService) -> None:
     ping = postgres_responsive(
-        postgres_docker_ip,
-        port=postgres_port,
-        database=postgres_database,
-        user=postgres_user,
-        password=postgres_password,
+        host=postgres_service.host,
+        port=postgres_service.port,
+        database=postgres_service.db,
+        user=postgres_service.user,
+        password=postgres_service.password,
     )
     assert ping
 
 
-def test_postgres_12_services(
-    postgres_docker_ip: str,
-    postgres12_service: DockerServiceRegistry,
-    postgres12_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
+def test_postgres_12_service(
+    postgres_12_service: PostgresService,
 ) -> None:
     ping = postgres_responsive(
-        postgres_docker_ip,
-        port=postgres12_port,
-        database=postgres_database,
-        user=postgres_user,
-        password=postgres_password,
+        host=postgres_12_service.host,
+        port=postgres_12_service.port,
+        database=postgres_12_service.db,
+        user=postgres_12_service.user,
+        password=postgres_12_service.password,
     )
     assert ping
 
 
-def test_postgres_13_services(
-    postgres_docker_ip: str,
-    postgres13_service: DockerServiceRegistry,
-    postgres13_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
+def test_postgres_13_service(
+    postgres_13_service: PostgresService,
 ) -> None:
     ping = postgres_responsive(
-        postgres_docker_ip,
-        port=postgres13_port,
-        database=postgres_database,
-        user=postgres_user,
-        password=postgres_password,
+        host=postgres_13_service.host,
+        port=postgres_13_service.port,
+        database=postgres_13_service.db,
+        user=postgres_13_service.user,
+        password=postgres_13_service.password,
     )
     assert ping
 
 
-def test_postgres_14_services(
-    postgres_docker_ip: str,
-    postgres14_service: DockerServiceRegistry,
-    postgres14_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
+def test_postgres_14_service(
+    postgres_14_service: PostgresService,
 ) -> None:
     ping = postgres_responsive(
-        postgres_docker_ip,
-        port=postgres14_port,
-        database=postgres_database,
-        user=postgres_user,
-        password=postgres_password,
+        host=postgres_14_service.host,
+        port=postgres_14_service.port,
+        database=postgres_14_service.db,
+        user=postgres_14_service.user,
+        password=postgres_14_service.password,
     )
     assert ping
 
 
-def test_postgres_15_services(
-    postgres_docker_ip: str,
-    postgres15_service: DockerServiceRegistry,
-    postgres15_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
+def test_postgres_15_service(
+    postgres_15_service: PostgresService,
 ) -> None:
     ping = postgres_responsive(
-        postgres_docker_ip,
-        port=postgres15_port,
-        database=postgres_database,
-        user=postgres_user,
-        password=postgres_password,
+        host=postgres_15_service.host,
+        port=postgres_15_service.port,
+        database=postgres_15_service.db,
+        user=postgres_15_service.user,
+        password=postgres_15_service.password,
     )
     assert ping
 
 
-def test_postgres_16_services(
-    postgres_docker_ip: str,
-    postgres16_service: DockerServiceRegistry,
-    postgres16_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
+def test_postgres_16_service(
+    postgres_16_service: PostgresService,
 ) -> None:
     ping = postgres_responsive(
-        postgres_docker_ip,
-        port=postgres16_port,
-        database=postgres_database,
-        user=postgres_user,
-        password=postgres_password,
+        host=postgres_16_service.host,
+        port=postgres_16_service.port,
+        database=postgres_16_service.db,
+        user=postgres_16_service.user,
+        password=postgres_16_service.password,
     )
     assert ping
 
-def test_postgres_17_services(
-    postgres_docker_ip: str,
-    postgres17_service: DockerServiceRegistry,
-    postgres17_port: int,
-    postgres_database: str,
-    postgres_user: str,
-    postgres_password: str,
+
+def test_postgres_17_service(
+    postgres_17_service: PostgresService,
 ) -> None:
     ping = postgres_responsive(
-        postgres_docker_ip,
-        port=postgres17_port,
-        database=postgres_database,
-        user=postgres_user,
-        password=postgres_password,
+        host=postgres_17_service.host,
+        port=postgres_17_service.port,
+        database=postgres_17_service.db,
+        user=postgres_17_service.user,
+        password=postgres_17_service.password,
     )
     assert ping
 
-def test_postgres_17_services_after_start(
+
+def test_postgres_17_service_after_start(
     postgres17_startup_connection: psycopg.Connection,
 ) -> None:
     postgres17_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
     result = postgres17_startup_connection.execute("select * from simple_table").fetchone()
     assert bool(result is not None and result[0] == 1)
 
-def test_postgres_16_services_after_start(
+
+def test_postgres_16_service_after_start(
     postgres16_startup_connection: psycopg.Connection,
 ) -> None:
     postgres16_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
@@ -237,7 +135,7 @@ def test_postgres_16_services_after_start(
     assert bool(result is not None and result[0] == 1)
 
 
-def test_postgres_15_services_after_start(
+def test_postgres_15_service_after_start(
     postgres15_startup_connection: psycopg.Connection,
 ) -> None:
     postgres15_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
@@ -245,7 +143,7 @@ def test_postgres_15_services_after_start(
     assert bool(result is not None and result[0] == 1)
 
 
-def test_postgres_14_services_after_start(
+def test_postgres_14_service_after_start(
     postgres14_startup_connection: psycopg.Connection,
 ) -> None:
     postgres14_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
@@ -253,7 +151,7 @@ def test_postgres_14_services_after_start(
     assert bool(result is not None and result[0] == 1)
 
 
-def test_postgres_13_services_after_start(
+def test_postgres_13_service_after_start(
     postgres13_startup_connection: psycopg.Connection,
 ) -> None:
     postgres13_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
@@ -261,7 +159,7 @@ def test_postgres_13_services_after_start(
     assert bool(result is not None and result[0] == 1)
 
 
-def test_postgres_12_services_after_start(
+def test_postgres_12_service_after_start(
     postgres12_startup_connection: psycopg.Connection,
 ) -> None:
     postgres12_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
