@@ -45,7 +45,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 # direct dependencies of this package
-dependencies = ["pytest"]
+dependencies = ["pytest", "filelock", "docker"]
 
 [project.urls]
 Documentation = "https://github.com/litestar-org/pytest-databases#readme"
@@ -647,7 +647,7 @@ line-length = 120
 ## Testing Tools
 
 [tool.pytest.ini_options]
-addopts = "--dist loadfile -n 2 -ra -q --doctest-glob='*.md'"
+addopts = " --doctest-glob='*.md'"
 filterwarnings = [
   "ignore::DeprecationWarning:pkg_resources",
   "ignore::DeprecationWarning:xdist.*",
@@ -697,3 +697,7 @@ exclude_lines = [
   'class .*\bProtocol\):',
   '@(abc\.)?abstractmethod',
 ]
+
+
+[project.entry-points.pytest11]
+myproject = "pytest_databases._service"

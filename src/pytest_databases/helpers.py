@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 
 
 def simple_string_hash(string_to_hash: str) -> str:
@@ -19,3 +20,14 @@ def simple_string_hash(string_to_hash: str) -> str:
     digest = hasher.digest()
     hex_string = digest.hex()
     return hex_string[:12]
+
+
+def get_xdist_worker_id() -> str | None:
+    return os.getenv("PYTEST_XDIST_WORKER")
+
+
+def get_xdist_worker_num() -> int:
+    worker_id = get_xdist_worker_id()
+    if worker_id is None or worker_id == "master":
+        return 0
+    return int(worker_id.replace("gw", ""))
