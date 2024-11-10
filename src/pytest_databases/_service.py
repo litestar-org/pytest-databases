@@ -49,7 +49,14 @@ def log(msg):
 def _stop_all_containers(client: docker.DockerClient) -> None:
     containers: list[Container] = client.containers.list(all=True, filters={"label": "pytest_databases"})
     for container in containers:
-        container.kill()
+        if container.status == "running":
+            container.kill()
+        elif container.status == "stopped":
+            container.remove()
+        elif container.status == "removing":
+            continue
+        else:
+            raise ValueError(f"Cannot handle container in state {container.status}")
 
 
 class DockerService(AbstractContextManager):
