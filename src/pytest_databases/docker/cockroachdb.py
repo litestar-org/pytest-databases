@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import os
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
 
 from pytest_databases._service import DockerService, ServiceContainer
-from pytest_databases.docker import DockerServiceRegistry
-from pytest_databases.docker.dragonfly import dragonfly_image
-from pytest_databases.helpers import simple_string_hash, get_xdist_worker_num
+from pytest_databases.helpers import get_xdist_worker_num
 
 if TYPE_CHECKING:
     from collections.abc import Generator

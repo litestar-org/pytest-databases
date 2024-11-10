@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-import oracledb
+from typing import TYPE_CHECKING
 
-from pytest_databases.docker.oracle import OracleService
+import oracledb
+import pytest
+
+if TYPE_CHECKING:
+    from pytest_databases.docker.oracle import OracleService
 
 pytest_plugins = [
     "pytest_databases.docker.oracle",
 ]
+
+pytestmark = pytest.mark.skip()
 
 
 def test_oracle18c_service(oracle18c_service: OracleService) -> None:

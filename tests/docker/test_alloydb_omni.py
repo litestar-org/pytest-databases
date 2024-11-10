@@ -4,14 +4,11 @@ from typing import TYPE_CHECKING
 
 import psycopg
 
-from pytest_databases.docker.alloydb_omni import AlloyDBService
-from pytest_databases.docker.postgres import _make_connection_string
+from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
 
 if TYPE_CHECKING:
-    pass
+    from pytest_databases.docker.alloydb_omni import AlloyDBService
 
-
-# pytestmark = pytest.mark.skip
 
 pytest_plugins = [
     "pytest_databases.docker.alloydb_omni",

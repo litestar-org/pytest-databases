@@ -1,33 +1,44 @@
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
 
-from pytest_databases._service import DockerService
-from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.docker.postgres import (
     _make_connection_string,
     _provide_postgres_service,
-    PostgresService as AlloyDBService,
 )
-
-__all__ = ("AlloyDBService",)
-
+from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from pytest_databases._service import DockerService
+
+
+@dataclasses.dataclass
+class AlloyDBService(ServiceContainer):
+    database: str
+    password: str
+    user: str
 
 
 @pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_service(
     docker_service: DockerService,
-) -> Generator[DockerServiceRegistry, None, None]:
+) -> Generator[AlloyDBService, None, None]:
     with _provide_postgres_service(
         docker_service=docker_service, image="google/alloydbomni", name="alloydb-omni"
     ) as service:
-        yield service
+        yield AlloyDBService(
+            host=service.host,
+            port=service.port,
+            password=service.password,
+            database=service.database,
+            user=service.user,
+        )
 
 
 @pytest.fixture(autouse=False, scope="session")

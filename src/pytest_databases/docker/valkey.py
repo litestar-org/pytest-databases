@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
-
 @dataclasses.dataclass
 class ValkeyService(ServiceContainer):
     db: int
@@ -52,9 +51,7 @@ def valkey_image() -> str:
 
 @pytest.fixture(autouse=False, scope="session")
 def valkey_service(
-    docker_service: DockerService,
-    reuse_valkey: bool,
-        valkey_image: str
+    docker_service: DockerService, reuse_valkey: bool, valkey_image: str
 ) -> Generator[ValkeyService, None, None]:
     worker_num = get_xdist_worker_num()
     if reuse_valkey:

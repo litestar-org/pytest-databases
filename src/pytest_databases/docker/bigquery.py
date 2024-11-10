@@ -8,12 +8,13 @@ from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials, Credentials
 from google.cloud import bigquery
 
-from pytest_databases._service import DockerService
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from pytest_databases._service import DockerService
 
 
 @dataclass

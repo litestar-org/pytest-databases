@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import contextlib
-import os
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import oracledb
 import pytest
 
-from pytest_databases._service import DockerService
-from pytest_databases.docker import DockerServiceRegistry
 from pytest_databases.helpers import simple_string_hash
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from pytest_databases._service import DockerService
 
 
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-oracle-{simple_string_hash(__file__)}"
@@ -48,7 +45,12 @@ class OracleService(ServiceContainer):
 
 
 @contextlib.contextmanager
-def _provide_oracle_service(docker_service: DockerService, image: str, name: str, service_name: str):
+def _provide_oracle_service(
+    docker_service: DockerService,
+    image: str,
+    name: str,
+    service_name: str,
+) -> Generator[OracleService, None, None]:
     user = "app"
     password = "super-secret"
     system_password = "super-secret"
@@ -102,7 +104,7 @@ def oracle23ai_service(docker_service: DockerService) -> Generator[OracleService
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle18c_service(docker_service: DockerService) -> Generator[None, None, None]:
+def oracle18c_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
     with _provide_oracle_service(
         image="gvenzl/oracle-free:23-slim-faststart",
         name="oracle18c",
@@ -148,4 +150,4 @@ def oracle23ai_startup_connection(
 
 @pytest.fixture(autouse=False, scope="session")
 def oracle_startup_connection(oracle23ai_startup_connection: oracledb.Connection) -> oracledb.Connection:
-    return oracledb.oracle23ai_startup_connection
+    return oracle23ai_startup_connection

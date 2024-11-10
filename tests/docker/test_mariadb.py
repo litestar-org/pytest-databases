@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from pytest_databases.docker.mariadb import MariaDBService
 from tests.docker.test_mysql import check
 
-
-
+if TYPE_CHECKING:
+    from pytest_databases.docker.mariadb import MariaDBService
 
 pytest_plugins = [
     "pytest_databases.docker.mariadb",
@@ -14,11 +13,11 @@ pytest_plugins = [
 
 
 def test_mariadb_services(mariadb_service: MariaDBService) -> None:
-    assert check(mariadb_service)
+    assert check(mariadb_service)  # type: ignore[arg-type]
 
 
 def test_mariadb_113_services(mariadb113_service: MariaDBService) -> None:
-    assert check(mariadb113_service)
+    assert check(mariadb113_service)  # type: ignore[arg-type]
 
 
 def test_mariadb_services_after_start(

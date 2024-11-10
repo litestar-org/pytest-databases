@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 import redis
 
-from pytest_databases.docker.valkey import ValkeyService
 from pytest_databases.helpers import get_xdist_worker_num
+
+if TYPE_CHECKING:
+    from pytest_databases.docker.valkey import ValkeyService
 
 pytest_plugins = [
     "pytest_databases.docker.valkey",

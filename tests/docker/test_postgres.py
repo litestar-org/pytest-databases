@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 import psycopg
 
+from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
+
 if TYPE_CHECKING:
     from pytest_databases.docker.postgres import PostgresService
 
@@ -14,8 +16,6 @@ pytest_plugins = [
 
 
 def postgres_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
-    from pytest_databases.docker.postgres import _make_connection_string
-
     with psycopg.connect(
         _make_connection_string(
             host=host,
@@ -27,7 +27,6 @@ def postgres_responsive(host: str, port: int, user: str, password: str, database
     ) as conn:
         db_open = conn.execute("SELECT 1").fetchone()
         return bool(db_open is not None and db_open[0] == 1)
-
 
 
 def test_postgres_service(postgres_service: PostgresService) -> None:

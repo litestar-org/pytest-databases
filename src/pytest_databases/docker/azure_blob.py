@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import json
-import secrets
 import subprocess  # noqa: S404
 from dataclasses import dataclass
-from typing import AsyncGenerator, Generator
+from typing import TYPE_CHECKING, AsyncGenerator, Generator
 
 import pytest
 from azure.storage.blob import ContainerClient
 from azure.storage.blob.aio import ContainerClient as AsyncContainerClient
 
-from pytest_databases._service import DockerService
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
+
+if TYPE_CHECKING:
+    from pytest_databases._service import DockerService
 
 
 @dataclass

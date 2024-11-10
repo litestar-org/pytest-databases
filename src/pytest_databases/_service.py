@@ -2,34 +2,36 @@ from __future__ import annotations
 
 import contextlib
 import json
-import multiprocessing
 import os
-import pathlib
-import secrets
-import subprocess
+import subprocess  # noqa: S404
 import time
 from contextlib import AbstractContextManager, contextmanager
-from functools import partial
-from typing import Callable, Generator, Any
+from typing import TYPE_CHECKING, Any, Callable, Generator, Self
 
-import docker
 import filelock
 import pytest
-from docker.models.containers import Container
-from docker.errors import ImageNotFound
 
+import docker
+from docker.errors import ImageNotFound
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
+
+if TYPE_CHECKING:
+    import multiprocessing
+    import pathlib
+    from types import TracebackType
+
+    from docker.models.containers import Container
 
 
 def get_docker_host() -> str:
     result = subprocess.run(
-        ["docker", "context", "ls", "--format=json"],
+        ["docker", "context", "ls", "--format=json"],  # noqa: S607
         text=True,
         capture_output=True,
         check=True,
     )
-    contexts = (json.loads(l) for l in result.stdout.splitlines())
+    contexts = (json.loads(line) for line in result.stdout.splitlines())
     return next(context["DockerEndpoint"] for context in contexts if context["Current"] is True)
 
 
@@ -38,12 +40,6 @@ def get_docker_client() -> docker.DockerClient:
     if "DOCKER_HOST" not in env:
         env["DOCKER_HOST"] = get_docker_host()
     return docker.DockerClient.from_env(environment=env)
-
-
-def log(msg):
-    log_file = pathlib.Path("out.log")
-    with log_file.open("a") as f:
-        f.write(msg + "\n")
 
 
 def _stop_all_containers(client: docker.DockerClient) -> None:
@@ -56,7 +52,8 @@ def _stop_all_containers(client: docker.DockerClient) -> None:
         elif container.status == "removing":
             continue
         else:
-            raise ValueError(f"Cannot handle container in state {container.status}")
+            msg = f"Cannot handle container in state {container.status}"
+            raise ValueError(msg)
 
 
 class DockerService(AbstractContextManager):
@@ -72,13 +69,13 @@ class DockerService(AbstractContextManager):
         self._session = session
         self._is_xdist = get_xdist_worker_id() is not None
 
-    def _daemon(self):
+    def _daemon(self) -> None:
         while (self._tmp_path / "ctrl").exists():
             time.sleep(0.1)
         self._stop_all_containers()
 
-    def __enter__(self) -> DockerService:
-        if self._is_xdist or True:
+    def __enter__(self) -> Self:
+        if self._is_xdist:
             ctrl_file = _get_ctrl_file(self._session)
             with filelock.FileLock(ctrl_file.with_suffix(".lock")):
                 if not ctrl_file.exists():
@@ -88,7 +85,13 @@ class DockerService(AbstractContextManager):
             self._stop_all_containers()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        /,
+        __exc_type: type[BaseException] | None,
+        __exc_value: BaseException | None,
+        __traceback: TracebackType | None,
+    ) -> None:
         if not self._is_xdist:
             self._stop_all_containers()
 
@@ -97,7 +100,8 @@ class DockerService(AbstractContextManager):
             filters={"name": name},
         )
         if len(containers) > 1:
-            raise ValueError(f"More than one running container found")
+            msg = "More than one running container found"
+            raise ValueError(msg)
         if containers:
             return containers[0]
         return None
@@ -115,12 +119,13 @@ class DockerService(AbstractContextManager):
         env: dict[str, Any] | None = None,
         exec_after_start: str | list[str] | None = None,
         check: Callable[[ServiceContainer], bool] | None = None,
-        wait_for_log: str | None = None,
+        wait_for_log: str | bytes | None = None,
         timeout: int = 10,
-        pause: int = 0.1,
+        pause: float = 0.1,
     ) -> Generator[ServiceContainer, None, None]:
         if check is None and wait_for_log is None:
-            raise ValueError(f"Must set at least check or wait_for_log")
+            msg = "Must set at least check or wait_for_log"
+            raise ValueError(msg)
 
         name = f"pytest_databases_{name}"
         lock = filelock.FileLock(self._tmp_path / name) if self._is_xdist else contextlib.nullcontext()
@@ -154,13 +159,15 @@ class DockerService(AbstractContextManager):
 
         started = time.time()
         if wait_for_log:
-            wait_for_log = wait_for_log.encode()
+            if isinstance(wait_for_log, str):
+                wait_for_log = wait_for_log.encode()
             while time.time() - started < timeout:
                 if wait_for_log in container.logs():
                     break
                 time.sleep(pause)
             else:
-                raise ValueError(f"Service {name!r} failed to come online")
+                msg = f"Service {name!r} failed to come online"
+                raise ValueError(msg)
 
         if check:
             while time.time() - started < timeout:
@@ -168,7 +175,8 @@ class DockerService(AbstractContextManager):
                     break
                 time.sleep(pause)
             else:
-                raise ValueError(f"Service {name!r} failed to come online")
+                msg = f"Service {name!r} failed to come online"
+                raise ValueError(msg)
 
         if exec_after_start:
             container.exec_run(exec_after_start)
@@ -208,13 +216,12 @@ def _get_base_tmp_path(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path
 
 
 def _get_ctrl_file(session: pytest.Session) -> pathlib.Path:
-    tmp_path = _get_base_tmp_path(session.config._tmp_path_factory)
+    tmp_path = _get_base_tmp_path(session.config._tmp_path_factory)  # type: ignore[attr-defined]
     return tmp_path / "ctrl"
 
 
 @pytest.hookimpl(wrapper=True)
-def pytest_sessionfinish(session: pytest.Session, exitstatus):
-    """Insert teardown that you want to occur only once here"""
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[Any, Any, Any]:
     try:
         return (yield)
     finally:
