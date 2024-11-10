@@ -34,7 +34,7 @@ def test_postgres_service(postgres_service: PostgresService) -> None:
     ping = postgres_responsive(
         host=postgres_service.host,
         port=postgres_service.port,
-        database=postgres_service.db,
+        database=postgres_service.database,
         user=postgres_service.user,
         password=postgres_service.password,
     )
@@ -47,7 +47,7 @@ def test_postgres_12_service(
     ping = postgres_responsive(
         host=postgres_12_service.host,
         port=postgres_12_service.port,
-        database=postgres_12_service.db,
+        database=postgres_12_service.database,
         user=postgres_12_service.user,
         password=postgres_12_service.password,
     )
@@ -60,7 +60,7 @@ def test_postgres_13_service(
     ping = postgres_responsive(
         host=postgres_13_service.host,
         port=postgres_13_service.port,
-        database=postgres_13_service.db,
+        database=postgres_13_service.database,
         user=postgres_13_service.user,
         password=postgres_13_service.password,
     )
@@ -73,7 +73,7 @@ def test_postgres_14_service(
     ping = postgres_responsive(
         host=postgres_14_service.host,
         port=postgres_14_service.port,
-        database=postgres_14_service.db,
+        database=postgres_14_service.database,
         user=postgres_14_service.user,
         password=postgres_14_service.password,
     )
@@ -86,7 +86,7 @@ def test_postgres_15_service(
     ping = postgres_responsive(
         host=postgres_15_service.host,
         port=postgres_15_service.port,
-        database=postgres_15_service.db,
+        database=postgres_15_service.database,
         user=postgres_15_service.user,
         password=postgres_15_service.password,
     )
@@ -99,7 +99,7 @@ def test_postgres_16_service(
     ping = postgres_responsive(
         host=postgres_16_service.host,
         port=postgres_16_service.port,
-        database=postgres_16_service.db,
+        database=postgres_16_service.database,
         user=postgres_16_service.user,
         password=postgres_16_service.password,
     )
@@ -112,7 +112,7 @@ def test_postgres_17_service(
     ping = postgres_responsive(
         host=postgres_17_service.host,
         port=postgres_17_service.port,
-        database=postgres_17_service.db,
+        database=postgres_17_service.database,
         user=postgres_17_service.user,
         password=postgres_17_service.password,
     )

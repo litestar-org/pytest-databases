@@ -21,7 +21,7 @@ def _make_connection_string(host: str, port: int, user: str, password: str, data
 
 @dataclasses.dataclass
 class PostgresService(ServiceContainer):
-    db: str
+    database: str
     password: str
     user: str
 
@@ -61,7 +61,7 @@ def _provide_postgres_service(
         exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
     ) as service:
         yield PostgresService(
-            db=db_name,
+            database=db_name,
             host=service.host,
             port=service.port,
             user="postgres",
@@ -140,7 +140,7 @@ def postgres_startup_connection(
             port=postgres_service.port,
             user=postgres_service.user,
             password=postgres_service.password,
-            database=postgres_service.db,
+            database=postgres_service.database,
         ),
     ) as conn:
         yield conn
@@ -156,7 +156,7 @@ def postgres11_startup_connection(
             port=postgres_11_service.port,
             user=postgres_11_service.user,
             password=postgres_11_service.password,
-            database=postgres_11_service.db,
+            database=postgres_11_service.database,
         ),
     ) as conn:
         yield conn
@@ -172,7 +172,7 @@ def postgres12_startup_connection(
             port=postgres_12_service.port,
             user=postgres_12_service.user,
             password=postgres_12_service.password,
-            database=postgres_12_service.db,
+            database=postgres_12_service.database,
         ),
     ) as conn:
         yield conn
@@ -188,7 +188,7 @@ def postgres13_startup_connection(
             port=postgres_13_service.port,
             user=postgres_13_service.user,
             password=postgres_13_service.password,
-            database=postgres_13_service.db,
+            database=postgres_13_service.database,
         ),
     ) as conn:
         yield conn
@@ -204,7 +204,7 @@ def postgres14_startup_connection(
             port=postgres_14_service.port,
             user=postgres_14_service.user,
             password=postgres_14_service.password,
-            database=postgres_14_service.db,
+            database=postgres_14_service.database,
         ),
     ) as conn:
         yield conn
@@ -220,7 +220,7 @@ def postgres15_startup_connection(
             port=postgres_15_service.port,
             user=postgres_15_service.user,
             password=postgres_15_service.password,
-            database=postgres_15_service.db,
+            database=postgres_15_service.database,
         ),
     ) as conn:
         yield conn
@@ -236,7 +236,7 @@ def postgres16_startup_connection(
             port=postgres_16_service.port,
             user=postgres_16_service.user,
             password=postgres_16_service.password,
-            database=postgres_16_service.db,
+            database=postgres_16_service.database,
         ),
     ) as conn:
         yield conn
@@ -252,7 +252,7 @@ def postgres17_startup_connection(
             port=postgres_17_service.port,
             user=postgres_17_service.user,
             password=postgres_17_service.password,
-            database=postgres_17_service.db,
+            database=postgres_17_service.database,
         ),
     ) as conn:
         yield conn
