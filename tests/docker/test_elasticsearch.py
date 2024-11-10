@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 from elasticsearch7 import Elasticsearch as Elasticsearch7
 from elasticsearch8 import Elasticsearch as Elasticsearch8
 
-from pytest_databases.docker.elastic_search import ElasticsearchService
-
 if TYPE_CHECKING:
-    pass
+    from pytest_databases.docker.elastic_search import ElasticsearchService
 
 pytest_plugins = [
     "pytest_databases.docker.elastic_search",
 ]
+
+
+pytestmark = pytest.mark.xdist_group("elasticsearch")
 
 
 def test_elasticsearch7_service(elasticsearch7_service: ElasticsearchService) -> None:

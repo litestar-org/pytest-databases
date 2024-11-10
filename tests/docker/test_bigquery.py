@@ -4,10 +4,8 @@ from typing import TYPE_CHECKING
 
 from google.cloud import bigquery
 
-from pytest_databases.docker.bigquery import BigQueryService
-
 if TYPE_CHECKING:
-    pass
+    from pytest_databases.docker.bigquery import BigQueryService
 
 pytest_plugins = [
     "pytest_databases.docker.bigquery",
