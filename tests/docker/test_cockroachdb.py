@@ -4,10 +4,8 @@ from typing import TYPE_CHECKING
 
 import psycopg
 
-from pytest_databases.docker.cockroachdb import CockroachDBService
-
 if TYPE_CHECKING:
-    pass
+    from pytest_databases.docker.cockroachdb import CockroachDBService
 
 pytest_plugins = [
     "pytest_databases.docker.cockroachdb",

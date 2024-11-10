@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING
 import pymssql
 import pytest
 
-from pytest_databases._service import DockerService
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from pytest_databases._service import DockerService
 
 
 @dataclasses.dataclass
@@ -31,24 +32,6 @@ class MSSQLService(ServiceContainer):
             f"UID={self.user}; "
             f"PWD={self.password}"
         )
-
-
-# def mssql_responsive(host: str, user: str, password: str, database: str, port: int) -> bool:
-#     try:
-#         conn = pymssql.connect(
-#             user=user,
-#             password=password,
-#             database=database,
-#             host=host,
-#             port=str(port),
-#             timeout=2,
-#         )
-#         with conn.cursor() as cursor:
-#             cursor.execute("select 1 as is_available")
-#             resp = cursor.fetchone()
-#             return resp[0] == 1 if resp is not None else False
-#     except Exception:  # noqa: BLE001
-#         return False
 
 
 @pytest.fixture(autouse=False, scope="session")
