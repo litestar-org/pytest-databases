@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from pytest_databases.docker.mysql import mysql_responsive
+from pytest_databases.docker.mariadb import MariaDBService
+from tests.docker.test_mysql import check
 
-if TYPE_CHECKING:
-    from pytest_databases.docker import DockerServiceRegistry
+
 
 
 pytest_plugins = [
@@ -13,66 +13,12 @@ pytest_plugins = [
 ]
 
 
-def test_mariadb_default_config(
-    default_mariadb_service_name: str,
-    mariadb_port: int,
-    mariadb_database: str,
-    mariadb_user: str,
-    mariadb_password: str,
-) -> None:
-    assert default_mariadb_service_name == "mariadb113"
-    assert mariadb_port == 3359
-    assert mariadb_database == "db"
-    assert mariadb_user == "app"
-    assert mariadb_password == "super-secret"
+def test_mariadb_services(mariadb_service: MariaDBService) -> None:
+    assert check(mariadb_service)
 
 
-def test_mariadb_113_config(
-    mariadb113_port: int,
-    mariadb_database: str,
-    mariadb_user: str,
-    mariadb_password: str,
-) -> None:
-    assert mariadb113_port == 3359
-    assert mariadb_database == "db"
-    assert mariadb_user == "app"
-    assert mariadb_password == "super-secret"
-
-
-def test_mariadb_services(
-    mariadb_docker_ip: str,
-    mariadb_service: DockerServiceRegistry,
-    mariadb_port: int,
-    mariadb_database: str,
-    mariadb_user: str,
-    mariadb_password: str,
-) -> None:
-    ping = mysql_responsive(
-        mariadb_docker_ip,
-        port=mariadb_port,
-        database=mariadb_database,
-        user=mariadb_user,
-        password=mariadb_password,
-    )
-    assert ping
-
-
-def test_mariadb_113_services(
-    mariadb_docker_ip: str,
-    mariadb113_service: DockerServiceRegistry,
-    mariadb113_port: int,
-    mariadb_database: str,
-    mariadb_user: str,
-    mariadb_password: str,
-) -> None:
-    ping = mysql_responsive(
-        mariadb_docker_ip,
-        port=mariadb113_port,
-        database=mariadb_database,
-        user=mariadb_user,
-        password=mariadb_password,
-    )
-    assert ping
+def test_mariadb_113_services(mariadb113_service: MariaDBService) -> None:
+    assert check(mariadb113_service)
 
 
 def test_mariadb_services_after_start(
