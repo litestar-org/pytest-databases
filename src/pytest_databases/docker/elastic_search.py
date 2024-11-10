@@ -2,22 +2,18 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import os
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from elasticsearch7 import Elasticsearch as Elasticsearch7
 from elasticsearch7 import Elasticsearch as Elasticsearch8
 
-from pytest_databases._service import DockerService
-from pytest_databases.docker import DockerServiceRegistry
-from pytest_databases.helpers import simple_string_hash
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from pytest_databases._service import DockerService
 
 
 @dataclasses.dataclass
@@ -48,33 +44,13 @@ def elasticsearch8_responsive(scheme: str, host: str, port: int, user: str, pass
         return False
 
 
-@pytest.fixture(scope="session")
-def elasticsearch_user() -> str:
-    return "elastic"
-
-
-@pytest.fixture(scope="session")
-def elasticsearch_password() -> str:
-    return "changeme"
-
-
-@pytest.fixture(scope="session")
-def elasticsearch_database() -> str:
-    return "db"
-
-
-@pytest.fixture(scope="session")
-def elasticsearch_scheme() -> str:
-    return "http"
-
-
 @contextlib.contextmanager
 def _provide_elasticsearch_service(
     docker_service: DockerService,
     image: str,
     name: str,
     client_cls: type[Elasticsearch7 | Elasticsearch8],
-):
+) -> Generator[ElasticsearchService, None, None]:
     user = "elastic"
     password = "changeme"
     database = "db"
@@ -100,6 +76,8 @@ def _provide_elasticsearch_service(
             "xpack.security.enabled": "false",
         },
         check=check,
+        timeout=120,
+        pause=1,
     ) as service:
         yield ElasticsearchService(
             host=service.host,
@@ -134,5 +112,5 @@ def elasticsearch8_service(docker_service: DockerService) -> Generator[Elasticse
 
 
 @pytest.fixture(autouse=False, scope="session")
-def elasticsearch_service(elasticsearch8_service) -> ElasticsearchService:
+def elasticsearch_service(elasticsearch8_service: ElasticsearchService) -> ElasticsearchService:
     return elasticsearch8_service

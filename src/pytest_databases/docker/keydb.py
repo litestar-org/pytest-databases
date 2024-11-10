@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
-
 @dataclasses.dataclass
 class KeydbService(ServiceContainer):
     db: int
