@@ -102,15 +102,19 @@ class DockerService(AbstractContextManager):
     def run(
         self,
         image: str,
-        check: Callable[[ServiceContainer], bool],
         container_port: int,
         name: str,
         command: str | None = None,
         env: dict[str, Any] | None = None,
         exec_after_start: str | list[str] | None = None,
+        check: Callable[[ServiceContainer], bool] | None = None,
+        wait_for_log: str | None = None,
         timeout: int = 10,
         pause: int = 0.1,
     ) -> Generator[ServiceContainer, None, None]:
+        if check is None and wait_for_log is None:
+            raise ValueError(f"Must set at least check or wait_for_log")
+
         name = f"pytest_databases_{name}"
         lock = filelock.FileLock(self._tmp_path / name) if self._is_xdist else contextlib.nullcontext()
         with lock:
@@ -136,15 +140,28 @@ class DockerService(AbstractContextManager):
         host_port = int(
             container.ports[next(k for k in container.ports if k.startswith(str(container_port)))][0]["HostPort"]
         )
-        service = ServiceContainer(host="127.0.0.1", port=host_port)
+        service = ServiceContainer(
+            host="127.0.0.1",
+            port=host_port,
+        )
+
         started = time.time()
-        while time.time() - started < timeout:
-            result = check(service)
-            if result is True:
-                break
-            time.sleep(pause)
-        else:
-            raise ValueError(f"Service {name!r} failed to come online")
+        if wait_for_log:
+            wait_for_log = wait_for_log.encode()
+            while time.time() - started < timeout:
+                if wait_for_log in container.logs():
+                    break
+                time.sleep(pause)
+            else:
+                raise ValueError(f"Service {name!r} failed to come online")
+
+        if check:
+            while time.time() - started < timeout:
+                if check(service) is True:
+                    break
+                time.sleep(pause)
+            else:
+                raise ValueError(f"Service {name!r} failed to come online")
 
         if exec_after_start:
             container.exec_run(exec_after_start)
