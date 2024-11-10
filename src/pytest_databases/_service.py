@@ -49,7 +49,7 @@ def log(msg):
 def _stop_all_containers(client: docker.DockerClient) -> None:
     containers: list[Container] = client.containers.list(all=True, filters={"label": "pytest_databases"})
     for container in containers:
-        container.stop()
+        container.kill()
 
 
 class DockerService(AbstractContextManager):
@@ -105,7 +105,8 @@ class DockerService(AbstractContextManager):
         check: Callable[[ServiceContainer], bool],
         container_port: int,
         name: str,
-        env: dict[str, Any] | None,
+        command: str | None = None,
+        env: dict[str, Any] | None = None,
         exec_after_start: str | list[str] | None = None,
         timeout: int = 10,
         pause: int = 0.1,
@@ -122,6 +123,7 @@ class DockerService(AbstractContextManager):
             if container is None:
                 container = self._client.containers.run(
                     image,
+                    command,
                     detach=True,
                     remove=True,
                     ports={container_port: None},
