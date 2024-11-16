@@ -31,7 +31,18 @@ def get_docker_host() -> str:
         capture_output=True,
         check=True,
     )
-    contexts = (json.loads(line) for line in result.stdout.splitlines())
+    docker_ls = result.stdout.splitlines()
+    # if this is empty, we are not in a dockerized environment; It's probably a podman environment on linux
+    if not docker_ls or (len(docker_ls) == 1 and docker_ls[0] == "[]"):
+        uid_result = subprocess.run(
+            ["id", "-u"],  # noqa: S607
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        uid = uid_result.stdout.strip()
+        return f"unix:///run/user/{uid}/podman/podman.sock"
+    contexts = (json.loads(line) for line in docker_ls)
     return next(context["DockerEndpoint"] for context in contexts if context["Current"] is True)
 
 
