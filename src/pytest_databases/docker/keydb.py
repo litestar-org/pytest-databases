@@ -8,14 +8,14 @@ import redis
 from redis.exceptions import ConnectionError as KeydbConnectionError
 
 from pytest_databases.helpers import get_xdist_worker_num
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
 @pytest.fixture(scope="session")
-def xdist_keydb_isolate() -> Literal["database", "server"]:
+def xdist_keydb_isolate() -> XdistIsolationLevel:
     return "database"
 
 
@@ -52,7 +52,7 @@ def keydb_image() -> str:
 @pytest.fixture(autouse=False, scope="session")
 def keydb_service(
     docker_service: DockerService,
-    xdist_keydb_isolate: Literal["database", "server"],
+    xdist_keydb_isolate: XdistIsolationLevel,
     keydb_image: str,
 ) -> Generator[KeydbService, None, None]:
     worker_num = get_xdist_worker_num()

@@ -8,14 +8,14 @@ import redis
 from redis.exceptions import ConnectionError as valkeyConnectionError
 
 from pytest_databases.helpers import get_xdist_worker_num
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
 @pytest.fixture(scope="session")
-def xdist_valkey_isolate() -> Literal["database", "server"]:
+def xdist_valkey_isolate() -> XdistIsolationLevel:
     return "database"
 
 
@@ -53,7 +53,7 @@ def valkey_image() -> str:
 def valkey_service(
     docker_service: DockerService,
     valkey_image: str,
-    xdist_valkey_isolate: Literal["database", "server"],
+    xdist_valkey_isolate: XdistIsolationLevel,
 ) -> Generator[ValkeyService, None, None]:
     worker_num = get_xdist_worker_num()
     if xdist_valkey_isolate == "database":
