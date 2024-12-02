@@ -6,10 +6,8 @@ from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
-from typing_extensions import Literal
-
 from pytest_databases.helpers import get_xdist_worker_num
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -28,11 +26,8 @@ class PostgresService(ServiceContainer):
     user: str
 
 
-PGIsolationLevel = Literal["database", "server"]
-
-
 @pytest.fixture(scope="session")
-def xdist_postgres_isolate() -> PGIsolationLevel:
+def xdist_postgres_isolate() -> XdistIsolationLevel:
     return "database"
 
 
@@ -41,7 +36,7 @@ def _provide_postgres_service(
     docker_service: DockerService,
     image: str,
     name: str,
-    xdist_postgres_isolate: PGIsolationLevel,
+    xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     def check(_service: ServiceContainer) -> bool:
         try:
@@ -86,7 +81,7 @@ def _provide_postgres_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_11_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: PGIsolationLevel,
+    xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -100,7 +95,7 @@ def postgres_11_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_12_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: PGIsolationLevel,
+    xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -114,7 +109,7 @@ def postgres_12_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_13_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: PGIsolationLevel,
+    xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -128,7 +123,7 @@ def postgres_13_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_14_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: PGIsolationLevel,
+    xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -142,7 +137,7 @@ def postgres_14_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_15_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: PGIsolationLevel,
+    xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -156,7 +151,7 @@ def postgres_15_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_16_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: PGIsolationLevel,
+    xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -170,7 +165,7 @@ def postgres_16_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_17_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: PGIsolationLevel,
+    xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,

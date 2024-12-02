@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Generator, Literal
+from typing import TYPE_CHECKING, Generator
 
 import pytest
 import redis
-from redis.exceptions import ConnectionError as RedisConnectionError
-
 from pytest_databases.helpers import get_xdist_worker_num
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
 @pytest.fixture(scope="session")
-def xdist_dragonfly_isolate() -> Literal["database", "server"]:
+def xdist_dragonfly_isolate() -> XdistIsolationLevel:
     return "database"
 
 
@@ -53,7 +52,7 @@ def dragonfly_image() -> str:
 def dragonfly_service(
     docker_service: DockerService,
     dragonfly_image: str,
-    xdist_dragonfly_isolate: Literal["database", "server"],
+    xdist_dragonfly_isolate: XdistIsolationLevel,
 ) -> Generator[DragonflyService, None, None]:
     worker_num = get_xdist_worker_num()
     if xdist_dragonfly_isolate == "database":

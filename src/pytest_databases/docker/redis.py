@@ -8,14 +8,14 @@ from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from pytest_databases.helpers import get_xdist_worker_num
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
 @pytest.fixture(scope="session")
-def xdist_redis_isolate() -> Literal["database", "server"]:
+def xdist_redis_isolate() -> XdistIsolationLevel:
     return "database"
 
 
@@ -53,7 +53,7 @@ def redis_image() -> str:
 def redis_service(
     docker_service: DockerService,
     redis_image: str,
-    xdist_redis_isolate: Literal["database", "server"],
+    xdist_redis_isolate: XdistIsolationLevel,
 ) -> Generator[RedisService, None, None]:
     worker_num = get_xdist_worker_num()
     if xdist_redis_isolate == "database":
