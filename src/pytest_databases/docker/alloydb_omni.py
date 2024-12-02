@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
-
 from pytest_databases.docker.postgres import (
     _make_connection_string,
     _provide_postgres_service,
@@ -30,7 +29,10 @@ def alloydb_omni_service(
     docker_service: DockerService,
 ) -> Generator[AlloyDBService, None, None]:
     with _provide_postgres_service(
-        docker_service=docker_service, image="google/alloydbomni", name="alloydb-omni"
+        docker_service=docker_service,
+        image="google/alloydbomni",
+        name="alloydb-omni",
+        xdist_postgres_isolate="server",
     ) as service:
         yield AlloyDBService(
             host=service.host,
