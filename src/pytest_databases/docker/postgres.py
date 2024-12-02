@@ -3,10 +3,10 @@ from __future__ import annotations
 import dataclasses
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
-from typing_extensions import Literal
 
 import psycopg
 import pytest
+from typing_extensions import Literal
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
