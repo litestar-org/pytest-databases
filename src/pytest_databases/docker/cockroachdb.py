@@ -5,12 +5,17 @@ from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
-
 from pytest_databases._service import DockerService, ServiceContainer
 from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.types import XdistIsolationLevel
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+
+@pytest.fixture(scope="session")
+def xdist_cockroachdb_isolate() -> XdistIsolationLevel:
+    return "database"
 
 
 @dataclass
@@ -27,6 +32,7 @@ def cockroachdb_driver_opts() -> dict[str, str]:
 @pytest.fixture(autouse=False, scope="session")
 def cockroachdb_service(
     docker_service: DockerService,
+    xdist_cockroachdb_isolate: XdistIsolationLevel,
     cockroachdb_driver_opts: dict[str, str],
 ) -> Generator[CockroachDBService, None, None]:
     def cockroachdb_responsive(_service: ServiceContainer) -> bool:
@@ -42,14 +48,19 @@ def cockroachdb_service(
         finally:
             conn.close()
 
+    container_name = "cockroachdb"
+
     worker_num = get_xdist_worker_num()
+    if xdist_cockroachdb_isolate == "server":
+        container_name = f"container_name_{worker_num}"
+
     db_name = f"pytest_{worker_num + 1}"
 
     with docker_service.run(
         image="cockroachdb/cockroach:latest",
         container_port=26257,
         check=cockroachdb_responsive,
-        name="cockroachdb",
+        name=container_name,
         command="start-single-node --insecure",
         exec_after_start=f'cockroach sql --insecure -e "CREATE DATABASE {db_name}";',
     ) as service:
