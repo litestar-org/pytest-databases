@@ -7,14 +7,18 @@ import pytest
 from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials, Credentials
 from google.cloud import bigquery
-
 from pytest_databases.helpers import get_xdist_worker_id
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pytest_databases._service import DockerService
+
+
+@pytest.fixture(scope="session")
+def xdist_bigquery_isolate() -> XdistIsolationLevel:
+    return "database"
 
 
 @dataclass
@@ -32,15 +36,10 @@ class BigQueryService(ServiceContainer):
         return ClientOptions(api_endpoint=self.endpoint)
 
 
-@pytest.fixture(scope="session")
-def bigquery_xdist_isolate() -> bool:
-    return True
-
-
 @pytest.fixture(autouse=False, scope="session")
 def bigquery_service(
     docker_service: DockerService,
-    bigquery_xdist_isolate: bool,
+    xdist_bigquery_isolate: XdistIsolationLevel,
 ) -> Generator[BigQueryService, None, None]:
     project = "emulator-test-project"
     dataset = "test-dataset"
@@ -61,8 +60,12 @@ def bigquery_service(
             return False
 
     container_name = "bigquery"
-    if not bigquery_xdist_isolate:
+    if xdist_bigquery_isolate == "server":
         container_name = f"{container_name}_{get_xdist_worker_id()}"
+    else:
+        worker_id = get_xdist_worker_id()
+        project = f"{project}_{worker_id}"
+        dataset = f"{dataset}_{worker_id}"
 
     with docker_service.run(
         image="ghcr.io/goccy/bigquery-emulator:latest",
