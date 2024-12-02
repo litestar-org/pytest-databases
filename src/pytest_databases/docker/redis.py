@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING, Generator, Literal
 
 import pytest
 from redis import Redis
@@ -12,6 +12,11 @@ from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
+
+
+@pytest.fixture(scope="session")
+def xdist_redis_isolate() -> Literal["database", "server"]:
+    return "database"
 
 
 @dataclasses.dataclass
@@ -40,11 +45,6 @@ def redis_host(redis_service: RedisService) -> str:
 
 
 @pytest.fixture(scope="session")
-def reuse_redis() -> bool:
-    return True
-
-
-@pytest.fixture(scope="session")
 def redis_image() -> str:
     return "redis:latest"
 
@@ -52,11 +52,11 @@ def redis_image() -> str:
 @pytest.fixture(autouse=False, scope="session")
 def redis_service(
     docker_service: DockerService,
-    reuse_redis: bool,
     redis_image: str,
+    xdist_redis_isolate: Literal["database", "server"],
 ) -> Generator[RedisService, None, None]:
     worker_num = get_xdist_worker_num()
-    if reuse_redis:
+    if xdist_redis_isolate == "database":
         container_num = worker_num // 1
         name = f"redis_{container_num + 1}"
         db = worker_num

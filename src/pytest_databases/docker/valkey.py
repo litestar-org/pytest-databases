@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING, Generator, Literal
 
 import pytest
 import redis
@@ -12,6 +12,11 @@ from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
+
+
+@pytest.fixture(scope="session")
+def xdist_valkey_isolate() -> Literal["database", "server"]:
+    return "database"
 
 
 @dataclasses.dataclass
@@ -40,21 +45,18 @@ def valkey_host(valkey_service: ValkeyService) -> str:
 
 
 @pytest.fixture(scope="session")
-def reuse_valkey() -> bool:
-    return True
-
-
-@pytest.fixture(scope="session")
 def valkey_image() -> str:
     return "valkey/valkey:latest"
 
 
 @pytest.fixture(autouse=False, scope="session")
 def valkey_service(
-    docker_service: DockerService, reuse_valkey: bool, valkey_image: str
+    docker_service: DockerService,
+    valkey_image: str,
+    xdist_valkey_isolate: Literal["database", "server"],
 ) -> Generator[ValkeyService, None, None]:
     worker_num = get_xdist_worker_num()
-    if reuse_valkey:
+    if xdist_valkey_isolate == "database":
         container_num = worker_num // 1
         name = f"valkey_{container_num + 1}"
         db = worker_num

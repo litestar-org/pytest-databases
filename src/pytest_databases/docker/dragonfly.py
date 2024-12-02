@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING, Generator, Literal
 
 import pytest
 import redis
@@ -12,6 +12,11 @@ from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
+
+
+@pytest.fixture(scope="session")
+def xdist_dragonfly_isolate() -> Literal["database", "server"]:
+    return "database"
 
 
 @dataclasses.dataclass
@@ -40,11 +45,6 @@ def dragonfly_host(dragonfly_service: DragonflyService) -> str:
 
 
 @pytest.fixture(scope="session")
-def reuse_dragonfly() -> bool:
-    return True
-
-
-@pytest.fixture(scope="session")
 def dragonfly_image() -> str:
     return "docker.dragonflydb.io/dragonflydb/dragonfly"
 
@@ -52,11 +52,11 @@ def dragonfly_image() -> str:
 @pytest.fixture(autouse=False, scope="session")
 def dragonfly_service(
     docker_service: DockerService,
-    reuse_dragonfly: bool,
     dragonfly_image: str,
+    xdist_dragonfly_isolate: Literal["database", "server"],
 ) -> Generator[DragonflyService, None, None]:
     worker_num = get_xdist_worker_num()
-    if reuse_dragonfly:
+    if xdist_dragonfly_isolate == "database":
         container_num = worker_num // 1
         name = f"dragonfly_{container_num + 1}"
         db = worker_num
