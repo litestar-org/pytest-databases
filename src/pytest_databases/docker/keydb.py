@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING, Generator, Literal
 
 import pytest
 import redis
@@ -12,6 +12,11 @@ from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
+
+
+@pytest.fixture(scope="session")
+def xdist_keydb_isolate() -> Literal["database", "server"]:
+    return "database"
 
 
 @dataclasses.dataclass
@@ -40,11 +45,6 @@ def keydb_host(keydb_service: KeydbService) -> str:
 
 
 @pytest.fixture(scope="session")
-def reuse_keydb() -> bool:
-    return True
-
-
-@pytest.fixture(scope="session")
 def keydb_image() -> str:
     return "eqalpha/keydb"
 
@@ -52,11 +52,11 @@ def keydb_image() -> str:
 @pytest.fixture(autouse=False, scope="session")
 def keydb_service(
     docker_service: DockerService,
-    reuse_keydb: bool,
+    xdist_keydb_isolate: Literal["database", "server"],
     keydb_image: str,
 ) -> Generator[KeydbService, None, None]:
     worker_num = get_xdist_worker_num()
-    if reuse_keydb:
+    if xdist_keydb_isolate == "database":
         container_num = worker_num // 1
         name = f"keydb_{container_num + 1}"
         db = worker_num
