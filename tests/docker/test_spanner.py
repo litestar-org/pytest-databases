@@ -1,48 +1,37 @@
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 from google.cloud import spanner
 
-from pytest_databases.docker.spanner import spanner_responsive
-
 if TYPE_CHECKING:
-    from google.auth.credentials import Credentials
-
-    from pytest_databases.docker import DockerServiceRegistry
+    from pytest_databases.docker.spanner import SpannerService
 
 pytest_plugins = [
     "pytest_databases.docker.spanner",
 ]
 
 
-def test_spanner_default_config(
-    spanner_port: int, spanner_instance: str, spanner_database: str, spanner_project: str
-) -> None:
-    assert spanner_port == 9010
-    assert spanner_instance == "test-instance"
-    assert spanner_database == "test-database"
-    assert spanner_project == "emulator-test-project"
-
-
 def test_spanner_services(
-    spanner_docker_ip: str,
-    spanner_service: DockerServiceRegistry,
-    spanner_port: int,
-    spanner_instance: str,
-    spanner_database: str,
-    spanner_project: str,
-    spanner_credentials: Credentials,
+    spanner_service: SpannerService,
 ) -> None:
-    ping = spanner_responsive(
-        spanner_docker_ip,
-        spanner_port=spanner_port,
-        spanner_instance=spanner_instance,
-        spanner_database=spanner_database,
-        spanner_project=spanner_project,
-        spanner_credentials=spanner_credentials,
+    spanner_client = spanner.Client(
+        project=spanner_service.project,
+        credentials=spanner_service.credentials,
+        client_options=spanner_service.client_options,
     )
-    assert ping
+    instance = spanner_client.instance(spanner_service.instance_name)
+    with contextlib.suppress(Exception):
+        instance.create()
+
+    database = instance.database(spanner_service.database_name)
+    with contextlib.suppress(Exception):
+        database.create()
+
+    with database.snapshot() as snapshot:
+        resp = next(iter(snapshot.execute_sql("SELECT 1")))
+    assert resp[0] == 1
 
 
 def test_spanner_service_after_start(
