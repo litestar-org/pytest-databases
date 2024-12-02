@@ -5,14 +5,18 @@ from typing import TYPE_CHECKING
 
 import pymssql
 import pytest
-
 from pytest_databases.helpers import get_xdist_worker_num
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pytest_databases._service import DockerService
+
+
+@pytest.fixture(scope="session")
+def xdist_mssql_isolate() -> XdistIsolationLevel:
+    return "database"
 
 
 @dataclasses.dataclass
@@ -37,6 +41,7 @@ class MSSQLService(ServiceContainer):
 @pytest.fixture(autouse=False, scope="session")
 def mssql_service(
     docker_service: DockerService,
+    xdist_mssql_isolate: XdistIsolationLevel,
 ) -> Generator[MSSQLService, None, None]:
     password = "Super-secret1"
 
@@ -58,11 +63,15 @@ def mssql_service(
 
     worker_num = get_xdist_worker_num()
     db_name = f"pytest_{worker_num + 1}"
+    container_name = "mssql"
+    if xdist_mssql_isolate == "server":
+        container_name = f"{container_name}_{worker_num}"
+
     with docker_service.run(
         image="mcr.microsoft.com/mssql/server:2022-latest",
         check=check,
         container_port=1433,
-        name="mssql",
+        name=container_name,
         env={
             "SA_PASSWORD": password,
             "MSSQL_PID": "Developer",
