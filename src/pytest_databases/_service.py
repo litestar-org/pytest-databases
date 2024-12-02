@@ -7,10 +7,10 @@ import subprocess  # noqa: S404
 import time
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Generator
-from typing_extensions import Self
 
 import filelock
 import pytest
+from typing_extensions import Self
 
 import docker
 from docker.errors import ImageNotFound
