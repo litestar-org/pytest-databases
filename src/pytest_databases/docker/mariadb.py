@@ -61,7 +61,7 @@ def _provide_mysql_service(
         image=image,
         check=check,
         container_port=3306,
-        name=name,
+        name=f"{name}_{worker_num}",
         env={
             "MARIADB_ROOT_PASSWORD": root_password,
             "MARIADB_PASSWORD": password,
