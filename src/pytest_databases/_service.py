@@ -18,7 +18,6 @@ from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
-    import multiprocessing
     import pathlib
     from types import TracebackType
 
