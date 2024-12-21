@@ -8,12 +8,17 @@ import pymysql
 import pytest
 
 from pytest_databases.helpers import get_xdist_worker_num
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pytest_databases._service import DockerService
+
+
+@pytest.fixture(scope="session")
+def xdist_mariadb_isolate() -> XdistIsolationLevel:
+    return "database"
 
 
 @dataclass
@@ -28,6 +33,7 @@ def _provide_mysql_service(
     docker_service: DockerService,
     image: str,
     name: str,
+    isolation_level: XdistIsolationLevel,
 ) -> Generator[MariaDBService, None, None]:
     user = "app"
     password = "super-secret"
@@ -57,11 +63,14 @@ def _provide_mysql_service(
 
     worker_num = get_xdist_worker_num()
     db_name = f"pytest_{worker_num + 1}"
+    if isolation_level == "server":
+        name = f"{name}_{worker_num}"
+
     with docker_service.run(
         image=image,
         check=check,
         container_port=3306,
-        name=f"{name}_{worker_num}",
+        name=name,
         env={
             "MARIADB_ROOT_PASSWORD": root_password,
             "MARIADB_PASSWORD": password,
@@ -90,11 +99,13 @@ def _provide_mysql_service(
 @pytest.fixture(autouse=False, scope="session")
 def mariadb113_service(
     docker_service: DockerService,
+    xdist_mariadb_isolate: XdistIsolationLevel,
 ) -> Generator[MariaDBService, None, None]:
     with _provide_mysql_service(
         docker_service=docker_service,
         image="mariadb:11.3",
         name="mariadb-11.3",
+        isolation_level=xdist_mariadb_isolate,
     ) as service:
         yield service
 
