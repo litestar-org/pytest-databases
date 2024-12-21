@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
+
 from pytest_databases.docker.postgres import (
     _make_connection_string,
     _provide_postgres_service,
