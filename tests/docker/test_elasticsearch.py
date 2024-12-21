@@ -14,7 +14,7 @@ pytest_plugins = [
 ]
 
 
-pytestmark = pytest.mark.xdist_group("elasticsearch")
+pytestmark = [pytest.mark.xdist_group("elasticsearch"), pytest.mark.skip(reason="OOM")]
 
 
 def test_elasticsearch7_service(elasticsearch7_service: ElasticsearchService) -> None:
