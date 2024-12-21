@@ -81,6 +81,7 @@ def mssql_service(
         },
         timeout=100,
         pause=1,
+        transient=xdist_mssql_isolation_level == "server",
     ) as service:
         with pymssql.connect(
             user="sa",

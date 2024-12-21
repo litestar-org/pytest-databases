@@ -65,6 +65,7 @@ def cockroachdb_service(
         name=container_name,
         command="start-single-node --insecure",
         exec_after_start=f'cockroach sql --insecure -e "CREATE DATABASE {db_name}";',
+        transient=cockroachdb_xdist_isolation_level == "server",
     ) as service:
         yield CockroachDBService(
             host=service.host,

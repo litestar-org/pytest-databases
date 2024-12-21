@@ -69,6 +69,7 @@ def _provide_postgres_service(
             "POSTGRES_PASSWORD": "super-secret",
         },
         exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
+        transient=xdist_postgres_isolate == "server",
     ) as service:
         yield PostgresService(
             database=db_name,

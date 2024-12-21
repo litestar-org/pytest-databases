@@ -86,6 +86,7 @@ def _provide_mysql_service(
             f"GRANT ALL PRIVILEGES ON {db_name}.* TO '{user}'@'%'; "
             'FLUSH PRIVILEGES;"'
         ),
+        transient=isolation_level == "server",
     ) as service:
         yield MariaDBService(
             db=db_name,
