@@ -14,11 +14,6 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
-@pytest.fixture(scope="session")
-def xdist_keydb_isolate() -> XdistIsolationLevel:
-    return "database"
-
-
 @dataclasses.dataclass
 class KeydbService(ServiceContainer):
     db: int
@@ -32,6 +27,11 @@ def keydb_responsive(service_container: ServiceContainer) -> bool:
         return False
     finally:
         client.close()
+
+
+@pytest.fixture(scope="session")
+def xdist_keydb_isolation_level() -> XdistIsolationLevel:
+    return "database"
 
 
 @pytest.fixture(scope="session")
@@ -52,11 +52,11 @@ def keydb_image() -> str:
 @pytest.fixture(autouse=False, scope="session")
 def keydb_service(
     docker_service: DockerService,
-    xdist_keydb_isolate: XdistIsolationLevel,
+    xdist_keydb_isolation_level: XdistIsolationLevel,
     keydb_image: str,
 ) -> Generator[KeydbService, None, None]:
     worker_num = get_xdist_worker_num()
-    if xdist_keydb_isolate == "database":
+    if xdist_keydb_isolation_level == "database":
         container_num = worker_num // 1
         name = f"keydb_{container_num + 1}"
         db = worker_num

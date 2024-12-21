@@ -16,16 +16,16 @@ if TYPE_CHECKING:
     from pytest_databases.types import XdistIsolationLevel
 
 
-@pytest.fixture(scope="session")
-def xdist_mysql_isolate() -> XdistIsolationLevel:
-    return "database"
-
-
 @dataclass
 class MySQLService(ServiceContainer):
     db: str
     user: str
     password: str
+
+
+@pytest.fixture(scope="session")
+def xdist_mysql_isolation_level() -> XdistIsolationLevel:
+    return "database"
 
 
 @contextlib.contextmanager
@@ -104,13 +104,13 @@ def mysql_service(mysql8_service: MySQLService) -> MySQLService:
 @pytest.fixture(autouse=False, scope="session")
 def mysql8_service(
     docker_service: DockerService,
-    xdist_mysql_isolate: XdistIsolationLevel,
+    xdist_mysql_isolation_level: XdistIsolationLevel,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:8",
         name="mysql-8",
         docker_service=docker_service,
-        isolation_level=xdist_mysql_isolate,
+        isolation_level=xdist_mysql_isolation_level,
     ) as service:
         yield service
 
@@ -118,13 +118,13 @@ def mysql8_service(
 @pytest.fixture(autouse=False, scope="session")
 def mysql57_service(
     docker_service: DockerService,
-    xdist_mysql_isolate: XdistIsolationLevel,
+    xdist_mysql_isolation_level: XdistIsolationLevel,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:5.7",
         name="mysql-57",
         docker_service=docker_service,
-        isolation_level=xdist_mysql_isolate,
+        isolation_level=xdist_mysql_isolation_level,
     ) as service:
         yield service
 
@@ -132,13 +132,13 @@ def mysql57_service(
 @pytest.fixture(autouse=False, scope="session")
 def mysql56_service(
     docker_service: DockerService,
-    xdist_mysql_isolate: XdistIsolationLevel,
+    xdist_mysql_isolation_level: XdistIsolationLevel,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:5.6",
         name="mysql-56",
         docker_service=docker_service,
-        isolation_level=xdist_mysql_isolate,
+        isolation_level=xdist_mysql_isolation_level,
     ) as service:
         yield service
 
