@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(scope="session")
-def xdist_mssql_isolate() -> XdistIsolationLevel:
+def xdist_mssql_isolation_level() -> XdistIsolationLevel:
     return "database"
 
 
@@ -42,7 +42,7 @@ class MSSQLService(ServiceContainer):
 @pytest.fixture(autouse=False, scope="session")
 def mssql_service(
     docker_service: DockerService,
-    xdist_mssql_isolate: XdistIsolationLevel,
+    xdist_mssql_isolation_level: XdistIsolationLevel,
 ) -> Generator[MSSQLService, None, None]:
     password = "Super-secret1"
 
@@ -65,7 +65,7 @@ def mssql_service(
     worker_num = get_xdist_worker_num()
     db_name = f"pytest_{worker_num + 1}"
     container_name = "mssql"
-    if xdist_mssql_isolate == "server":
+    if xdist_mssql_isolation_level == "server":
         container_name = f"{container_name}_{worker_num}"
 
     with docker_service.run(

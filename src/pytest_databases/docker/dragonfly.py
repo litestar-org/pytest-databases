@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(scope="session")
-def xdist_dragonfly_isolate() -> XdistIsolationLevel:
+def xdist_dragonfly_isolation_level() -> XdistIsolationLevel:
     return "database"
 
 
@@ -53,10 +53,10 @@ def dragonfly_image() -> str:
 def dragonfly_service(
     docker_service: DockerService,
     dragonfly_image: str,
-    xdist_dragonfly_isolate: XdistIsolationLevel,
+    xdist_dragonfly_isolation_level: XdistIsolationLevel,
 ) -> Generator[DragonflyService, None, None]:
     worker_num = get_xdist_worker_num()
-    if xdist_dragonfly_isolate == "database":
+    if xdist_dragonfly_isolation_level == "database":
         container_num = worker_num // 1
         name = f"dragonfly_{container_num + 1}"
         db = worker_num

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Generator
 
 import pytest
 import redis
-from redis.exceptions import ConnectionError as valkeyConnectionError
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
@@ -14,21 +13,21 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
-@pytest.fixture(scope="session")
-def xdist_valkey_isolate() -> XdistIsolationLevel:
-    return "database"
-
-
 @dataclasses.dataclass
 class ValkeyService(ServiceContainer):
     db: int
+
+
+@pytest.fixture(scope="session")
+def xdist_valkey_isolation_level() -> XdistIsolationLevel:
+    return "database"
 
 
 def valkey_responsive(service_container: ServiceContainer) -> bool:
     client = redis.Redis.from_url("redis://", host=service_container.host, port=service_container.port)
     try:
         return client.ping()
-    except (ConnectionError, valkeyConnectionError):
+    except redis.exceptions.ConnectionError:
         return False
     finally:
         client.close()
@@ -53,10 +52,10 @@ def valkey_image() -> str:
 def valkey_service(
     docker_service: DockerService,
     valkey_image: str,
-    xdist_valkey_isolate: XdistIsolationLevel,
+    xdist_valkey_isolation_level: XdistIsolationLevel,
 ) -> Generator[ValkeyService, None, None]:
     worker_num = get_xdist_worker_num()
-    if xdist_valkey_isolate == "database":
+    if xdist_valkey_isolation_level == "database":
         container_num = worker_num // 1
         name = f"valkey_{container_num + 1}"
         db = worker_num

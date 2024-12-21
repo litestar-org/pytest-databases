@@ -20,16 +20,16 @@ def _make_connection_string(host: str, port: int, user: str, password: str, data
     return f"dbname={database} user={user} host={host} port={port} password={password}"
 
 
+@pytest.fixture(scope="session")
+def xdist_postgres_isolation_level() -> XdistIsolationLevel:
+    return "database"
+
+
 @dataclasses.dataclass
 class PostgresService(ServiceContainer):
     database: str
     password: str
     user: str
-
-
-@pytest.fixture(scope="session")
-def xdist_postgres_isolate() -> XdistIsolationLevel:
-    return "database"
 
 
 @contextmanager
@@ -82,13 +82,13 @@ def _provide_postgres_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_11_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: XdistIsolationLevel,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
         image="postgres:11",
         name="postgres-11",
-        xdist_postgres_isolate=xdist_postgres_isolate,
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
     ) as service:
         yield service
 
@@ -96,13 +96,13 @@ def postgres_11_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_12_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: XdistIsolationLevel,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
         image="postgres:12",
         name="postgres-12",
-        xdist_postgres_isolate=xdist_postgres_isolate,
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
     ) as service:
         yield service
 
@@ -110,13 +110,13 @@ def postgres_12_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_13_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: XdistIsolationLevel,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
         image="postgres:13",
         name="postgres-13",
-        xdist_postgres_isolate=xdist_postgres_isolate,
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
     ) as service:
         yield service
 
@@ -124,13 +124,13 @@ def postgres_13_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_14_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: XdistIsolationLevel,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
         image="postgres:14",
         name="postgres-14",
-        xdist_postgres_isolate=xdist_postgres_isolate,
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
     ) as service:
         yield service
 
@@ -138,13 +138,13 @@ def postgres_14_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_15_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: XdistIsolationLevel,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
         image="postgres:15",
         name="postgres-15",
-        xdist_postgres_isolate=xdist_postgres_isolate,
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
     ) as service:
         yield service
 
@@ -152,13 +152,13 @@ def postgres_15_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_16_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: XdistIsolationLevel,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
         image="postgres:16",
         name="postgres-16",
-        xdist_postgres_isolate=xdist_postgres_isolate,
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
     ) as service:
         yield service
 
@@ -166,13 +166,13 @@ def postgres_16_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_17_service(
     docker_service: DockerService,
-    xdist_postgres_isolate: XdistIsolationLevel,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
         image="postgres:17",
         name="postgres-17",
-        xdist_postgres_isolate=xdist_postgres_isolate,
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
     ) as service:
         yield service
 

@@ -16,16 +16,16 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
-@pytest.fixture(scope="session")
-def xdist_mariadb_isolate() -> XdistIsolationLevel:
-    return "database"
-
-
 @dataclass
 class MariaDBService(ServiceContainer):
     db: str
     user: str
     password: str
+
+
+@pytest.fixture(scope="session")
+def xdist_mariadb_isolation_level() -> XdistIsolationLevel:
+    return "database"
 
 
 @contextlib.contextmanager
@@ -99,13 +99,13 @@ def _provide_mysql_service(
 @pytest.fixture(autouse=False, scope="session")
 def mariadb113_service(
     docker_service: DockerService,
-    xdist_mariadb_isolate: XdistIsolationLevel,
+    xdist_mariadb_isolation_level: XdistIsolationLevel,
 ) -> Generator[MariaDBService, None, None]:
     with _provide_mysql_service(
         docker_service=docker_service,
         image="mariadb:11.3",
         name="mariadb-11.3",
-        isolation_level=xdist_mariadb_isolate,
+        isolation_level=xdist_mariadb_isolation_level,
     ) as service:
         yield service
 

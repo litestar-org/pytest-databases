@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(scope="session")
-def xdist_cockroachdb_isolate() -> XdistIsolationLevel:
+def cockroachdb_xdist_isolation_level() -> XdistIsolationLevel:
     return "database"
 
 
@@ -34,7 +34,7 @@ def cockroachdb_driver_opts() -> dict[str, str]:
 @pytest.fixture(autouse=False, scope="session")
 def cockroachdb_service(
     docker_service: DockerService,
-    xdist_cockroachdb_isolate: XdistIsolationLevel,
+    cockroachdb_xdist_isolation_level: XdistIsolationLevel,
     cockroachdb_driver_opts: dict[str, str],
 ) -> Generator[CockroachDBService, None, None]:
     def cockroachdb_responsive(_service: ServiceContainer) -> bool:
@@ -53,7 +53,7 @@ def cockroachdb_service(
     container_name = "cockroachdb"
 
     worker_num = get_xdist_worker_num()
-    if xdist_cockroachdb_isolate == "server":
+    if cockroachdb_xdist_isolation_level == "server":
         container_name = f"container_name_{worker_num}"
 
     db_name = f"pytest_{worker_num + 1}"

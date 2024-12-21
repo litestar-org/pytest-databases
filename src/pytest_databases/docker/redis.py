@@ -14,14 +14,14 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
-@pytest.fixture(scope="session")
-def xdist_redis_isolate() -> XdistIsolationLevel:
-    return "database"
-
-
 @dataclasses.dataclass
 class RedisService(ServiceContainer):
     db: int
+
+
+@pytest.fixture(scope="session")
+def xdist_redis_isolation_level() -> XdistIsolationLevel:
+    return "database"
 
 
 def redis_responsive(service_container: ServiceContainer) -> bool:
@@ -53,10 +53,10 @@ def redis_image() -> str:
 def redis_service(
     docker_service: DockerService,
     redis_image: str,
-    xdist_redis_isolate: XdistIsolationLevel,
+    xdist_redis_isolation_level: XdistIsolationLevel,
 ) -> Generator[RedisService, None, None]:
     worker_num = get_xdist_worker_num()
-    if xdist_redis_isolate == "database":
+    if xdist_redis_isolation_level == "database":
         container_num = worker_num // 1
         name = f"redis_{container_num + 1}"
         db = worker_num
