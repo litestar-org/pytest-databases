@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 @dataclass
 class SpannerService(ServiceContainer):
     credentials: Credentials
+    project: str
+    database_name: str
+    instance_name: str
 
     @property
     def endpoint(self) -> str:
@@ -41,6 +44,9 @@ def spanner_service(docker_service: DockerService) -> Generator[SpannerService, 
             host=service.host,
             port=service.port,
             credentials=AnonymousCredentials(),
+            project="emulator-test-project",
+            instance_name="emulator-test-instance",
+            database_name="emulator-test-database",
         )
 
 
