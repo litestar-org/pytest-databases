@@ -77,14 +77,8 @@ class DockerService(AbstractContextManager):
     ) -> None:
         self._client = client
         self._tmp_path = tmp_path
-        self._daemon_proc: multiprocessing.Process | None = None
         self._session = session
         self._is_xdist = get_xdist_worker_id() is not None
-
-    def _daemon(self) -> None:
-        while (self._tmp_path / "ctrl").exists():
-            time.sleep(0.1)
-        self._stop_all_containers()
 
     def __enter__(self) -> Self:
         if self._is_xdist:
@@ -134,6 +128,7 @@ class DockerService(AbstractContextManager):
         wait_for_log: str | bytes | None = None,
         timeout: int = 10,
         pause: float = 0.1,
+        transient: bool = False,
     ) -> Generator[ServiceContainer, None, None]:
         if check is None and wait_for_log is None:
             msg = "Must set at least check or wait_for_log"
@@ -194,6 +189,9 @@ class DockerService(AbstractContextManager):
             container.exec_run(exec_after_start)
 
         yield service
+        if transient:
+            container.stop()
+            container.remove()
 
 
 @pytest.fixture(scope="session")

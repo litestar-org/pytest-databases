@@ -78,6 +78,7 @@ def _provide_elasticsearch_service(
         check=check,
         timeout=120,
         pause=1,
+        transient=True,
     ) as service:
         yield ElasticsearchService(
             host=service.host,
