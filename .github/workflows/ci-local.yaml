@@ -1,4 +1,4 @@
-name: Tests And Linting
+name: Full LocalTests And Linting
 
 on:
   push:
@@ -17,39 +17,15 @@ env:
 jobs:
   run:
     name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
-
-      - if: runner.os == 'Linux'
-        name: Install Microsoft ODBC Drivers & Free additional space
-        run: |
-          sudo ACCEPT_EULA=Y apt-get install msodbcsql18 -y || true
-          sudo docker rmi $(docker image ls -aq) >/dev/null 2>&1 || true
-          sudo rm -rf \
-          /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-          /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup \
-          /usr/lib/jvm || true
-          sudo apt-get autoremove -y \
-          && sudo apt-get clean -y \
-          && sudo rm -rf /root/.cache \
-          && sudo rm -rf /var/apt/lists/* \
-          && sudo rm -rf /var/cache/apt/* \
-          && sudo apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install Hatch
-        run: pip install --upgrade hatch hatch-pip-compile
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Lint
@@ -71,7 +47,7 @@ jobs:
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5.3.0
+        uses: codecov/codecov-action@v5.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: litestar-org/pytest-databases
