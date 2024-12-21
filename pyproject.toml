@@ -641,7 +641,7 @@ line-length = 120
 ## Testing Tools
 
 [tool.pytest.ini_options]
-addopts = "--dist loadfile -n 2 --doctest-glob='*.md' --dist=loadgroup"
+addopts = "--doctest-glob='*.md' --dist=loadgroup"
 filterwarnings = [
   "ignore::DeprecationWarning:pkg_resources",
   "ignore::DeprecationWarning:xdist.*",
