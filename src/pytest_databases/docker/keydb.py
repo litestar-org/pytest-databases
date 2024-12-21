@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Generator, Literal
+from typing import TYPE_CHECKING, Generator
 
 import pytest
 import redis

@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Generator
 
 import pytest
 import redis
+from redis.exceptions import ConnectionError as RedisConnectionError
+
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
-from redis.exceptions import ConnectionError as RedisConnectionError
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
