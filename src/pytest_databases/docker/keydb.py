@@ -68,5 +68,6 @@ def keydb_service(
         check=keydb_responsive,
         container_port=6379,
         name=name,
+        transient=xdist_keydb_isolation_level == "server",
     ) as service:
         yield KeydbService(host=service.host, port=service.port, db=db)

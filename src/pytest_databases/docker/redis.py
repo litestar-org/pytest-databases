@@ -68,5 +68,6 @@ def redis_service(
         check=redis_responsive,
         container_port=6379,
         name=name,
+        transient=xdist_redis_isolation_level == "server",
     ) as service:
         yield RedisService(host=service.host, port=service.port, db=db)

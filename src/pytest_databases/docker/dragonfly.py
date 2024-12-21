@@ -68,5 +68,6 @@ def dragonfly_service(
         check=dragonfly_responsive,
         container_port=6379,
         name=name,
+        transient=xdist_dragonfly_isolation_level == "server",
     ) as service:
         yield DragonflyService(host=service.host, port=service.port, db=db)

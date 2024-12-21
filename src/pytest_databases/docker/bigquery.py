@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(scope="session")
-def xdist_bigquery_isolate() -> XdistIsolationLevel:
+def xdist_bigquery_isolation_level() -> XdistIsolationLevel:
     return "database"
 
 
@@ -40,7 +40,7 @@ class BigQueryService(ServiceContainer):
 @pytest.fixture(autouse=False, scope="session")
 def bigquery_service(
     docker_service: DockerService,
-    xdist_bigquery_isolate: XdistIsolationLevel,
+    xdist_bigquery_isolation_level: XdistIsolationLevel,
 ) -> Generator[BigQueryService, None, None]:
     project = "emulator-test-project"
     dataset = "test-dataset"
@@ -61,7 +61,7 @@ def bigquery_service(
             return False
 
     container_name = "bigquery"
-    if xdist_bigquery_isolate == "server":
+    if xdist_bigquery_isolation_level == "server":
         container_name = f"{container_name}_{get_xdist_worker_id()}"
     else:
         worker_id = get_xdist_worker_id()
@@ -79,6 +79,7 @@ def bigquery_service(
         },
         container_port=9050,
         timeout=60,
+        transient=xdist_bigquery_isolation_level == "server",
     ) as service:
         yield BigQueryService(
             host=service.host,
