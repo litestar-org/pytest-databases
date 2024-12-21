@@ -7,6 +7,7 @@ import pytest
 from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials, Credentials
 from google.cloud import bigquery
+
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
