@@ -31,3 +31,11 @@ def get_xdist_worker_num() -> int:
     if worker_id is None or worker_id == "master":
         return 0
     return int(worker_id.replace("gw", ""))
+
+
+def get_xdist_worker_count() -> int:
+    return int(os.getenv("PYTEST_XDIST_WORKER_COUNT", "0"))
+
+
+def is_xdist() -> bool:
+    return get_xdist_worker_count() > 0
