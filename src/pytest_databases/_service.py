@@ -190,7 +190,6 @@ class DockerService(AbstractContextManager):
         yield service
         if transient:
             container.stop()
-            container.remove()
 
 
 @pytest.fixture(scope="session")
@@ -235,7 +234,5 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[
         return (yield)
     finally:
         if not hasattr(session.config, "workerinput") and _get_ctrl_file(session).exists():
-            # if we're running on xdist, delete the ctrl file, telling the deamon proc
-            # to stop all running containers.
-            # when not running on xdist, containers are stopped by the service itself
+            # we're running on xdist, so clean up all containers at the end of the session
             _stop_all_containers(get_docker_client())
