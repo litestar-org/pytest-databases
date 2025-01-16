@@ -94,6 +94,7 @@ extra-dependencies = [
   "pytest-vcr",
   "pytest-click",
   "pytest-xdist",
+  "pytest-sugar",
   # lint
   "mypy",
   "ruff",
@@ -471,14 +472,7 @@ module = ["docutils.nodes.*"]
 
 [[tool.mypy.overrides]]
 ignore_missing_imports = true
-module = [
-  "pyodbc",
-  "google.auth.*",
-  "google.cloud.*",
-  "google.protobuf.*",
-  "googleapiclient",
-  "googleapiclient.*",
-]
+module = ["pyodbc", "google.auth.*", "google.cloud.*", "google.protobuf.*", "googleapiclient", "googleapiclient.*"]
 
 [tool.ruff]
 exclude = [
