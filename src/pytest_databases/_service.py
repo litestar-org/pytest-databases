@@ -14,6 +14,7 @@ from typing_extensions import Self
 
 import docker
 from docker.errors import ImageNotFound
+from docker.types import Ulimit
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
@@ -128,6 +129,8 @@ class DockerService(AbstractContextManager):
         timeout: int = 10,
         pause: float = 0.1,
         transient: bool = False,
+        ulimits: list[Ulimit] | None = None,
+        shm_size: int | None = None,
     ) -> Generator[ServiceContainer, None, None]:
         if check is None and wait_for_log is None:
             msg = "Must set at least check or wait_for_log"
@@ -152,6 +155,7 @@ class DockerService(AbstractContextManager):
                     labels=["pytest_databases"],
                     name=name,
                     environment=env,
+                    ulimits=ulimits,
                 )
                 container.reload()
 

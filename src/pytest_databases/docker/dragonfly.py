@@ -7,6 +7,7 @@ import pytest
 import redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from docker.types import Ulimit
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
@@ -49,11 +50,17 @@ def dragonfly_image() -> str:
     return "docker.dragonflydb.io/dragonflydb/dragonfly"
 
 
+@pytest.fixture(scope="session")
+def dragonfly_ulimits() -> list[Ulimit]:
+    return [Ulimit(name="memlock", soft=-1, hard=-1)]
+
+
 @pytest.fixture(autouse=False, scope="session")
 def dragonfly_service(
     docker_service: DockerService,
     dragonfly_image: str,
     xdist_dragonfly_isolation_level: XdistIsolationLevel,
+    dragonfly_ulimits: list[Ulimit],
 ) -> Generator[DragonflyService, None, None]:
     worker_num = get_xdist_worker_num()
     if xdist_dragonfly_isolation_level == "database":
@@ -69,5 +76,6 @@ def dragonfly_service(
         container_port=6379,
         name=name,
         transient=xdist_dragonfly_isolation_level == "server",
+        ulimits=dragonfly_ulimits,
     ) as service:
         yield DragonflyService(host=service.host, port=service.port, db=db)
