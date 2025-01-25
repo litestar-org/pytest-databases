@@ -14,7 +14,6 @@ from typing_extensions import Self
 
 import docker
 from docker.errors import ImageNotFound
-from docker.types import Ulimit
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
@@ -23,6 +22,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from docker.models.containers import Container
+    from docker.types import Ulimit
 
 
 def get_docker_host() -> str:
