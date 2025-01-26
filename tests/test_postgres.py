@@ -1,23 +1,6 @@
 from __future__ import annotations
 
-import psycopg
 import pytest
-
-from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
-
-
-def postgres_responsive(host: str, port: int, user: str, password: str, database: str) -> bool:
-    with psycopg.connect(
-        _make_connection_string(
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            database=database,
-        )
-    ) as conn:
-        db_open = conn.execute("SELECT 1").fetchone()
-        return bool(db_open is not None and db_open[0] == 1)
 
 
 @pytest.mark.parametrize(
