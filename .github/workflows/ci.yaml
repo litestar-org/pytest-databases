@@ -49,20 +49,19 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install Hatch
-        run: pip install --upgrade hatch hatch-pip-compile
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
-      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
-        name: Lint
-        run: hatch run lint:check
+      - name: Intall dependencies
+        run: uv sync --frozen
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Run tests with coverage tracking
-        run: hatch run +py=${{ matrix.python-version }} test:cov --cdist-group=${{ matrix.cdist-group }}/4 --cdist-justify-items=file
+        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/4 --cdist-justify-items=file
 
       - if: matrix.python-version != '3.12' || runner.os != 'Linux'
         name: Run tests without tracking coverage
-        run: hatch run +py=${{ matrix.python-version }} test:no-cov --cdist-group=${{ matrix.cdist-group }}/4 --cdist-justify-items=file
+        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/4 --cdist-justify-items=file
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -127,11 +126,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Hatch
-        run: pip install --upgrade hatch hatch-containers hatch-pip-compile
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Build docs
-        run: hatch run docs:build
+        run: uv run sphinx-build -M html docs docs/_build/ -E -a -j auto --keep-going
 
       - name: Save PR number
         env:
