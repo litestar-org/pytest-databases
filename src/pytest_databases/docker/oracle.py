@@ -6,17 +6,13 @@ from typing import TYPE_CHECKING
 
 import oracledb
 import pytest
-
-from pytest_databases.helpers import simple_string_hash
 from pytest_databases.types import ServiceContainer
+from pytest_databases.helpers import get_xdist_worker_num
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pytest_databases._service import DockerService
-
-
-COMPOSE_PROJECT_NAME: str = f"pytest-databases-oracle-{simple_string_hash(__file__)}"
 
 
 def oracle_responsive(host: str, port: int, service_name: str, user: str, password: str) -> bool:
@@ -68,14 +64,19 @@ def _provide_oracle_service(
                 cursor.execute("SELECT 1 FROM dual")
                 resp = cursor.fetchone()
             return resp[0] == 1 if resp is not None else False
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             return False
+
+    worker_num = get_xdist_worker_num()
+    if worker_num is not None:
+        name = f"{name}_{worker_num}"
 
     with docker_service.run(
         image=image,
         name=name,
         check=check,
         container_port=1521,
+        timeout=60,
         env={
             "ORACLE_PASSWORD": system_password,
             "APP_USER_PASSWORD": password,
@@ -93,7 +94,7 @@ def _provide_oracle_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle23ai_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
+def oracle_23ai_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
     with _provide_oracle_service(
         image="gvenzl/oracle-free:23-slim-faststart",
         name="oracle23ai",
@@ -104,7 +105,7 @@ def oracle23ai_service(docker_service: DockerService) -> Generator[OracleService
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle18c_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
+def oracle_18c_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
     with _provide_oracle_service(
         image="gvenzl/oracle-free:23-slim-faststart",
         name="oracle18c",
@@ -121,7 +122,7 @@ def oracle_service(oracle23ai_service: OracleService) -> OracleService:
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle18c_startup_connection(
+def oracle_18c_connection(
     oracle18c_service: OracleService,
 ) -> Generator[oracledb.Connection, None, None]:
     with oracledb.connect(
@@ -135,7 +136,7 @@ def oracle18c_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle23ai_startup_connection(
+def oracle_23ai_connection(
     oracle23ai_service: OracleService,
 ) -> Generator[oracledb.Connection, None, None]:
     with oracledb.connect(
