@@ -1,40 +1,97 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-from tests.docker.test_mysql import check
-
-if TYPE_CHECKING:
-    from pytest_databases.docker.mariadb import MariaDBService
-
-pytest_plugins = [
-    "pytest_databases.docker.mariadb",
-]
+import pytest
 
 
-def test_mariadb_services(mariadb_service: MariaDBService) -> None:
-    assert check(mariadb_service)  # type: ignore[arg-type]
+@pytest.mark.parametrize(
+    "service_fixture",
+    [
+        "mariadb_service",
+        "mariadb_113_service",
+    ],
+)
+def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
+    pytester.makepyfile(f"""
+    import pymysql
+    pytest_plugins = ["pytest_databases.docker.mariadb"]
+
+    def test({service_fixture}):
+        with pymysql.connect(
+            host={service_fixture}.host,
+            port={service_fixture}.port,
+            user={service_fixture}.user,
+            database={service_fixture}.db,
+            password={service_fixture}.password,
+        ) as conn, conn.cursor() as cursor:
+            cursor.execute("select 1 as is_available")
+            resp = cursor.fetchone()
+        assert resp is not None and resp[0] == 1
+    """)
+
+    result = pytester.runpytest("-vv")
+    result.assert_outcomes(passed=1)
 
 
-def test_mariadb_113_services(mariadb113_service: MariaDBService) -> None:
-    assert check(mariadb113_service)  # type: ignore[arg-type]
+@pytest.mark.parametrize(
+    "connection_fixture",
+    [
+        "mariadb_connection",
+        "mariadb_113_connection",
+    ],
+)
+def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
+    pytester.makepyfile(f"""
+    import pymysql
+    pytest_plugins = ["pytest_databases.docker.mariadb"]
+
+    def test({connection_fixture}):
+        with {connection_fixture}.cursor() as cursor:
+            cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
+            cursor.execute("select * from simple_table")
+            result = cursor.fetchall()
+            assert result is not None and result[0][0] == 1
+    """)  # noqa: S608
+
+    result = pytester.runpytest("-vv")
+    result.assert_outcomes(passed=1)
 
 
-def test_mariadb_services_after_start(
-    mariadb_startup_connection: Any,
-) -> None:
-    with mariadb_startup_connection.cursor() as cursor:
-        cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
-        cursor.execute("select * from simple_table")
-        result = cursor.fetchall()
-        assert bool(result is not None and result[0][0] == 1)
+def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    import pymysql
+    pytest_plugins = ["pytest_databases.docker.mariadb"]
+
+    def test_1(mariadb_113_connection):
+        with mariadb_113_connection.cursor() as cursor:
+            cursor.execute("CREATE TABLE simple_table as SELECT 1 as the_value;")
+
+    def test_2(mariadb_113_connection):
+        with mariadb_113_connection.cursor() as cursor:
+            cursor.execute("CREATE TABLE simple_table as SELECT 1 as the_value;")
+    """)
+
+    result = pytester.runpytest("-n", "2")
+    result.assert_outcomes(passed=2)
 
 
-def test_mariadb113_services_after_start(
-    mariadb113_startup_connection: Any,
-) -> None:
-    with mariadb113_startup_connection.cursor() as cursor:
-        cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
-        cursor.execute("select * from simple_table")
-        result = cursor.fetchall()
-        assert bool(result is not None and result[0][0] == 1)
+def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    import pymysql
+    import pytest
+    pytest_plugins = ["pytest_databases.docker.mariadb"]
+
+    @pytest.fixture(scope="session")
+    def xdist_mariadb_isolation_level():
+        return "server"
+
+    def test_1(mariadb_113_connection):
+        with mariadb_113_connection.cursor() as cursor:
+            cursor.execute("CREATE DATABASE db_test")
+
+    def test_2(mariadb_113_connection):
+        with mariadb_113_connection.cursor() as cursor:
+            cursor.execute("CREATE DATABASE db_test")
+    """)
+
+    result = pytester.runpytest("-n", "2")
+    result.assert_outcomes(passed=2)

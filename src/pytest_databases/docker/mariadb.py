@@ -62,9 +62,13 @@ def _provide_mysql_service(
                 conn.close()
 
     worker_num = get_xdist_worker_num()
-    db_name = f"pytest_{worker_num + 1}"
-    if isolation_level == "server":
-        name = f"{name}_{worker_num}"
+    db_name = "pytest_databases"
+    if worker_num is not None:
+        suffix = f"_{worker_num}"
+        if isolation_level == "server":
+            name += suffix
+        else:
+            db_name += suffix
 
     with docker_service.run(
         image=image,
@@ -83,7 +87,7 @@ def _provide_mysql_service(
         pause=0.5,
         exec_after_start=(
             f'mariadb --user=root --password={root_password} -e "CREATE DATABASE {db_name};'
-            f"GRANT ALL PRIVILEGES ON {db_name}.* TO '{user}'@'%'; "
+            f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
             'FLUSH PRIVILEGES;"'
         ),
         transient=isolation_level == "server",
@@ -98,7 +102,7 @@ def _provide_mysql_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mariadb113_service(
+def mariadb_113_service(
     docker_service: DockerService,
     xdist_mariadb_isolation_level: XdistIsolationLevel,
 ) -> Generator[MariaDBService, None, None]:
@@ -112,22 +116,22 @@ def mariadb113_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mariadb_service(mariadb113_service: MariaDBService) -> MariaDBService:
-    return mariadb113_service
+def mariadb_service(mariadb_113_service: MariaDBService) -> MariaDBService:
+    return mariadb_113_service
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mariadb113_startup_connection(mariadb_service: MariaDBService) -> Generator[pymysql.Connection, None, None]:
+def mariadb_113_connection(mariadb_113_service: MariaDBService) -> Generator[pymysql.Connection, None, None]:
     with pymysql.connect(
-        host=mariadb_service.host,
-        port=mariadb_service.port,
-        user=mariadb_service.user,
-        database=mariadb_service.db,
-        password=mariadb_service.password,
+        host=mariadb_113_service.host,
+        port=mariadb_113_service.port,
+        user=mariadb_113_service.user,
+        database=mariadb_113_service.db,
+        password=mariadb_113_service.password,
     ) as conn:
         yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mariadb_startup_connection(mariadb113_startup_connection: pymysql.Connection) -> pymysql.Connection:
-    return mariadb113_startup_connection
+def mariadb_connection(mariadb_113_connection: pymysql.Connection) -> pymysql.Connection:
+    return mariadb_113_connection
