@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generator
 
-import pymysql
+import mariadb
 import pytest
 
 from pytest_databases.helpers import get_xdist_worker_num
@@ -42,7 +43,7 @@ def _provide_mysql_service(
 
     def check(_service: ServiceContainer) -> bool:
         try:
-            conn = pymysql.connect(
+            conn = mariadb.connect(
                 host=_service.host,
                 port=_service.port,
                 user=user,
@@ -50,6 +51,7 @@ def _provide_mysql_service(
                 password=password,
             )
         except Exception:  # noqa: BLE001
+            traceback.print_exc()
             return False
 
         try:
@@ -121,8 +123,8 @@ def mariadb_service(mariadb_113_service: MariaDBService) -> MariaDBService:
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mariadb_113_connection(mariadb_113_service: MariaDBService) -> Generator[pymysql.Connection, None, None]:
-    with pymysql.connect(
+def mariadb_113_connection(mariadb_113_service: MariaDBService) -> Generator[mariadb.Connection, None, None]:
+    with mariadb.connect(
         host=mariadb_113_service.host,
         port=mariadb_113_service.port,
         user=mariadb_113_service.user,
@@ -133,5 +135,5 @@ def mariadb_113_connection(mariadb_113_service: MariaDBService) -> Generator[pym
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mariadb_connection(mariadb_113_connection: pymysql.Connection) -> pymysql.Connection:
+def mariadb_connection(mariadb_113_connection: mariadb.Connection) -> mariadb.Connection:
     return mariadb_113_connection

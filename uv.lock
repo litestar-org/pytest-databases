@@ -1017,6 +1017,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "mariadb"
+version = "1.1.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a1/8b/4e263dd4e631083ffaac4f3f7b03ad6fd52a3736967aea06ef946a824ff6/mariadb-1.1.11.tar.gz", hash = "sha256:cf6647cee081e21d0994b409ba8c8fa2077f3972f1de3627c5502fb31d14f806", size = 85604 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/75/440570ee3893d9d2bfbc0f88c83b2ea18452e304ac1a3296276b70072677/mariadb-1.1.11-cp310-cp310-win32.whl", hash = "sha256:dbc4cf0e302ca82d46f9431a0b04f048e9c21ee56d6f3162c29605f84d63b40c", size = 183311 },
+    { url = "https://files.pythonhosted.org/packages/6b/1f/5295e8496aea3854ea9481538de406245b8e7f06c3e7592308ef9ed08402/mariadb-1.1.11-cp310-cp310-win_amd64.whl", hash = "sha256:579420293fa790d5ae0a6cb4bdb7e8be8facc2ceefb6123c2b0e8042b3fa725d", size = 199877 },
+    { url = "https://files.pythonhosted.org/packages/fc/0b/e4557b46d6ed5b9cadba0f580c790040c2f796e40b19115638b641e7418d/mariadb-1.1.11-cp311-cp311-win32.whl", hash = "sha256:0f8de8d66ca71bd102f34a970a331b7d75bdf7f8050d80e37cdcc6ff3c85cf7a", size = 183310 },
+    { url = "https://files.pythonhosted.org/packages/90/4f/35dc6c4b7e17157cd51cb1f6e1a1476fd0a083cc3e34f6551100216cb8df/mariadb-1.1.11-cp311-cp311-win_amd64.whl", hash = "sha256:3f64b520089cb60c4f8302f365ed0ae057c4c859ab70fc8b1c4358192c3c8f27", size = 199867 },
+    { url = "https://files.pythonhosted.org/packages/1b/5b/3ff578d7fb61196b9a61c8e78b0fcfe4a9c06ecd1a53293014fe0900c702/mariadb-1.1.11-cp312-cp312-win32.whl", hash = "sha256:f6dfdc954edf02b6519419a054798cda6034dc459d1d482e3329e37aa27d34f0", size = 183447 },
+    { url = "https://files.pythonhosted.org/packages/72/0e/ad5ec8b2d2b71fe2ce7604320d35d13a96334b2788168f2d3859a5844f93/mariadb-1.1.11-cp312-cp312-win_amd64.whl", hash = "sha256:2e72ea65f1d7d8563ee84e172f2a583193092bdb6ff83c470ca9722873273ecc", size = 199946 },
+    { url = "https://files.pythonhosted.org/packages/1e/17/e5f8f971c17ceaf9485b81e4986388f383740b27bd287b952bb72f320e0a/mariadb-1.1.11-cp313-cp313-win32.whl", hash = "sha256:d7302ccd15f0beee7b286885cbf6ac71ddc240374691d669784d99f89ba34d79", size = 183424 },
+    { url = "https://files.pythonhosted.org/packages/7f/35/93a261e7dbc6f335e89ccea02b62306d361945d9689c0470615d1c4a41a5/mariadb-1.1.11-cp313-cp313-win_amd64.whl", hash = "sha256:c1992ebf9c6f012ac158e33fef9f2c4ba899f721064c4ae3a3489233793296c0", size = 200000 },
+    { url = "https://files.pythonhosted.org/packages/7d/99/f22ad81a61bd264667d6fe1c813ccc756033750b68b18e0ae229647316dc/mariadb-1.1.11-cp39-cp39-win32.whl", hash = "sha256:6f28d8ccc597a3a1368be14078110f743900dbb3b0c7f1cce3072d83bec59c8a", size = 185711 },
+    { url = "https://files.pythonhosted.org/packages/9a/72/7677617511a8c8a9ecf4d4adc6beb46910a5b69b72372fdbb6324c057aec/mariadb-1.1.11-cp39-cp39-win_amd64.whl", hash = "sha256:e94f1738bec09c97b601ddbb1908eb24524ba4630f507a775d82ffdb6c5794b3", size = 202235 },
+]
+
+[[package]]
 name = "markupsafe"
 version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1792,6 +1813,9 @@ elasticsearch8 = [
 keydb = [
     { name = "redis" },
 ]
+mariadb = [
+    { name = "mariadb" },
+]
 mssql = [
     { name = "pymssql" },
 ]
@@ -1823,7 +1847,7 @@ dev = [
     { name = "pytest-cdist" },
     { name = "pytest-click" },
     { name = "pytest-cov" },
-    { name = "pytest-databases", extra = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mssql", "mysql", "oracle", "postgres", "redis", "spanner"] },
+    { name = "pytest-databases", extra = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mariadb", "mssql", "mysql", "oracle", "postgres", "redis", "spanner"] },
     { name = "pytest-mock" },
     { name = "pytest-vcr" },
     { name = "pytest-xdist" },
@@ -1854,6 +1878,7 @@ requires-dist = [
     { name = "filelock" },
     { name = "google-cloud-bigquery", marker = "extra == 'bigquery'" },
     { name = "google-cloud-spanner", marker = "extra == 'spanner'" },
+    { name = "mariadb", marker = "extra == 'mariadb'" },
     { name = "mysql-connector-python", marker = "extra == 'mysql'" },
     { name = "oracledb", marker = "extra == 'oracle'" },
     { name = "psycopg", marker = "extra == 'cockroachdb'" },
@@ -1877,7 +1902,7 @@ dev = [
     { name = "pytest-cdist", specifier = ">=0.2" },
     { name = "pytest-click" },
     { name = "pytest-cov" },
-    { name = "pytest-databases", extras = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mssql", "mysql", "oracle", "postgres", "redis", "spanner"] },
+    { name = "pytest-databases", extras = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mssql", "mysql", "mariadb", "oracle", "postgres", "redis", "spanner"] },
     { name = "pytest-mock" },
     { name = "pytest-vcr" },
     { name = "pytest-xdist" },

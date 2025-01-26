@@ -12,11 +12,12 @@ import pytest
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
     pytester.makepyfile(f"""
-    import pymysql
+    import mariadb
+
     pytest_plugins = ["pytest_databases.docker.mariadb"]
 
     def test({service_fixture}):
-        with pymysql.connect(
+        with mariadb.connect(
             host={service_fixture}.host,
             port={service_fixture}.port,
             user={service_fixture}.user,
@@ -41,7 +42,6 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
 )
 def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
     pytester.makepyfile(f"""
-    import pymysql
     pytest_plugins = ["pytest_databases.docker.mariadb"]
 
     def test({connection_fixture}):
@@ -58,7 +58,6 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
 
 def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
-    import pymysql
     pytest_plugins = ["pytest_databases.docker.mariadb"]
 
     def test_1(mariadb_113_connection):
@@ -76,7 +75,6 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
 
 def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
-    import pymysql
     import pytest
     pytest_plugins = ["pytest_databases.docker.mariadb"]
 

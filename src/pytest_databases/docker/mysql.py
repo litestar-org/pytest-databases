@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import mysql.connector
-from mysql.connector.abstracts import MySQLConnectionAbstract
 import pytest
 
 from pytest_databases._service import DockerService, ServiceContainer
@@ -13,6 +12,8 @@ from pytest_databases.helpers import get_xdist_worker_num
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from mysql.connector.abstracts import MySQLConnectionAbstract
 
     from pytest_databases.types import XdistIsolationLevel
 
@@ -104,12 +105,12 @@ def _provide_mysql_service(
         )
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def mysql_service(mysql_8_service: MySQLService) -> MySQLService:
     return mysql_8_service
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def mysql_56_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
@@ -123,7 +124,7 @@ def mysql_56_service(
         yield service
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def mysql_57_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
@@ -137,7 +138,7 @@ def mysql_57_service(
         yield service
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def mysql_8_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
@@ -151,10 +152,8 @@ def mysql_8_service(
         yield service
 
 
-@pytest.fixture(autouse=False, scope="session")
-def mysql_56_connection(
-    mysql_56_service: MySQLService,
-) -> Generator[MySQLConnectionAbstract, None, None]:
+@pytest.fixture(scope="session")
+def mysql_56_connection(mysql_56_service: MySQLService) -> Generator[MySQLConnectionAbstract, None, None]:
     with mysql.connector.connect(
         host=mysql_56_service.host,
         port=mysql_56_service.port,
@@ -165,10 +164,8 @@ def mysql_56_connection(
         yield conn
 
 
-@pytest.fixture(autouse=False, scope="session")
-def mysql_57_connection(
-    mysql_57_service: MySQLService,
-) -> Generator[MySQLConnectionAbstract, None, None]:
+@pytest.fixture(scope="session")
+def mysql_57_connection(mysql_57_service: MySQLService) -> Generator[MySQLConnectionAbstract, None, None]:
     with mysql.connector.connect(
         host=mysql_57_service.host,
         port=mysql_57_service.port,
@@ -179,13 +176,13 @@ def mysql_57_connection(
         yield conn
 
 
-@pytest.fixture(autouse=False, scope="session")
-def mysql_connection(mysql_8_connection) -> MySQLConnectionAbstract:
+@pytest.fixture(scope="session")
+def mysql_connection(mysql_8_connection: MySQLConnectionAbstract) -> MySQLConnectionAbstract:
     return mysql_8_connection
 
 
-@pytest.fixture(autouse=False, scope="session")
-def mysql_8_connection(mysql_8_service) -> Generator[MySQLConnectionAbstract, None, None]:
+@pytest.fixture(scope="session")
+def mysql_8_connection(mysql_8_service: MySQLService) -> Generator[MySQLConnectionAbstract, None, None]:
     with mysql.connector.connect(
         host=mysql_8_service.host,
         port=mysql_8_service.port,

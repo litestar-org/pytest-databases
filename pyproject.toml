@@ -60,6 +60,7 @@ dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
 keydb = ["redis"]
+mariadb = ["mariadb"]
 mssql = ["pymssql<=2.3.1"]
 mysql = ["mysql-connector-python"]
 oracle = ["oracledb"]
@@ -71,7 +72,7 @@ spanner = ["google-cloud-spanner"]
 [dependency-groups]
 dev = [
   # tests
-  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,oracle,postgres,redis,spanner]",
+  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner]",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
   "pytest",
