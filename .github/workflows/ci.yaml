@@ -16,14 +16,14 @@ env:
 
 jobs:
   run:
-    name: Python ${{ matrix.python-version }}
+    name: Python ${{ matrix.python-version }} - ${{ cdist-group }}/4
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
-        cdist-group: [1, 2, 3, 4, 5, 6]
+        cdist-group: [1, 2, 3, 4]
 
     steps:
       - uses: actions/checkout@v4
@@ -58,11 +58,11 @@ jobs:
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Run tests with coverage tracking
-        run: hatch run +py=${{ matrix.python-version }} test:cov --cdist-group=${{ matrix.cdist-group }}/6
+        run: hatch run +py=${{ matrix.python-version }} test:cov --cdist-group=${{ matrix.cdist-group }}/4
 
       - if: matrix.python-version != '3.12' || runner.os != 'Linux'
         name: Run tests without tracking coverage
-        run: hatch run +py=${{ matrix.python-version }} test:no-cov --cdist-group=${{ matrix.cdist-group }}/6
+        run: hatch run +py=${{ matrix.python-version }} test:no-cov --cdist-group=${{ matrix.cdist-group }}/4
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
