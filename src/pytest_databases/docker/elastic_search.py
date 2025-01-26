@@ -91,7 +91,7 @@ def _provide_elasticsearch_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def elasticsearch7_service(docker_service: DockerService) -> Generator[ElasticsearchService, None, None]:
+def elasticsearch_7_service(docker_service: DockerService) -> Generator[ElasticsearchService, None, None]:
     with _provide_elasticsearch_service(
         docker_service=docker_service,
         image="elasticsearch:7.17.19",
@@ -102,7 +102,7 @@ def elasticsearch7_service(docker_service: DockerService) -> Generator[Elasticse
 
 
 @pytest.fixture(autouse=False, scope="session")
-def elasticsearch8_service(docker_service: DockerService) -> Generator[ElasticsearchService, None, None]:
+def elasticsearch_8_service(docker_service: DockerService) -> Generator[ElasticsearchService, None, None]:
     with _provide_elasticsearch_service(
         docker_service=docker_service,
         image="elasticsearch:8.13.0",
