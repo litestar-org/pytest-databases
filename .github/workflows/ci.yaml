@@ -16,7 +16,7 @@ env:
 
 jobs:
   run:
-    name: Python ${{ matrix.python-version }} - ${{ cdist-group }}/4
+    name: Python ${{ matrix.python-version }} - ${{ matrix.cdist-group }}/4
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
