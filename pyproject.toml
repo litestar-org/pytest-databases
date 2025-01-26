@@ -400,6 +400,8 @@ markers = [
   "elasticsearch: Elasticsearch Tests",
 ]
 testpaths = ["tests"]
+cdist-justify-items = "file"
+cdist-group-steal = "3:30"
 
 [tool.coverage.run]
 branch = true

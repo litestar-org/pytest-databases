@@ -16,7 +16,7 @@ env:
 
 jobs:
   run:
-    name: Python ${{ matrix.python-version }} - ${{ matrix.cdist-group }}/4
+    name: Python ${{ matrix.python-version }} - ${{ matrix.cdist-group }}/3
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -57,11 +57,11 @@ jobs:
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Run tests with coverage tracking
-        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 --cdist-justify-items=file
+        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3
 
       - if: matrix.python-version != '3.12' || runner.os != 'Linux'
         name: Run tests without tracking coverage
-        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 --cdist-justify-items=file
+        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
