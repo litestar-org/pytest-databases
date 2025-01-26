@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(scope="session")
-def cockroachdb_xdist_isolation_level() -> XdistIsolationLevel:
+def xdist_cockroachdb_isolation_level() -> XdistIsolationLevel:
     return "database"
 
 
@@ -32,10 +32,16 @@ def cockroachdb_driver_opts() -> dict[str, str]:
 
 
 @pytest.fixture(scope="session")
+def cockroachdb_image() -> str:
+    return "cockroachdb/cockroach:latest"
+
+
+@pytest.fixture(scope="session")
 def cockroachdb_service(
     docker_service: DockerService,
-    cockroachdb_xdist_isolation_level: XdistIsolationLevel,
+    xdist_cockroachdb_isolation_level: XdistIsolationLevel,
     cockroachdb_driver_opts: dict[str, str],
+    cockroachdb_image: str,
 ) -> Generator[CockroachDBService, None, None]:
     def cockroachdb_responsive(_service: ServiceContainer) -> bool:
         opts = "&".join(f"{k}={v}" for k, v in cockroachdb_driver_opts.items()) if cockroachdb_driver_opts else ""
@@ -51,21 +57,23 @@ def cockroachdb_service(
             conn.close()
 
     container_name = "cockroachdb"
-
+    db_name = "pytest_databases"
     worker_num = get_xdist_worker_num()
-    if cockroachdb_xdist_isolation_level == "server":
-        container_name = f"container_name_{worker_num}"
-
-    db_name = f"pytest_{worker_num + 1}"
+    if worker_num is not None:
+        suffix = f"_{worker_num}"
+        if xdist_cockroachdb_isolation_level == "server":
+            container_name += suffix
+        else:
+            db_name += suffix
 
     with docker_service.run(
-        image="cockroachdb/cockroach:latest",
+        image=cockroachdb_image,
         container_port=26257,
         check=cockroachdb_responsive,
         name=container_name,
         command="start-single-node --insecure",
         exec_after_start=f'cockroach sql --insecure -e "CREATE DATABASE {db_name}";',
-        transient=cockroachdb_xdist_isolation_level == "server",
+        transient=xdist_cockroachdb_isolation_level == "server",
     ) as service:
         yield CockroachDBService(
             host=service.host,
@@ -76,7 +84,7 @@ def cockroachdb_service(
 
 
 @pytest.fixture(scope="session")
-def cockroachdb_startup_connection(
+def cockroachdb_connection(
     cockroachdb_service: CockroachDBService,
     cockroachdb_driver_opts: dict[str, str],
 ) -> Generator[psycopg.Connection, None, None]:

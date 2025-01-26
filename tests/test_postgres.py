@@ -78,7 +78,27 @@ def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixtur
     result.assert_outcomes(passed=1)
 
 
-def test_postgres_isolate_server(pytester: pytest.Pytester) -> None:
+def test_xdist_isolate_db(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    import pytest
+    import psycopg
+    from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
+
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+    def test_two(postgres_connection) -> None:
+        postgres_connection.execute("CREATE TABLE foo AS SELECT 1")
+
+    def test_two(postgres_connection) -> None:
+        postgres_connection.execute("CREATE TABLE foo AS SELECT 1")
+    """)
+
+    result = pytester.runpytest("-n", "2")
+    result.assert_outcomes(passed=1)
+
+
+def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     import pytest
     import psycopg
