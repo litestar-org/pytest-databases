@@ -138,6 +138,7 @@ class DockerService(AbstractContextManager):
 
         name = f"pytest_databases_{name}"
         lock = filelock.FileLock(self._tmp_path / name) if self._is_xdist else contextlib.nullcontext()
+
         with lock:
             container = self._get_container(name)
             try:

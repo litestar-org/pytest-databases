@@ -26,8 +26,8 @@ def get_xdist_worker_id() -> str | None:
     return os.getenv("PYTEST_XDIST_WORKER")
 
 
-def get_xdist_worker_num() -> int:
+def get_xdist_worker_num() -> int | None:
     worker_id = get_xdist_worker_id()
     if worker_id is None or worker_id == "master":
-        return 0
+        return None
     return int(worker_id.replace("gw", ""))
