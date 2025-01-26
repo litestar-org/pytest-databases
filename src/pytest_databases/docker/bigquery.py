@@ -37,7 +37,7 @@ class BigQueryService(ServiceContainer):
         return ClientOptions(api_endpoint=self.endpoint)
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def bigquery_service(
     docker_service: DockerService,
     xdist_bigquery_isolation_level: XdistIsolationLevel,
@@ -90,7 +90,7 @@ def bigquery_service(
         )
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def bigquery_startup_connection(
     bigquery_service: BigQueryService,
 ) -> Generator[bigquery.Client, None, None]:

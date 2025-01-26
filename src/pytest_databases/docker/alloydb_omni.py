@@ -25,7 +25,7 @@ class AlloyDBService(ServiceContainer):
     user: str
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def alloydb_omni_service(
     docker_service: DockerService,
 ) -> Generator[AlloyDBService, None, None]:
@@ -44,7 +44,7 @@ def alloydb_omni_service(
         )
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def alloydb_omni_startup_connection(alloydb_omni_service: AlloyDBService) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
         _make_connection_string(

@@ -31,7 +31,7 @@ def cockroachdb_driver_opts() -> dict[str, str]:
     return {"sslmode": "disable"}
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def cockroachdb_service(
     docker_service: DockerService,
     cockroachdb_xdist_isolation_level: XdistIsolationLevel,
@@ -75,7 +75,7 @@ def cockroachdb_service(
         )
 
 
-@pytest.fixture(autouse=False, scope="session")
+@pytest.fixture(scope="session")
 def cockroachdb_startup_connection(
     cockroachdb_service: CockroachDBService,
     cockroachdb_driver_opts: dict[str, str],

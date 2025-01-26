@@ -4,10 +4,11 @@ import dataclasses
 from typing import TYPE_CHECKING, Generator
 
 import pytest
-from pytest_databases.helpers import get_xdist_worker_num
-from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
+
+from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService

@@ -25,7 +25,5 @@ def test_bigquery_service(bigquery_service: BigQueryService) -> None:
     assert resp[0].one == 1
 
 
-def test_bigquery_service_after_start(
-    bigquery_startup_connection: bigquery.Client,
-) -> None:
+def test_bigquery_service_after_start(bigquery_startup_connection: bigquery.Client) -> None:
     assert isinstance(bigquery_startup_connection, bigquery.Client)

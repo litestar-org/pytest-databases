@@ -33,7 +33,7 @@ pytest_plugins = [
 @pytest.fixture(scope="session")
 def redis_image():
     return "{redis_image_name}"
-    
+
 
 def test_redis_service(redis_service: RedisService) -> None:
     assert redis.Redis.from_url("redis://", host=redis_service.host, port=redis_service.port).ping()
