@@ -1681,6 +1681,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/94/e4181a1f6286f545507528c78016e00065ea913276888db2262507693ce5/PyMySQL-1.1.1-py3-none-any.whl", hash = "sha256:4de15da4c61dc132f4fb9ab763063e693d521a80fd0e87943b9a453dd4c19d6c", size = 44972 },
 ]
 
+[package.optional-dependencies]
+rsa = [
+    { name = "cryptography" },
+]
+
 [[package]]
 name = "pytest"
 version = "8.3.4"
@@ -1772,7 +1777,7 @@ mssql = [
     { name = "pymssql" },
 ]
 mysql = [
-    { name = "pymysql" },
+    { name = "pymysql", extra = ["rsa"] },
 ]
 oracle = [
     { name = "oracledb" },
@@ -1834,7 +1839,7 @@ requires-dist = [
     { name = "psycopg", marker = "extra == 'cockroachdb'" },
     { name = "psycopg", marker = "extra == 'postgres'", specifier = ">=3" },
     { name = "pymssql", marker = "extra == 'mssql'", specifier = "<=2.3.1" },
-    { name = "pymysql", marker = "extra == 'mysql'" },
+    { name = "pymysql", extras = ["rsa"], marker = "extra == 'mysql'" },
     { name = "pytest" },
     { name = "redis", marker = "extra == 'dragonfly'" },
     { name = "redis", marker = "extra == 'keydb'" },
