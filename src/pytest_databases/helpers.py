@@ -34,4 +34,4 @@ def get_xdist_worker_num() -> int | None:
 
 
 def get_xdist_worker_count() -> int:
-    return int(os.getenv("PYTEST_XDIST_WORKER_COUNT", 0))
+    return int(os.getenv("PYTEST_XDIST_WORKER_COUNT", "0"))
