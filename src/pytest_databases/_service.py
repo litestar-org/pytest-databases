@@ -69,7 +69,7 @@ def _stop_all_containers(client: docker.DockerClient) -> None:
             continue
         else:
             msg = f"Cannot handle container in state {container.status}"
-            raise ValueError(msg)
+            raise RuntimeError(msg)
 
 
 class DockerService(AbstractContextManager):
