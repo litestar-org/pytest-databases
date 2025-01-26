@@ -70,7 +70,7 @@ def mssql_service(
 
     worker_num = get_xdist_worker_num()
     db_name = "pytest_databases"
-    name = "pytest_databases_mssql"
+    name = "mssql"
     if worker_num is not None:
         suffix = f"_{worker_num}"
         if xdist_mssql_isolation_level == "server":

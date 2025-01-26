@@ -49,7 +49,8 @@ def _provide_mysql_service(
                 database=database,
                 password=password,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            print(exc)
             return False
 
         try:
