@@ -8,10 +8,12 @@ if TYPE_CHECKING:
 
 def test_elasticsearch_7(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
+    from elasticsearch7 import Elasticsearch
+
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
     def test(elasticsearch_7_service) -> None:
-        with Elasticsearch7(
+        with Elasticsearch(
             hosts=[
                 {
                     "host": elasticsearch_7_service.host,
@@ -33,10 +35,12 @@ def test_elasticsearch_7(pytester: pytest.Pytester) -> None:
 
 def test_elasticsearch_8(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
+    from elasticsearch7 import Elasticsearch
+
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
     def test(elasticsearch_8_service) -> None:
-        with Elasticsearch8(
+        with Elasticsearch(
             hosts=[
                 {
                     "host": elasticsearch_8_service.host,

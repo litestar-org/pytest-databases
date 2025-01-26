@@ -135,6 +135,7 @@ class DockerService(AbstractContextManager):
         transient: bool = False,
         ulimits: list[Ulimit] | None = None,
         shm_size: int | None = None,
+        mem_limit: str | None = None,
     ) -> Generator[ServiceContainer, None, None]:
         if check is None and wait_for_log is None:
             msg = "Must set at least check or wait_for_log"
@@ -161,6 +162,7 @@ class DockerService(AbstractContextManager):
                     name=name,
                     environment=env,
                     ulimits=ulimits,
+                    mem_limit=mem_limit,
                 )
                 container.reload()
 

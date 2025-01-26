@@ -44,12 +44,18 @@ def elasticsearch8_responsive(scheme: str, host: str, port: int, user: str, pass
         return False
 
 
+@pytest.fixture(scope="session")
+def elasticsearch_service_memory_limit() -> str:
+    return "1g"
+
+
 @contextlib.contextmanager
 def _provide_elasticsearch_service(
     docker_service: DockerService,
     image: str,
     name: str,
     client_cls: type[Elasticsearch7 | Elasticsearch8],
+    memory_limit: str,
 ) -> Generator[ElasticsearchService, None, None]:
     user = "elastic"
     password = "changeme"
@@ -79,6 +85,7 @@ def _provide_elasticsearch_service(
         timeout=120,
         pause=1,
         transient=True,
+        mem_limit="1g",
     ) as service:
         yield ElasticsearchService(
             host=service.host,
@@ -91,23 +98,31 @@ def _provide_elasticsearch_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def elasticsearch_7_service(docker_service: DockerService) -> Generator[ElasticsearchService, None, None]:
+def elasticsearch_7_service(
+    docker_service: DockerService,
+    elasticsearch_service_memory_limit: str,
+) -> Generator[ElasticsearchService, None, None]:
     with _provide_elasticsearch_service(
         docker_service=docker_service,
         image="elasticsearch:7.17.19",
         name="elasticsearch-7",
         client_cls=Elasticsearch7,
+        memory_limit=elasticsearch_service_memory_limit,
     ) as service:
         yield service
 
 
 @pytest.fixture(autouse=False, scope="session")
-def elasticsearch_8_service(docker_service: DockerService) -> Generator[ElasticsearchService, None, None]:
+def elasticsearch_8_service(
+    docker_service: DockerService,
+    elasticsearch_service_memory_limit: str,
+) -> Generator[ElasticsearchService, None, None]:
     with _provide_elasticsearch_service(
         docker_service=docker_service,
         image="elasticsearch:8.13.0",
         name="elasticsearch-8",
         client_cls=Elasticsearch8,
+        memory_limit=elasticsearch_service_memory_limit,
     ) as service:
         yield service
 
