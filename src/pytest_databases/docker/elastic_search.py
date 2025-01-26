@@ -46,7 +46,7 @@ def elasticsearch8_responsive(scheme: str, host: str, port: int, user: str, pass
 
 @pytest.fixture(scope="session")
 def elasticsearch_service_memory_limit() -> str:
-    return "1g"
+    return "500m"
 
 
 @contextlib.contextmanager
