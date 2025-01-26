@@ -17,7 +17,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
     pytester.makepyfile(f"""
     import oracledb
     pytest_plugins = ["pytest_databases.docker.oracle"]
-    
+
     def test({service_fixture}):
         conn = oracledb.connect(
             user=service_fixture.user,
@@ -39,7 +39,7 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
     pytester.makepyfile(f"""
     import oracledb
     pytest_plugins = ["pytest_databases.docker.oracle"]
-    
+
     def test({connection_fixture}):
         with {connection_fixture}.cursor() as cursor:
             cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")

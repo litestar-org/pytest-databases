@@ -52,7 +52,7 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
             assert bool(result is not None and result[0][0] == 1)
             cursor.execute("drop view simple_table")
 
-    """)  # noqa: S608
+    """)
 
     result = pytester.runpytest("-vv")
     result.assert_outcomes(passed=1)

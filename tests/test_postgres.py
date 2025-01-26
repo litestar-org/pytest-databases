@@ -72,7 +72,7 @@ def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixtur
         {connection_fixture}.execute("CREATE TABLE if not exists simple_table as SELECT 1")
         result = {connection_fixture}.execute("select * from simple_table").fetchone()
         assert result is not None and result[0] == 1
-    """)  # noqa: S608
+    """)
 
     result = pytester.runpytest()
     result.assert_outcomes(passed=1)

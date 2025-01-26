@@ -206,7 +206,7 @@ class DockerService(AbstractContextManager):
                 # '409 - Conflict' means removal is already in progress. this is the
                 # safest way of delaing with it, since the API is a bit borked when it
                 # comes to concurrent requests
-                if exc.status_code not in [409, 404]:
+                if exc.status_code not in {409, 404}:
                     raise
 
 

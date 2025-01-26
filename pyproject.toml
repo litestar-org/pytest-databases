@@ -569,6 +569,7 @@ lint.ignore = [
   "DOC501",  # Raised exception missing from docstring
   "DOC502",  # Raised exception missing from docstring
   "A005",    # module shadows builtin
+  "S608",
 ]
 lint.select = ["ALL"]
 # Allow unused variables when underscore-prefixed.

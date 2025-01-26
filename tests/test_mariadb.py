@@ -50,7 +50,7 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
             cursor.execute("select * from simple_table")
             result = cursor.fetchall()
             assert result is not None and result[0][0] == 1
-    """)  # noqa: S608
+    """)
 
     result = pytester.runpytest("-vv")
     result.assert_outcomes(passed=1)

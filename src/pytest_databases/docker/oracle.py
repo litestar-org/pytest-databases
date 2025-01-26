@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 
 import oracledb
 import pytest
-from pytest_databases.types import ServiceContainer
+
 from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -64,7 +65,7 @@ def _provide_oracle_service(
                 cursor.execute("SELECT 1 FROM dual")
                 resp = cursor.fetchone()
             return resp[0] == 1 if resp is not None else False
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             return False
 
     worker_num = get_xdist_worker_num()

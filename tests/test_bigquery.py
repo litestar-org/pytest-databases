@@ -2,28 +2,59 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from google.cloud import bigquery
-
 if TYPE_CHECKING:
-    from pytest_databases.docker.bigquery import BigQueryService
-
-pytest_plugins = [
-    "pytest_databases.docker.bigquery",
-]
+    import pytest
 
 
-def test_bigquery_service(bigquery_service: BigQueryService) -> None:
-    client = bigquery.Client(
-        project=bigquery_service.project,
-        client_options=bigquery_service.client_options,
-        credentials=bigquery_service.credentials,
-    )
+def test_service_fixture(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    from google.cloud import bigquery
 
-    job = client.query(query="SELECT 1 as one")
+    pytest_plugins = ["pytest_databases.docker.bigquery"]
 
-    resp = list(job.result())
-    assert resp[0].one == 1
+    def test(bigquery_service) -> None:
+        client = bigquery.Client(
+            project=bigquery_service.project,
+            client_options=bigquery_service.client_options,
+            credentials=bigquery_service.credentials,
+        )
+
+        job = client.query(query="SELECT 1 as one")
+
+        resp = list(job.result())
+        assert resp[0].one == 1
+    """)
+
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
 
 
-def test_bigquery_service_after_start(bigquery_startup_connection: bigquery.Client) -> None:
-    assert isinstance(bigquery_startup_connection, bigquery.Client)
+def test_client_fixture(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    from google.cloud import bigquery
+
+    pytest_plugins = ["pytest_databases.docker.bigquery"]
+
+    def test(bigquery_client) -> None:
+        assert isinstance(bigquery_connection, bigquery.Client)
+    """)
+
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_xdist(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    from google.cloud import bigquery
+
+    pytest_plugins = ["pytest_databases.docker.bigquery"]
+
+    def test_one(bigquery_client, bigquery_service) -> None:
+        bigquery_client.query(f"CREATE TABLE `{bigquery_service.dataset}.test` AS select 1 as the_value")
+
+    def test_two(bigquery_client, bigquery_service) -> None:
+        bigquery_client.query(f"CREATE TABLE `{bigquery_service.dataset}.test` AS select 1 as the_value")
+    """)
+
+    result = pytester.runpytest("-n", "2")
+    result.assert_outcomes(passed=2)
