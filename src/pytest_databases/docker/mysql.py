@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -49,8 +50,8 @@ def _provide_mysql_service(
                 database=database,
                 password=password,
             )
-        except Exception as exc:  # noqa: BLE001
-            print(exc)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
             return False
 
         try:

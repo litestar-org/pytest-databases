@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import traceback
 from typing import TYPE_CHECKING
 
 import pytest
@@ -41,6 +42,7 @@ def elasticsearch8_responsive(scheme: str, host: str, port: int, user: str, pass
         ) as client:
             return client.ping()
     except Exception:  # noqa: BLE001
+        traceback.print_exc()
         return False
 
 
