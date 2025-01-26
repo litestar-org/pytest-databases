@@ -1,63 +1,115 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-import pymssql
 import pytest
 
-if TYPE_CHECKING:
-    import pyodbc
 
-    from pytest_databases.docker.mssql import MSSQLService
+@pytest.mark.parametrize(
+    "service_fixture",
+    [
+        "mssql_service",
+    ],
+)
+def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
+    pytester.makepyfile(f"""
+    import pymssql
+    pytest_plugins = ["pytest_databases.docker.mssql"]
 
-pytest_plugins = [
-    "pytest_databases.docker.mssql",
-]
+    def test({service_fixture}):
+        conn = pymssql.connect(
+            host={service_fixture}.host,
+            port=str({service_fixture}.port),
+            database={service_fixture}.database,
+            user={service_fixture}.user,
+            password={service_fixture}.password,
+            timeout=2,
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("select 1 as is_available")
+            resp = cursor.fetchone()
+            return resp[0] == 1 if resp is not None else False
+    """)
 
-
-def check(service: MSSQLService) -> bool:
-    conn = pymssql.connect(
-        host=service.host,
-        port=str(service.port),
-        database=service.database,
-        user=service.user,
-        password=service.password,
-        timeout=2,
-    )
-    with conn.cursor() as cursor:
-        cursor.execute("select 1 as is_available")
-        resp = cursor.fetchone()
-        return resp[0] == 1 if resp is not None else False
-
-
-def test_mssql_service(mssql_service: MSSQLService) -> None:
-    ping = check(mssql_service)
-    assert ping
-
-
-def test_mssql_2022_services(mssql2022_service: MSSQLService) -> None:
-    ping = check(mssql2022_service)
-    assert ping
+    result = pytester.runpytest("-vv")
+    result.assert_outcomes(passed=1)
 
 
-def test_mssql_services_after_start(
-    mssql_startup_connection: pyodbc.Connection,
-) -> None:
-    with mssql_startup_connection.cursor() as cursor:
-        cursor.execute("CREATE view simple_table as SELECT 1 as the_value")
-        cursor.execute("select * from simple_table")
-        result = cursor.fetchall()
-        assert bool(result is not None and result[0][0] == 1)
-        cursor.execute("drop view simple_table")
+@pytest.mark.parametrize(
+    "connection_fixture",
+    [
+        "mssql_connection",
+    ],
+)
+def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
+    pytester.makepyfile(f"""
+    import pymssql
+    pytest_plugins = ["pytest_databases.docker.mssql"]
+
+    def test({connection_fixture}):
+        with {connection_fixture}.cursor() as cursor:
+            cursor.execute("CREATE view simple_table as SELECT 1 as the_value")
+            cursor.execute("select * from simple_table")
+            result = cursor.fetchall()
+            assert bool(result is not None and result[0][0] == 1)
+            cursor.execute("drop view simple_table")
+
+    """)  # noqa: S608
+
+    result = pytester.runpytest("-vv")
+    result.assert_outcomes(passed=1)
 
 
-@pytest.mark.xfail(reason="no idea what's going on here")
-def test_mssql2022_services_after_start(
-    mssql2022_startup_connection: pyodbc.Connection,
-) -> None:
-    with mssql2022_startup_connection.cursor() as cursor:
-        cursor.execute("CREATE view simple_table as SELECT 1 as the_value")
-        cursor.execute("select * from simple_table")
-        result = cursor.fetchall()
-        assert bool(result is not None and result[0][0] == 1)
-        cursor.execute("drop view simple_table")
+def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    import pymssql
+    pytest_plugins = ["pytest_databases.docker.mssql"]
+
+    def test_1(mssql_connection):
+        with mssql_connection.cursor() as cursor:
+            cursor.execute("CREATE view simple_table as SELECT 1 as the_value;")
+
+    def test_2(mssql_connection):
+        with mssql_connection.cursor() as cursor:
+            cursor.execute("CREATE view simple_table as SELECT 1 as the_value;")
+    """)
+
+    result = pytester.runpytest("-n", "2", "-vv")
+    result.assert_outcomes(passed=2)
+
+
+def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    import pymssql
+    import pytest
+    pytest_plugins = ["pytest_databases.docker.mssql"]
+
+    @pytest.fixture(scope="session")
+    def xdist_mssql_isolation_level():
+        return "server"
+
+    def test_1(mssql_service):
+        with pymssql.connect(
+            host=mssql_service.host,
+            port=str(mssql_service.port),
+            database=mssql_service.database,
+            user=mssql_service.user,
+            password=mssql_service.password,
+            timeout=2,
+            autocommit=True,
+        ) as conn, conn.cursor() as cursor:
+            cursor.execute("CREATE DATABASE db_test")
+
+    def test_2(mssql_service):
+        with pymssql.connect(
+            host=mssql_service.host,
+            port=str(mssql_service.port),
+            database=mssql_service.database,
+            user=mssql_service.user,
+            password=mssql_service.password,
+            timeout=2,
+            autocommit=True,
+        ) as conn, conn.cursor() as cursor:
+            cursor.execute("CREATE DATABASE db_test")
+    """)
+
+    result = pytester.runpytest("-n", "2")
+    result.assert_outcomes(passed=2)

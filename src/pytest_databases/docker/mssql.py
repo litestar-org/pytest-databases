@@ -20,6 +20,11 @@ def xdist_mssql_isolation_level() -> XdistIsolationLevel:
     return "database"
 
 
+@pytest.fixture(scope="session")
+def mssql_image() -> str:
+    return "mcr.microsoft.com/mssql/server:2022-latest"
+
+
 @dataclasses.dataclass
 class MSSQLService(ServiceContainer):
     user: str
@@ -43,6 +48,7 @@ class MSSQLService(ServiceContainer):
 def mssql_service(
     docker_service: DockerService,
     xdist_mssql_isolation_level: XdistIsolationLevel,
+    mssql_image: str,
 ) -> Generator[MSSQLService, None, None]:
     password = "Super-secret1"
 
@@ -63,16 +69,20 @@ def mssql_service(
             return False
 
     worker_num = get_xdist_worker_num()
-    db_name = f"pytest_{worker_num + 1}"
-    container_name = "mssql"
-    if xdist_mssql_isolation_level == "server":
-        container_name = f"{container_name}_{worker_num}"
+    db_name = "pytest_databases"
+    name = "pytest_databases_mssql"
+    if worker_num is not None:
+        suffix = f"_{worker_num}"
+        if xdist_mssql_isolation_level == "server":
+            name += suffix
+        else:
+            db_name += suffix
 
     with docker_service.run(
-        image="mcr.microsoft.com/mssql/server:2022-latest",
+        image=mssql_image,
         check=check,
         container_port=1433,
-        name=container_name,
+        name=name,
         env={
             "SA_PASSWORD": password,
             "MSSQL_PID": "Developer",
@@ -104,25 +114,7 @@ def mssql_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mssql2022_service(mssql_service: MSSQLService) -> MSSQLService:
-    return mssql_service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mssql_startup_connection(mssql_service: MSSQLService) -> Generator[pymssql.Connection, None, None]:
-    with pymssql.connect(
-        host=mssql_service.host,
-        port=str(mssql_service.port),
-        database=mssql_service.database,
-        user=mssql_service.user,
-        password=mssql_service.password,
-        timeout=2,
-    ) as db_connection:
-        yield db_connection
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mssql2022_startup_connection(mssql_service: MSSQLService) -> Generator[pymssql.Connection, None, None]:
+def mssql_connection(mssql_service: MSSQLService) -> Generator[pymssql.Connection, None, None]:
     with pymssql.connect(
         host=mssql_service.host,
         port=str(mssql_service.port),
