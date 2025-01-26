@@ -7,7 +7,6 @@ import pytest
 from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials, Credentials
 from google.cloud import spanner
-
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
 
@@ -15,6 +14,11 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pytest_databases._service import DockerService
+
+
+@pytest.fixture(scope="session")
+def spanner_image() -> str:
+    return "gcr.io/cloud-spanner-emulator/emulator:latest"
 
 
 @dataclass
@@ -34,10 +38,10 @@ class SpannerService(ServiceContainer):
 
 
 @pytest.fixture(autouse=False, scope="session")
-def spanner_service(docker_service: DockerService) -> Generator[SpannerService, None, None]:
+def spanner_service(docker_service: DockerService, spanner_image: str) -> Generator[SpannerService, None, None]:
     with docker_service.run(
-        image="gcr.io/cloud-spanner-emulator/emulator:latest",
-        name=f"spanner_{get_xdist_worker_num()}",
+        image=spanner_image,
+        name=f"pytest_databases_spanner_{get_xdist_worker_num() or 0}",
         container_port=9010,
         wait_for_log="gRPC server listening at",
         transient=True,
@@ -53,7 +57,7 @@ def spanner_service(docker_service: DockerService) -> Generator[SpannerService, 
 
 
 @pytest.fixture(autouse=False, scope="session")
-def spanner_startup_connection(
+def spanner_connection(
     spanner_service: SpannerService,
 ) -> Generator[spanner.Client, None, None]:
     client = spanner.Client(

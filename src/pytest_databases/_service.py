@@ -55,7 +55,11 @@ def get_docker_client() -> docker.DockerClient:
 
 
 def _stop_all_containers(client: docker.DockerClient) -> None:
-    containers: list[Container] = client.containers.list(all=True, filters={"label": "pytest_databases"})
+    containers: list[Container] = client.containers.list(
+        all=True,
+        filters={"label": "pytest_databases"},
+        ignore_removed=True,
+    )
     for container in containers:
         if container.status == "running":
             container.kill()
@@ -202,7 +206,7 @@ class DockerService(AbstractContextManager):
                 # '409 - Conflict' means removal is already in progress. this is the
                 # safest way of delaing with it, since the API is a bit borked when it
                 # comes to concurrent requests
-                if exc.status_code != 409:
+                if exc.status_code not in [409, 404]:
                     raise
 
 
