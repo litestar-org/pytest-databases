@@ -2,38 +2,89 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import psycopg
-
-from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
-
 if TYPE_CHECKING:
-    from pytest_databases.docker.alloydb_omni import AlloyDBService
+    import pytest
 
 
-pytest_plugins = [
-    "pytest_databases.docker.alloydb_omni",
-]
+def test_service_fixture(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    import pytest
+    import psycopg
+    from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
+
+    pytest_plugins = ["pytest_databases.docker.alloydb_omni"]
+
+    def test(alloydb_omni_service) -> None:
+        with psycopg.connect(
+            _make_connection_string(
+                host=alloydb_omni_service.host,
+                port=alloydb_omni_service.port,
+                user=alloydb_omni_service.user,
+                password=alloydb_omni_service.password,
+                database=alloydb_omni_service.database,
+            )
+        ) as conn:
+            db_open = conn.execute("SELECT 1").fetchone()
+            assert db_open is not None and db_open[0] == 1
+    """)
+
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
 
 
-def check(service: AlloyDBService) -> bool:
-    with psycopg.connect(
-        _make_connection_string(
-            host=service.host,
-            port=service.port,
-            user=service.user,
-            database=service.database,
-            password=service.password,
-        )
-    ) as conn:
-        db_open = conn.execute("SELECT 1").fetchone()
-        return bool(db_open is not None and db_open[0] == 1)
+def test_startup_connection_fixture(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    import pytest
+    import psycopg
+    from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
+
+    pytest_plugins = ["pytest_databases.docker.alloydb_omni"]
+
+    def test(alloydb_omni_connection) -> None:
+        alloydb_omni_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
+        result = alloydb_omni_connection.execute("select * from simple_table").fetchone()
+        assert result is not None and result[0] == 1
+    """)
+
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
 
 
-def test_alloydb_omni_services(alloydb_omni_service: AlloyDBService) -> None:
-    assert check(alloydb_omni_service)
+def test_xdist_isolate(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+    import pytest
+    import psycopg
+    from pytest_databases.docker.postgres import _make_connection_string
+
+    pytest_plugins = ["pytest_databases.docker.alloydb_omni"]
 
 
-def test_alloydb_omni_service_after_start(alloydb_omni_startup_connection: psycopg.Connection) -> None:
-    alloydb_omni_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
-    result = alloydb_omni_startup_connection.execute("select * from simple_table").fetchone()
-    assert bool(result is not None and result[0] == 1)
+    def test_one(alloydb_omni_service) -> None:
+        with psycopg.connect(
+            _make_connection_string(
+                host=alloydb_omni_service.host,
+                port=alloydb_omni_service.port,
+                user=alloydb_omni_service.user,
+                password=alloydb_omni_service.password,
+                database=alloydb_omni_service.database,
+            ),
+            autocommit=True,
+        ) as conn:
+            conn.execute("CREATE DATABASE foo")
+
+    def test_two(alloydb_omni_service) -> None:
+        with psycopg.connect(
+            _make_connection_string(
+                host=alloydb_omni_service.host,
+                port=alloydb_omni_service.port,
+                user=alloydb_omni_service.user,
+                password=alloydb_omni_service.password,
+                database=alloydb_omni_service.database,
+            ),
+            autocommit=True,
+        ) as conn:
+            conn.execute("CREATE DATABASE foo")
+    """)
+
+    result = pytester.runpytest_subprocess("-n", "2")
+    result.assert_outcomes(passed=2)
