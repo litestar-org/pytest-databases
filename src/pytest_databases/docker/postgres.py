@@ -56,9 +56,13 @@ def _provide_postgres_service(
             return False
 
     worker_num = get_xdist_worker_num()
-    db_name = f"pytest_{worker_num + 1}"
-    if xdist_postgres_isolate == "server":
-        name = f"{name}_{worker_num + 1}"
+    db_name = "pytest_databases"
+    if worker_num is not None:
+        suffix = f"_{worker_num}"
+        if xdist_postgres_isolate == "server":
+            name += suffix
+        else:
+            db_name += suffix
 
     with docker_service.run(
         image=image,
@@ -184,7 +188,7 @@ def postgres_service(postgres_17_service: PostgresService) -> PostgresService:
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres_startup_connection(
+def postgres_connection(
     postgres_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
@@ -200,7 +204,7 @@ def postgres_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres11_startup_connection(
+def postgres_11_connection(
     postgres_11_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
@@ -216,7 +220,7 @@ def postgres11_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres12_startup_connection(
+def postgres_12_connection(
     postgres_12_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
@@ -232,7 +236,7 @@ def postgres12_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres13_startup_connection(
+def postgres_13_connection(
     postgres_13_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
@@ -248,7 +252,7 @@ def postgres13_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres14_startup_connection(
+def postgres_14_connection(
     postgres_14_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
@@ -264,7 +268,7 @@ def postgres14_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres15_startup_connection(
+def postgres_15_connection(
     postgres_15_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
@@ -280,7 +284,7 @@ def postgres15_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres16_startup_connection(
+def postgres_16_connection(
     postgres_16_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
@@ -296,7 +300,7 @@ def postgres16_startup_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres17_startup_connection(
+def postgres_17_connection(
     postgres_17_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(

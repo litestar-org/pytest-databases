@@ -193,9 +193,17 @@ class DockerService(AbstractContextManager):
             container.exec_run(exec_after_start)
 
         yield service
+
         if transient:
-            container.stop()
-            container.remove()
+            try:
+                container.stop()
+                container.remove(force=True)
+            except docker.errors.APIError as exc:
+                # '409 - Conflict' means removal is already in progress. this is the
+                # safest way of delaing with it, since the API is a bit borked when it
+                # comes to concurrent requests
+                if exc.status_code != 409:
+                    raise
 
 
 @pytest.fixture(scope="session")
