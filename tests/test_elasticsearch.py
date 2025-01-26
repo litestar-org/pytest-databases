@@ -10,7 +10,7 @@ def test_elasticsearch_7(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
-    def test(elasticsearch_7_service: ElasticsearchService) -> None:
+    def test(elasticsearch_7_service) -> None:
         with Elasticsearch7(
             hosts=[
                 {
@@ -35,7 +35,7 @@ def test_elasticsearch_8(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
-    def test(elasticsearch_8_service: ElasticsearchService) -> None:
+    def test(elasticsearch_8_service) -> None:
         with Elasticsearch8(
             hosts=[
                 {

@@ -36,7 +36,7 @@ def test_client_fixture(pytester: pytest.Pytester) -> None:
     pytest_plugins = ["pytest_databases.docker.bigquery"]
 
     def test(bigquery_client) -> None:
-        assert isinstance(bigquery_connection, bigquery.Client)
+        assert isinstance(bigquery_client, bigquery.Client)
     """)
 
     result = pytester.runpytest()
