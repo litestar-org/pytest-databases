@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import contextlib
-import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import pymysql
+import mysql.connector
+from mysql.connector.abstracts import MySQLConnectionAbstract
 import pytest
 
 from pytest_databases._service import DockerService, ServiceContainer
@@ -43,16 +43,17 @@ def _provide_mysql_service(
 
     def check(_service: ServiceContainer) -> bool:
         try:
-            conn = pymysql.connect(
+            conn = mysql.connector.connect(
                 host=_service.host,
                 port=_service.port,
                 user=user,
                 database=database,
                 password=password,
             )
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
-            return False
+        except mysql.connector.errors.OperationalError as exc:
+            if "Lost connection" in exc.msg:
+                return False
+            raise
 
         try:
             with conn.cursor() as cursor:
@@ -153,8 +154,8 @@ def mysql_8_service(
 @pytest.fixture(autouse=False, scope="session")
 def mysql_56_connection(
     mysql_56_service: MySQLService,
-) -> Generator[pymysql.Connection, None, None]:
-    with pymysql.connect(
+) -> Generator[MySQLConnectionAbstract, None, None]:
+    with mysql.connector.connect(
         host=mysql_56_service.host,
         port=mysql_56_service.port,
         user=mysql_56_service.user,
@@ -167,8 +168,8 @@ def mysql_56_connection(
 @pytest.fixture(autouse=False, scope="session")
 def mysql_57_connection(
     mysql_57_service: MySQLService,
-) -> Generator[pymysql.Connection, None, None]:
-    with pymysql.connect(
+) -> Generator[MySQLConnectionAbstract, None, None]:
+    with mysql.connector.connect(
         host=mysql_57_service.host,
         port=mysql_57_service.port,
         user=mysql_57_service.user,
@@ -179,13 +180,13 @@ def mysql_57_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mysql_connection(mysql_8_connection: pymysql.Connection) -> pymysql.Connection:
+def mysql_connection(mysql_8_connection) -> MySQLConnectionAbstract:
     return mysql_8_connection
 
 
 @pytest.fixture(autouse=False, scope="session")
-def mysql_8_connection(mysql_8_service: MySQLService) -> Generator[pymysql.Connection, None, None]:
-    with pymysql.connect(
+def mysql_8_connection(mysql_8_service) -> Generator[MySQLConnectionAbstract, None, None]:
+    with mysql.connector.connect(
         host=mysql_8_service.host,
         port=mysql_8_service.port,
         user=mysql_8_service.user,
