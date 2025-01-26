@@ -4,11 +4,10 @@ import dataclasses
 from typing import TYPE_CHECKING, Generator
 
 import pytest
-from redis import Redis
-from redis.exceptions import ConnectionError as RedisConnectionError
-
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
+from redis import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 if TYPE_CHECKING:
     from pytest_databases._service import DockerService
@@ -56,13 +55,16 @@ def redis_service(
     xdist_redis_isolation_level: XdistIsolationLevel,
 ) -> Generator[RedisService, None, None]:
     worker_num = get_xdist_worker_num()
-    if xdist_redis_isolation_level == "database":
-        container_num = worker_num // 1
-        name = f"redis_{container_num + 1}"
-        db = worker_num
-    else:
-        name = f"redis_{worker_num + 1}"
-        db = 0
+    name = "redis"
+    db = 0
+    if worker_num is not None:
+        if xdist_redis_isolation_level == "database":
+            container_num = worker_num // 1
+            name += f"_{container_num + 1}"
+            db = worker_num
+        else:
+            name += f"_{worker_num + 1}"
+
     with docker_service.run(
         redis_image,
         check=redis_responsive,
