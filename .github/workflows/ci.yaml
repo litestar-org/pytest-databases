@@ -28,8 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - if: runner.os == 'Linux'
-        name: Install Microsoft ODBC Drivers
+      - name: Install additional dependencies
         run: sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -43,21 +42,21 @@ jobs:
       - name: Intall dependencies
         run: uv sync --frozen
 
-      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
+      - if: matrix.python-version == '3.12'
         name: Run tests with coverage tracking
         run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
 
-      - if: matrix.python-version != '3.12' || runner.os != 'Linux'
+      - if: matrix.python-version != '3.12'
         name: Run tests without tracking coverage
         run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
 
-      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
+      - if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
           path: coverage.xml
 
-      - if: matrix.python-version == '3.12' && runner.os == 'Linux'
+      - if: matrix.python-version == '3.12'
         name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.3.0
         with:
@@ -68,6 +67,9 @@ jobs:
   test_elasticsearch:
     runs-on: ubuntu-latest
     steps:
+      - name: Install additional dependencies
+        run: sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev
+        
       - uses: actions/checkout@v4
 
       - name: Set up Python
