@@ -15,10 +15,10 @@ env:
   FORCE_COLOR: "1"
 
 jobs:
-  run:
+  test:
     name: Python ${{ matrix.python-version }} - ${{ matrix.cdist-group }}/3
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -45,11 +45,11 @@ jobs:
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         name: Run tests with coverage tracking
-        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3
+        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
 
       - if: matrix.python-version != '3.12' || runner.os != 'Linux'
         name: Run tests without tracking coverage
-        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3
+        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
 
       - if: matrix.python-version == '3.12' && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -63,9 +63,31 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: litestar-org/pytest-databases
+
+  # run elasticsearch in a separate step. it's too slow
+  test_elasticsearch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.9
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Intall dependencies
+        run: uv sync --frozen
+
+      - name: Run tests with coverage tracking
+        run: uv run pytest -k elasticsearch
+
   sonar:
     needs:
-      - run
+      - test
+      - test_elasticsearch
     if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'litestar-org'
     runs-on: ubuntu-latest
     steps:

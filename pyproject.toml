@@ -339,6 +339,7 @@ markers = [
 ]
 testpaths = ["tests"]
 cdist-justify-items = "file"
+cdist-group-steal = "3:10"
 
 [tool.coverage.run]
 branch = true
