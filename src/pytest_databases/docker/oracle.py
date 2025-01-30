@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
+import contextlib
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import oracledb
 import pytest
 
-from pytest_databases.docker import DockerServiceRegistry
-from pytest_databases.helpers import simple_string_hash
+from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-
-COMPOSE_PROJECT_NAME: str = f"pytest-databases-oracle-{simple_string_hash(__file__)}"
+    from pytest_databases._service import DockerService
 
 
 def oracle_responsive(host: str, port: int, service_name: str, user: str, password: str) -> bool:
@@ -35,223 +33,123 @@ def oracle_responsive(host: str, port: int, service_name: str, user: str, passwo
         return False
 
 
-@pytest.fixture(scope="session")
-def oracle_compose_project_name() -> str:
-    return os.environ.get("COMPOSE_PROJECT_NAME", COMPOSE_PROJECT_NAME)
+@dataclass
+class OracleService(ServiceContainer):
+    user: str
+    password: str
+    system_password: str
+    service_name: str
+
+
+@contextlib.contextmanager
+def _provide_oracle_service(
+    docker_service: DockerService,
+    image: str,
+    name: str,
+    service_name: str,
+) -> Generator[OracleService, None, None]:
+    user = "app"
+    password = "super-secret"
+    system_password = "super-secret"
+
+    def check(_service: ServiceContainer) -> bool:
+        try:
+            conn = oracledb.connect(
+                host=_service.host,
+                port=_service.port,
+                user=user,
+                password=password,
+                service_name=service_name,
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM dual")
+                resp = cursor.fetchone()
+            return resp[0] == 1 if resp is not None else False
+        except Exception:  # noqa: BLE001
+            return False
+
+    worker_num = get_xdist_worker_num()
+    if worker_num is not None:
+        name = f"{name}_{worker_num}"
+
+    with docker_service.run(
+        image=image,
+        name=name,
+        check=check,
+        container_port=1521,
+        timeout=60,
+        env={
+            "ORACLE_PASSWORD": system_password,
+            "APP_USER_PASSWORD": password,
+            "APP_USER": user,
+        },
+    ) as service:
+        yield OracleService(
+            host=service.host,
+            port=service.port,
+            system_password=system_password,
+            user=user,
+            password=password,
+            service_name=service_name,
+        )
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_docker_services(
-    oracle_compose_project_name: str, worker_id: str = "main"
-) -> Generator[DockerServiceRegistry, None, None]:
-    if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform != "linux":
-        pytest.skip("Docker not available on this platform")
-
-    with DockerServiceRegistry(worker_id, compose_project_name=oracle_compose_project_name) as registry:
-        yield registry
-
-
-@pytest.fixture(scope="session")
-def oracle_user() -> str:
-    return "app"
-
-
-@pytest.fixture(scope="session")
-def oracle_password() -> str:
-    return "super-secret"
-
-
-@pytest.fixture(scope="session")
-def oracle_system_password() -> str:
-    return "super-secret"
-
-
-@pytest.fixture(scope="session")
-def oracle18c_service_name() -> str:
-    return "xepdb1"
-
-
-@pytest.fixture(scope="session")
-def oracle23ai_service_name() -> str:
-    return "FREEPDB1"
-
-
-@pytest.fixture(scope="session")
-def oracle_service_name(oracle23ai_service_name: str) -> str:
-    return oracle23ai_service_name
-
-
-@pytest.fixture(scope="session")
-def oracle18c_port() -> int:
-    return 1514
-
-
-@pytest.fixture(scope="session")
-def oracle23ai_port() -> int:
-    return 1513
-
-
-@pytest.fixture(scope="session")
-def default_oracle_service_name() -> str:
-    return "oracle23ai"
-
-
-@pytest.fixture(scope="session")
-def oracle_port(oracle23ai_port: int) -> int:
-    return oracle23ai_port
-
-
-@pytest.fixture(scope="session")
-def oracle_docker_compose_files() -> list[Path]:
-    return [Path(Path(__file__).parent / "docker-compose.oracle.yml")]
-
-
-@pytest.fixture(scope="session")
-def oracle_docker_ip(oracle_docker_services: DockerServiceRegistry) -> str:
-    return oracle_docker_services.docker_ip
+def oracle_23ai_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
+    with _provide_oracle_service(
+        image="gvenzl/oracle-free:23-slim-faststart",
+        name="oracle23ai",
+        service_name="FREEPDB1",
+        docker_service=docker_service,
+    ) as service:
+        yield service
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle23ai_service(
-    oracle_docker_services: DockerServiceRegistry,
-    oracle_docker_compose_files: list[Path],
-    oracle23ai_port: int,
-    oracle23ai_service_name: str,
-    oracle_system_password: str,
-    oracle_user: str,
-    oracle_password: str,
-) -> Generator[None, None, None]:
-    os.environ["ORACLE_PASSWORD"] = oracle_password
-    os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
-    os.environ["ORACLE_USER"] = oracle_user
-    os.environ["ORACLE23AI_SERVICE_NAME"] = oracle23ai_service_name
-    os.environ["ORACLE23AI_PORT"] = str(oracle23ai_port)
-    oracle_docker_services.start(
-        "oracle23ai",
-        docker_compose_files=oracle_docker_compose_files,
-        timeout=90,
-        pause=1,
-        check=oracle_responsive,
-        port=oracle23ai_port,
-        service_name=oracle23ai_service_name,
-        user=oracle_user,
-        password=oracle_password,
-    )
-    yield
-
-
-@pytest.fixture(autouse=False, scope="session")
-def oracle18c_service(
-    oracle_docker_services: DockerServiceRegistry,
-    oracle_docker_compose_files: list[Path],
-    oracle18c_port: int,
-    oracle18c_service_name: str,
-    oracle_system_password: str,
-    oracle_user: str,
-    oracle_password: str,
-) -> Generator[None, None, None]:
-    os.environ["ORACLE_PASSWORD"] = oracle_password
-    os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
-    os.environ["ORACLE_USER"] = oracle_user
-    os.environ["ORACLE18C_SERVICE_NAME"] = oracle18c_service_name
-    os.environ["ORACLE18C_PORT"] = str(oracle18c_port)
-    oracle_docker_services.start(
-        "oracle18c",
-        docker_compose_files=oracle_docker_compose_files,
-        timeout=90,
-        pause=1,
-        check=oracle_responsive,
-        port=oracle18c_port,
-        service_name=oracle18c_service_name,
-        user=oracle_user,
-        password=oracle_password,
-    )
-    yield
+def oracle_18c_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
+    with _provide_oracle_service(
+        image="gvenzl/oracle-free:23-slim-faststart",
+        name="oracle18c",
+        service_name="xepdb1",
+        docker_service=docker_service,
+    ) as service:
+        yield service
 
 
 # alias to the latest
 @pytest.fixture(autouse=False, scope="session")
-def oracle_service(
-    oracle_docker_services: DockerServiceRegistry,
-    default_oracle_service_name: str,
-    oracle_docker_compose_files: list[Path],
-    oracle_port: int,
-    oracle_service_name: str,
-    oracle_system_password: str,
-    oracle_user: str,
-    oracle_password: str,
-) -> Generator[None, None]:
-    os.environ["ORACLE_PASSWORD"] = oracle_password
-    os.environ["ORACLE_SYSTEM_PASSWORD"] = oracle_system_password
-    os.environ["ORACLE_USER"] = oracle_user
-    os.environ["ORACLE_SERVICE_NAME"] = oracle_service_name
-    os.environ[f"{default_oracle_service_name.upper()}_PORT"] = str(oracle_port)
-    oracle_docker_services.start(
-        name=default_oracle_service_name,
-        docker_compose_files=oracle_docker_compose_files,
-        timeout=90,
-        pause=1,
-        check=oracle_responsive,
-        port=oracle_port,
-        service_name=oracle_service_name,
-        user=oracle_user,
-        password=oracle_password,
-    )
-    yield
+def oracle_service(oracle23ai_service: OracleService) -> OracleService:
+    return oracle23ai_service
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_startup_connection(
-    oracle_service: DockerServiceRegistry,
-    oracle_docker_ip: str,
-    oracle_port: int,
-    oracle_service_name: str,
-    oracle_user: str,
-    oracle_password: str,
+def oracle_18c_connection(
+    oracle18c_service: OracleService,
 ) -> Generator[oracledb.Connection, None, None]:
     with oracledb.connect(
-        host=oracle_docker_ip,
-        port=oracle_port,
-        user=oracle_user,
-        service_name=oracle_service_name,
-        password=oracle_password,
+        host=oracle18c_service.host,
+        port=oracle18c_service.port,
+        user=oracle18c_service.user,
+        service_name=oracle18c_service.service_name,
+        password=oracle18c_service.password,
     ) as db_connection:
         yield db_connection
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle18c_startup_connection(
-    oracle18c_service: DockerServiceRegistry,
-    oracle_docker_ip: str,
-    oracle18c_port: int,
-    oracle18c_service_name: str,
-    oracle_user: str,
-    oracle_password: str,
+def oracle_23ai_connection(
+    oracle23ai_service: OracleService,
 ) -> Generator[oracledb.Connection, None, None]:
     with oracledb.connect(
-        host=oracle_docker_ip,
-        port=oracle18c_port,
-        user=oracle_user,
-        service_name=oracle18c_service_name,
-        password=oracle_password,
+        host=oracle23ai_service.host,
+        port=oracle23ai_service.port,
+        user=oracle23ai_service.user,
+        service_name=oracle23ai_service.service_name,
+        password=oracle23ai_service.password,
     ) as db_connection:
         yield db_connection
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle23ai_startup_connection(
-    oracle23ai_service: DockerServiceRegistry,
-    oracle_docker_ip: str,
-    oracle23ai_port: int,
-    oracle23ai_service_name: str,
-    oracle_user: str,
-    oracle_password: str,
-) -> Generator[oracledb.Connection, None, None]:
-    with oracledb.connect(
-        host=oracle_docker_ip,
-        port=oracle23ai_port,
-        user=oracle_user,
-        service_name=oracle23ai_service_name,
-        password=oracle_password,
-    ) as db_connection:
-        yield db_connection
+def oracle_startup_connection(oracle23ai_startup_connection: oracledb.Connection) -> oracledb.Connection:
+    return oracle23ai_startup_connection

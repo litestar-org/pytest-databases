@@ -1,163 +1,120 @@
 from __future__ import annotations
 
-import json
-import os
-import secrets
-import subprocess  # noqa: S404
-from pathlib import Path
-from typing import AsyncGenerator, Generator
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, AsyncGenerator, Generator
 
 import pytest
 from azure.storage.blob import ContainerClient
 from azure.storage.blob.aio import ContainerClient as AsyncContainerClient
 
-from pytest_databases.docker import DockerServiceRegistry
-from pytest_databases.helpers import simple_string_hash
+from pytest_databases.helpers import get_xdist_worker_count, get_xdist_worker_num
+from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
-COMPOSE_PROJECT_NAME: str = f"pytest-databases-azure-blob-{simple_string_hash(__file__)}"
-
-
-def _get_container_ids(compose_file_name: str) -> list[str]:
-    proc = subprocess.run(
-        [  # noqa: S607
-            "docker",
-            "container",
-            "ls",
-            f"--filter=label=com.docker.compose.project.config_files={compose_file_name}",
-            "--format=json",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return [json.loads(line)["ID"] for line in proc.stdout.splitlines()]
+if TYPE_CHECKING:
+    from pytest_databases._service import DockerService
 
 
-def _get_container_logs(compose_file_name: str) -> str:
-    logs = ""
-    for container_id in _get_container_ids(compose_file_name):
-        stdout = subprocess.run(
-            ["docker", "logs", container_id],  # noqa: S607
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        logs += stdout
-    return logs
+DEFAULT_ACCOUNT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+DEFAULT_ACCOUNT_NAME = "devstoreaccount1"
+
+
+@dataclass
+class AzureBlobService(ServiceContainer):
+    connection_string: str
+    account_url: str
+    account_key: str
+    account_name: str
 
 
 @pytest.fixture(scope="session")
-def azure_blob_compose_project_name() -> str:
-    return os.environ.get("COMPOSE_PROJECT_NAME", COMPOSE_PROJECT_NAME)
+def azure_blob_xdist_isolation_level() -> XdistIsolationLevel:
+    return "database"
 
 
 @pytest.fixture(scope="session")
-def azure_blob_service_startup_delay() -> int:
-    return 1
+def azurite_in_memory() -> bool:
+    return True
+
+
+def _create_account_options(number: int) -> list[tuple[str, str]]:
+    return [(f"test_account_{i}", DEFAULT_ACCOUNT_KEY) for i in range(number)]
 
 
 @pytest.fixture(scope="session")
-def azure_blob_docker_services(
-    azure_blob_compose_project_name: str,
-    azure_blob_service_startup_delay: int,
-    worker_id: str = "main",
-) -> Generator[DockerServiceRegistry, None, None]:
-    with DockerServiceRegistry(
-        worker_id,
-        compose_project_name=azure_blob_compose_project_name,
-    ) as registry:
-        yield registry
+def azure_blob_service(
+    docker_service: DockerService,
+    azurite_in_memory: bool,
+    azure_blob_xdist_isolation_level: XdistIsolationLevel,
+) -> Generator[ServiceContainer, None, None]:
+    command = "azurite-blob --blobHost 0.0.0.0 --blobPort 10000"
+    if azurite_in_memory:
+        command += " --inMemoryPersistence"
 
+    name = "azurite-blob"
+    env = {}
+    account_name = DEFAULT_ACCOUNT_NAME
+    account_key = DEFAULT_ACCOUNT_KEY
 
-@pytest.fixture(scope="session")
-def azure_blob_connection_string() -> str:
-    return "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+    worker_num = get_xdist_worker_num()
 
+    if worker_num is not None:
+        if azure_blob_xdist_isolation_level == "server":
+            name = f"{name}_{worker_num}"
+        else:
+            accounts = _create_account_options(get_xdist_worker_count())
+            env["AZURITE_ACCOUNTS"] = ";".join(f"{name}:{key}" for name, key in accounts)
+            account_name, account_key = accounts[worker_num]
 
-@pytest.fixture(scope="session")
-def azure_blob_account_name() -> str:
-    return "devstoreaccount1"
+    with docker_service.run(
+        image="mcr.microsoft.com/azure-storage/azurite",
+        name=name,
+        command=command,
+        wait_for_log="Azurite Blob service successfully listens on",
+        container_port=10000,
+        env=env,
+    ) as service:
+        account_url = f"http://127.0.0.1:{service.port}/{account_name}"
+        connection_string = (
+            "DefaultEndpointsProtocol=http;"
+            f"AccountName={account_name};"
+            f"AccountKey={account_key};"
+            f"BlobEndpoint={account_url};"
+        )
 
-
-@pytest.fixture(scope="session")
-def azure_blob_account_key() -> str:
-    return "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
-
-
-@pytest.fixture(scope="session")
-def azure_blob_account_url() -> str:
-    return "http://127.0.0.1:10000/devstoreaccount1"
-
-
-@pytest.fixture(scope="session")
-def azure_blob_port() -> int:
-    return 10000
-
-
-@pytest.fixture(scope="session")
-def azure_blob_docker_compose_files() -> list[Path]:
-    return [Path(Path(__file__).parent / "docker-compose.azurite.yml")]
-
-
-@pytest.fixture(scope="session")
-def default_azure_blob_redis_service_name() -> str:
-    return "azurite"
-
-
-@pytest.fixture(scope="session")
-def azure_blob_docker_ip(azure_blob_docker_services: DockerServiceRegistry) -> str:
-    return azure_blob_docker_services.docker_ip
+        yield AzureBlobService(
+            host=service.host,
+            port=service.port,
+            connection_string=connection_string,
+            account_url=account_url,
+            account_key=account_key,
+            account_name=account_name,
+        )
 
 
 @pytest.fixture(scope="session")
 def azure_blob_default_container_name() -> str:
-    return secrets.token_hex(4)
+    return "pytest-databases"
 
 
 @pytest.fixture(scope="session")
 def azure_blob_container_client(
-    azure_blob_connection_string: str,
+    azure_blob_service: AzureBlobService,
     azure_blob_default_container_name: str,
-    azure_blob_service: None,
 ) -> Generator[ContainerClient, None, None]:
     with ContainerClient.from_connection_string(
-        azure_blob_connection_string, container_name=azure_blob_default_container_name
+        azure_blob_service.connection_string,
+        container_name=azure_blob_default_container_name,
     ) as container_client:
         yield container_client
 
 
 @pytest.fixture(scope="session")
 async def azure_blob_async_container_client(
-    azure_blob_connection_string: str, azure_blob_default_container_name: str
+    azure_blob_service: AzureBlobService,
+    azure_blob_default_container_name: str,
 ) -> AsyncGenerator[AsyncContainerClient, None]:
     async with AsyncContainerClient.from_connection_string(
-        azure_blob_connection_string, container_name=azure_blob_default_container_name
+        azure_blob_service.connection_string,
+        container_name=azure_blob_default_container_name,
     ) as container_client:
         yield container_client
-
-
-@pytest.fixture(autouse=False, scope="session")
-def azure_blob_service(
-    azure_blob_docker_services: DockerServiceRegistry,
-    default_azure_blob_redis_service_name: str,
-    azure_blob_docker_compose_files: list[Path],
-    azure_blob_connection_string: str,
-    azure_blob_port: int,
-    azure_blob_default_container_name: str,
-) -> Generator[None, None, None]:
-    os.environ["AZURE_BLOB_PORT"] = str(azure_blob_port)
-
-    def azurite_responsive(host: str, port: int) -> bool:
-        # because azurite has a bug where it will hang for a long time if you make a
-        # request against it before it has completed startup we can't ping it, so we're
-        # inspecting the container logs instead
-        logs = _get_container_logs(str(azure_blob_docker_compose_files[0].absolute()))
-        return "Azurite Blob service successfully listens on" in logs
-
-    azure_blob_docker_services.start(
-        name=default_azure_blob_redis_service_name,
-        docker_compose_files=azure_blob_docker_compose_files,
-        check=azurite_responsive,
-        port=azure_blob_port,
-    )
-    yield
