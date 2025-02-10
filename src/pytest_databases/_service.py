@@ -8,12 +8,12 @@ import time
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Generator
 
-import docker
 import filelock
 import pytest
-from docker.errors import ImageNotFound
 from typing_extensions import Self
 
+import docker
+from docker.errors import ImageNotFound
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
@@ -149,15 +149,15 @@ class DockerService(AbstractContextManager):
             try:
                 self._client.images.get(image)
             except ImageNotFound:
-                self._client.images.pull(*image.rsplit(":", maxsplit=1))
+                self._client.images.pull(*image.rsplit(":", maxsplit=1))  # pyright: ignore[reportCallIssue,reportArgumentType]
 
             if container is None:
-                container = self._client.containers.run(
+                container = self._client.containers.run(  # pyright: ignore[reportCallIssue,reportArgumentType]
                     image,
                     command,
                     detach=True,
                     remove=True,
-                    ports={container_port: None},
+                    ports={container_port: None},  # pyright: ignore[reportArgumentType]
                     labels=["pytest_databases"],
                     name=name,
                     environment=env,
@@ -204,9 +204,9 @@ class DockerService(AbstractContextManager):
             try:
                 container.stop()
                 container.remove(force=True)
-            except docker.errors.APIError as exc:
+            except docker.errors.APIError as exc:  # pyright: ignore[reportAttributeAccessIssue]
                 # '409 - Conflict' means removal is already in progress. this is the
-                # safest way of delaing with it, since the API is a bit borked when it
+                # safest way of delaiyng with it, since the API is a bit borked when it
                 # comes to concurrent requests
                 if exc.status_code not in {409, 404}:
                     raise

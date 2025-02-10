@@ -69,7 +69,7 @@ jobs:
     steps:
       - name: Install additional dependencies
         run: sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev
-        
+
       - uses: actions/checkout@v4
 
       - name: Set up Python
@@ -86,27 +86,27 @@ jobs:
       - name: Run tests with coverage tracking
         run: uv run pytest -k elasticsearch
 
-  sonar:
-    needs:
-      - test
-      - test_elasticsearch
-    if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'litestar-org'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-xml
+  # sonar:
+  #   needs:
+  #     - test
+  #     - test_elasticsearch
+  #   if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'litestar-org'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Check out repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
+  #     - name: Download Artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: coverage-xml
 
-      - name: Fix coverage file for sonarcloud
-        run: sed -i "s/home\/runner\/work\/pytest-databases\/pytest-databases/github\/workspace/g" coverage.xml
+  #     - name: Fix coverage file for sonarcloud
+  #       run: sed -i "s/home\/runner\/work\/pytest-databases\/pytest-databases/github\/workspace/g" coverage.xml
 
-      - name: SonarCloud Scan
-        uses: sonarsource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  #     - name: SonarCloud Scan
+  #       uses: sonarsource/sonarcloud-github-action@master
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

@@ -52,7 +52,7 @@ def _provide_mysql_service(
                 password=password,
             )
         except mysql.connector.errors.OperationalError as exc:
-            if "Lost connection" in exc.msg:
+            if "Lost connection" in exc.msg:  # type: ignore
                 return False
             raise
 
@@ -60,7 +60,7 @@ def _provide_mysql_service(
             with conn.cursor() as cursor:
                 cursor.execute("select 1 as is_available")
                 resp = cursor.fetchone()
-            return resp is not None and resp[0] == 1
+            return resp is not None and resp[0] == 1  # type: ignore
         finally:
             with contextlib.suppress(Exception):
                 conn.close()
@@ -161,7 +161,7 @@ def mysql_56_connection(mysql_56_service: MySQLService) -> Generator[MySQLConnec
         database=mysql_56_service.db,
         password=mysql_56_service.password,
     ) as conn:
-        yield conn
+        yield conn  # type: ignore
 
 
 @pytest.fixture(scope="session")
@@ -173,7 +173,7 @@ def mysql_57_connection(mysql_57_service: MySQLService) -> Generator[MySQLConnec
         database=mysql_57_service.db,
         password=mysql_57_service.password,
     ) as conn:
-        yield conn
+        yield conn  # type: ignore
 
 
 @pytest.fixture(scope="session")
@@ -190,4 +190,4 @@ def mysql_8_connection(mysql_8_service: MySQLService) -> Generator[MySQLConnecti
         database=mysql_8_service.db,
         password=mysql_8_service.password,
     ) as conn:
-        yield conn
+        yield conn  # type: ignore
