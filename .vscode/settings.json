@@ -24,9 +24,6 @@
     "node_modules": true,
     ".terraform": true
   },
-  "ruff.format.args": ["--config=${workspaceFolder}/pyproject.toml"],
-  "ruff.lint.run": "onType",
-  "ruff.lint.args": ["--config=${workspaceFolder}/pyproject.toml"],
   "mypy-type-checker.importStrategy": "fromEnvironment",
   "pylint.importStrategy": "fromEnvironment",
   "python.autoComplete.extraPaths": ["${workspaceFolder}/src"],
@@ -36,7 +33,6 @@
   "autoDocstring.guessTypes": false,
   "python.analysis.autoImportCompletions": true,
   "python.analysis.autoFormatStrings": true,
-  "python.analysis.extraPaths": ["${workspaceFolder}/src"],
   "editor.formatOnSave": true,
   "notebook.formatOnSave.enabled": true,
   "black-formatter.args": ["--line-length=120"],

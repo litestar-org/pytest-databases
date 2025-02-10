@@ -72,6 +72,7 @@ spanner = ["google-cloud-spanner"]
 [dependency-groups]
 dev = [
   # tests
+  "bump-my-version",
   "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner]",
   "coverage[toml]>=6.2",
   "coverage[toml]>=6.2",
@@ -111,6 +112,39 @@ dev = [
 # External Tools #
 ##################
 
+[tool.bumpversion]
+allow_dirty = true
+commit = true
+commit_args = "--no-verify"
+current_version = "0.10.0"
+ignore_missing_files = false
+ignore_missing_version = false
+message = "chore(release): bump to v{new_version}"
+parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
+regex = false
+replace = "{new_version}"
+search = "{current_version}"
+serialize = ["{major}.{minor}.{patch}"]
+sign_tags = false
+tag = false
+tag_message = "chore(release): v{new_version}"
+tag_name = "v{new_version}"
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+replace = 'version = "{new_version}"'
+search = 'version = "{current_version}"'
+
+[[tool.bumpversion.files]]
+filename = "uv.lock"
+replace = """
+name = "pytest-databases"
+version = "{new_version}"
+"""
+search = """
+name = "pytest-databases"
+version = "{current_version}"
+"""
 ## Linting Tools
 
 [tool.slotscheck]
@@ -118,7 +152,7 @@ strict-imports = false
 
 [tool.codespell]
 ignore-words-list = "alog"
-skip = 'pdm.lock, package-lock.json'
+skip = 'uv.lock, package-lock.json'
 
 [tool.pyright]
 exclude = ["scripts", "docs"]
@@ -323,6 +357,8 @@ line-length = 120
 
 [tool.pytest.ini_options]
 addopts = "--doctest-glob='*.md' --dist=loadgroup"
+cdist-group-steal = "3:10"
+cdist-justify-items = "file"
 filterwarnings = [
   "ignore::DeprecationWarning:pkg_resources",
   "ignore::DeprecationWarning:xdist.*",
@@ -338,8 +374,6 @@ markers = [
   "elasticsearch: Elasticsearch Tests",
 ]
 testpaths = ["tests"]
-cdist-justify-items = "file"
-cdist-group-steal = "3:10"
 
 [tool.coverage.run]
 branch = true
