@@ -164,7 +164,18 @@ class DockerService(AbstractContextManager):
                     ulimits=ulimits,
                     mem_limit=mem_limit,
                 )
-                container.reload()
+
+                # reload the container; sometimes it can take a while before docker
+                # spins it up and the metadata becomes available, so we're redoing the
+                # check with a small incremental backup here
+                for i in range(10):
+                    if any(v for v in container.ports.values()):
+                        break
+                    container.reload()
+                    time.sleep(0.1 + (i / 10))
+                else:
+                    msg = f"Service {name!r} failed to create container"
+                    raise ValueError(msg)
 
         host_port = int(
             container.ports[next(k for k in container.ports if k.startswith(str(container_port)))][0]["HostPort"]
