@@ -17,17 +17,27 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
-DEFAULT_MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minio")
-DEFAULT_MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minio123")
-DEFAULT_MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() in TRUE_VALUES
-
-
 @dataclass
 class MinioService(ServiceContainer):
     endpoint: str
-    access_key: str = DEFAULT_MINIO_ACCESS_KEY
-    secret_key: str = DEFAULT_MINIO_SECRET_KEY
-    secure: bool = DEFAULT_MINIO_SECURE
+    access_key: str
+    secret_key: str
+    secure: bool
+
+
+@pytest.fixture(scope="session")
+def minio_access_key() -> str:
+    return os.getenv("MINIO_ACCESS_KEY", "minio")
+
+
+@pytest.fixture(scope="session")
+def minio_secret_key() -> str:
+    return os.getenv("MINIO_SECRET_KEY", "minio123")
+
+
+@pytest.fixture(scope="session")
+def minio_secure() -> bool:
+    return os.getenv("MINIO_SECURE", "false").lower() in TRUE_VALUES
 
 
 @pytest.fixture(scope="session")
@@ -46,10 +56,12 @@ def minio_default_bucket_name(xdist_minio_isolation_level: XdistIsolationLevel) 
 @pytest.fixture(scope="session")
 def minio_service(
     docker_service: "DockerService",
-    xdist_minio_isolation_level: "XdistIsolationLevel",
+    minio_access_key: str,
+    minio_secret_key: str,
+    minio_secure: bool,
 ) -> "Generator[MinioService, None, None]":
     def check(_service: ServiceContainer) -> bool:
-        scheme = "https" if DEFAULT_MINIO_SECURE else "http"
+        scheme = "https" if minio_secure else "http"
         url = f"{scheme}://{_service.host}:{_service.port}/minio/health/ready"
         if not url.startswith(("http:", "https:")):
             msg = "URL must start with 'http:' or 'https:'"
@@ -62,11 +74,9 @@ def minio_service(
 
     command = "server /data"
     name = "minio"
-    access_key = DEFAULT_MINIO_ACCESS_KEY
-    secret_key = DEFAULT_MINIO_SECRET_KEY
     env = {
-        "MINIO_ROOT_USER": access_key,
-        "MINIO_ROOT_PASSWORD": secret_key,
+        "MINIO_ROOT_USER": minio_access_key,
+        "MINIO_ROOT_PASSWORD": minio_secret_key,
     }
 
     with docker_service.run(
@@ -83,8 +93,9 @@ def minio_service(
             host=service.host,
             port=service.port,
             endpoint=f"{service.host}:{service.port}",
-            access_key=access_key,
-            secret_key=secret_key,
+            access_key=minio_access_key,
+            secret_key=minio_secret_key,
+            secure=minio_secure,
         )
 
 
@@ -97,7 +108,7 @@ def minio_client(
         endpoint=minio_service.endpoint,
         access_key=minio_service.access_key,
         secret_key=minio_service.secret_key,
-        secure=False,
+        secure=minio_service.secure,
     )
     try:
         if not client.bucket_exists(minio_default_bucket_name):
