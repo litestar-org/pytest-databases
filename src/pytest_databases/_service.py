@@ -6,7 +6,7 @@ import os
 import subprocess  # noqa: S404
 import time
 from contextlib import AbstractContextManager, contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Generator
+from typing import TYPE_CHECKING, Any, Callable
 
 import filelock
 import pytest
@@ -19,6 +19,7 @@ from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Generator
     from types import TracebackType
 
     from docker.models.containers import Container

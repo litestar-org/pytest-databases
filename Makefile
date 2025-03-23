@@ -167,7 +167,7 @@ pre-commit:                                        ## Run pre-commit hooks
 .PHONY: slotscheck
 slotscheck:                                        ## Run slotscheck
 	@echo "${INFO} Running slots check... 🔍"
-	@uv run slotscheck
+	@uv run slotscheck src/pytest_databases
 	@echo "${OK} Slots check passed ✨"
 
 .PHONY: fix

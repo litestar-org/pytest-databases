@@ -5,7 +5,10 @@ import shutil
 import subprocess  # noqa: S404
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 REDIRECT_TEMPLATE = """
 <!DOCTYPE HTML>
