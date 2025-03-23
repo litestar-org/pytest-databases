@@ -31,7 +31,7 @@ It is designed to offer pre-configured testing setups for many different types a
 
 ## Features
 
-`pytest-databases` currently utilizes `docker compose` (or the legacy `docker-compose`) commands to manage the startup and shutdown of each database service. The following databases are currently available:
+`pytest-databases` uses the Docker Python SDK to manage the startup and shutdown of database services in containers. The following databases are currently available:
 
 - **Postgres**: Version 12, 13, 14, 15, 16 and 17 are available
 - **MySQL**: Version 5.6, 5.7 and 8 are available
