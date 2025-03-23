@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, AsyncGenerator, Generator
+from typing import TYPE_CHECKING
 
 import pytest
 from azure.storage.blob import ContainerClient
@@ -11,6 +11,8 @@ from pytest_databases.helpers import get_xdist_worker_count, get_xdist_worker_nu
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Generator
+
     from pytest_databases._service import DockerService
 
 

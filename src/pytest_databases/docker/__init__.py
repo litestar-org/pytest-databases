@@ -6,16 +6,16 @@ import subprocess  # noqa: S404
 import time
 import timeit
 from contextlib import AbstractContextManager
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable
 
 from pytest_databases.helpers import simple_string_hash
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Generator
+    from collections.abc import Awaitable, Generator, Iterable
     from pathlib import Path
     from types import TracebackType
 
-TRUE_VALUES = {"True", "true", "1", "yes", "Y", "T"}
+TRUE_VALUES = {"True", "true", "1", "yes", "y", "Y", "T", "on", "enabled", "ok"}
 
 
 def wait_until_responsive(

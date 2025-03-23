@@ -14,7 +14,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 version = "0.11.1"
 #
-authors = [{ name = "Cody Fincher", email = "cody.fincher@gmail.com" }]
+authors = [{ name = "Cody Fincher", email = "cody@litestar.dev" }]
 keywords = [
   "database",
   "migration",
@@ -61,27 +61,28 @@ elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
 keydb = ["redis"]
 mariadb = ["mariadb"]
-mssql = ["pymssql<=2.3.1"]
+minio = ["minio"]
+mssql = ["pymssql"]
 mysql = ["mysql-connector-python"]
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 
-
 [dependency-groups]
 dev = [
   # tests
   "bump-my-version",
-  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner]",
-  "coverage[toml]>=6.2",
+  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner,minio]",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
+  "pytest-cdist>=0.2",
   "pytest-mock",
-  "pytest-vcr",
   "pytest-click",
   "pytest-xdist",
+  "pytest-sugar",
+  "slotscheck",
   # lint
   "mypy",
   "ruff",
@@ -104,7 +105,7 @@ dev = [
   "sphinx-design>=0.5.0",
   "sphinxcontrib-mermaid>=0.9.2",
   "auto-pytabs[sphinx]>=0.4.0",
-  "pytest-cdist>=0.2",
+
 ]
 
 
@@ -116,7 +117,7 @@ dev = [
 allow_dirty = true
 commit = true
 commit_args = "--no-verify"
-current_version = "0.11.0"
+current_version = "0.11.1"
 ignore_missing_files = false
 ignore_missing_version = false
 message = "chore(release): bump to v{new_version}"
@@ -295,7 +296,7 @@ lint.select = ["ALL"]
 lint.dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 preview = true                                                    # preview features & checks, use with caution
 src = ["src", "tests/", "docs/"]
-target-version = "py38"
+target-version = "py39"
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

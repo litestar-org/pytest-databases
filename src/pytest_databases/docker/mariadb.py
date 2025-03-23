@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import traceback
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING
 
 import mariadb
 import pytest
