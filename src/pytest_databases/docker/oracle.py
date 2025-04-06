@@ -95,22 +95,46 @@ def _provide_oracle_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_23ai_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
+def oracle_23ai_image() -> str:
+    return "gvenzl/oracle-free:23-slim-faststart"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_23ai_service_name() -> str:
+    return "FREEPDB1"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_18c_image() -> str:
+    return "gvenzl/oracle-xe:18-slim-faststart"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_18c_service_name() -> str:
+    return "xepdb1"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_23ai_service(
+    docker_service: DockerService, oracle_23ai_image: str, oracle_23ai_service_name: str
+) -> Generator[OracleService, None, None]:
     with _provide_oracle_service(
-        image="gvenzl/oracle-free:23-slim-faststart",
+        image=oracle_23ai_image,
         name="oracle23ai",
-        service_name="FREEPDB1",
+        service_name=oracle_23ai_service_name,
         docker_service=docker_service,
     ) as service:
         yield service
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_18c_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
+def oracle_18c_service(
+    docker_service: DockerService, oracle_18c_image: str, oracle_18c_service_name: str
+) -> Generator[OracleService, None, None]:
     with _provide_oracle_service(
-        image="gvenzl/oci-oracle-xe:18-slim-faststart",
+        image=oracle_18c_image,
         name="oracle18c",
-        service_name="xepdb1",
+        service_name=oracle_18c_service_name,
         docker_service=docker_service,
     ) as service:
         yield service

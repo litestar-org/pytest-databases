@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = pytest.mark.skip()
-
 
 @pytest.mark.parametrize(
     "service_fixture",
     [
         "oracle_18c_service",
-        "oracle_23ai_service",
         "oracle_23ai_service",
     ],
 )
@@ -20,21 +17,23 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
 
     def test({service_fixture}):
         conn = oracledb.connect(
-            user=service_fixture.user,
-            password=service_fixture.password,
-            dsn=f"{{{service_fixture}.host}}:{{{service_fixture}.port!s}}/{{{service_fixture}.service_name}}",
+            user={service_fixture}.user,
+            password={service_fixture}.password,
+            service_name={service_fixture}.service_name,
+            host={service_fixture}.host,
+            port={service_fixture}.port,
         )
         with conn.cursor() as cur:
-            cur.execute("SELECT 'Hello World!' FROM dual")
-            res = cur.fetchall()[0][0]
-            assert "Hello World!" in res
+            cur.execute("SELECT 1 FROM dual")
+            res = cur.fetchone()[0]
+            assert res == 1
     """)
 
     result = pytester.runpytest()
     result.assert_outcomes(passed=1)
 
 
-@pytest.mark.parametrize("connection_fixture", ["oracle_18c_connection"])
+@pytest.mark.parametrize("connection_fixture", ["oracle_18c_connection", "oracle_23ai_connection"])
 def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
     pytester.makepyfile(f"""
     import oracledb
