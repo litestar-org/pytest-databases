@@ -108,7 +108,7 @@ def oracle_23ai_service(docker_service: DockerService) -> Generator[OracleServic
 @pytest.fixture(autouse=False, scope="session")
 def oracle_18c_service(docker_service: DockerService) -> Generator[OracleService, None, None]:
     with _provide_oracle_service(
-        image="gvenzl/oracle-free:23-slim-faststart",
+        image="gvenzl/oci-oracle-xe:18-slim-faststart",
         name="oracle18c",
         service_name="xepdb1",
         docker_service=docker_service,
