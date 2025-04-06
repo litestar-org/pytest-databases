@@ -183,27 +183,6 @@ def postgres_17_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres_service(postgres_17_service: PostgresService) -> PostgresService:
-    return postgres_17_service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_connection(
-    postgres_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_service.host,
-            port=postgres_service.port,
-            user=postgres_service.user,
-            password=postgres_service.password,
-            database=postgres_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
 def postgres_11_connection(
     postgres_11_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
@@ -310,6 +289,78 @@ def postgres_17_connection(
             user=postgres_17_service.user,
             password=postgres_17_service.password,
             database=postgres_17_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_image() -> str:
+    return "postgres:17"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_service(
+    docker_service: DockerService,
+    postgres_image: str,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image=postgres_image,
+        name="postgres",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_connection(
+    postgres_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=postgres_service.host,
+            port=postgres_service.port,
+            user=postgres_service.user,
+            password=postgres_service.password,
+            database=postgres_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_image() -> str:
+    return "pgvector/pgvector:latest"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_service(
+    docker_service: DockerService,
+    pgvector_image: str,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image=pgvector_image,
+        name="pgvector",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_connection(
+    pgvector_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=pgvector_service.host,
+            port=pgvector_service.port,
+            user=pgvector_service.user,
+            password=pgvector_service.password,
+            database=pgvector_service.database,
         ),
     ) as conn:
         yield conn
