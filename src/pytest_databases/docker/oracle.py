@@ -142,38 +142,38 @@ def oracle_18c_service(
 
 # alias to the latest
 @pytest.fixture(autouse=False, scope="session")
-def oracle_service(oracle23ai_service: OracleService) -> OracleService:
-    return oracle23ai_service
+def oracle_service(oracle_23ai_service: OracleService) -> OracleService:
+    return oracle_23ai_service
 
 
 @pytest.fixture(autouse=False, scope="session")
 def oracle_18c_connection(
-    oracle18c_service: OracleService,
+    oracle_18c_service: OracleService,
 ) -> Generator[oracledb.Connection, None, None]:
     with oracledb.connect(
-        host=oracle18c_service.host,
-        port=oracle18c_service.port,
-        user=oracle18c_service.user,
-        service_name=oracle18c_service.service_name,
-        password=oracle18c_service.password,
+        host=oracle_18c_service.host,
+        port=oracle_18c_service.port,
+        user=oracle_18c_service.user,
+        service_name=oracle_18c_service.service_name,
+        password=oracle_18c_service.password,
     ) as db_connection:
         yield db_connection
 
 
 @pytest.fixture(autouse=False, scope="session")
 def oracle_23ai_connection(
-    oracle23ai_service: OracleService,
+    oracle_23ai_service: OracleService,
 ) -> Generator[oracledb.Connection, None, None]:
     with oracledb.connect(
-        host=oracle23ai_service.host,
-        port=oracle23ai_service.port,
-        user=oracle23ai_service.user,
-        service_name=oracle23ai_service.service_name,
-        password=oracle23ai_service.password,
+        host=oracle_23ai_service.host,
+        port=oracle_23ai_service.port,
+        user=oracle_23ai_service.user,
+        service_name=oracle_23ai_service.service_name,
+        password=oracle_23ai_service.password,
     ) as db_connection:
         yield db_connection
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_startup_connection(oracle23ai_startup_connection: oracledb.Connection) -> oracledb.Connection:
-    return oracle23ai_startup_connection
+def oracle_startup_connection(oracle_23ai_startup_connection: oracledb.Connection) -> oracledb.Connection:
+    return oracle_23ai_startup_connection
