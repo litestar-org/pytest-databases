@@ -12,7 +12,7 @@ license = "MIT"
 name = "pytest-databases"
 readme = "README.md"
 requires-python = ">=3.9"
-version = "0.12.2"
+version = "0.12.3"
 #
 authors = [{ name = "Cody Fincher", email = "cody@litestar.dev" }]
 keywords = [
@@ -117,7 +117,7 @@ dev = [
 allow_dirty = true
 commit = true
 commit_args = "--no-verify"
-current_version = "0.12.2"
+current_version = "0.12.3"
 ignore_missing_files = false
 ignore_missing_version = false
 message = "chore(release): bump to v{new_version}"
