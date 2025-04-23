@@ -7,9 +7,7 @@ Pytest Databases
 
    README
    databases/index
-   guides/getting-started
-   guides/examples
-   api/index
+   getting-started
 
 Pytest Databases is a powerful testing utility that provides ready-made database fixtures for your pytest tests. It simplifies the process of setting up and managing database connections during testing, making it easier to write and maintain database-driven tests.
 
@@ -63,15 +61,6 @@ Supported Databases
    * - Redis
      - Latest
      - `Official Redis Docker Image <https://hub.docker.com/_/redis>`_
-   * - Valkey
-     - Latest
-     - `Official Valkey Docker Image <https://hub.docker.com/_/valkey>`_
-   * - Dragonfly
-     - Latest
-     - `Dragonfly Docker Documentation <https://www.dragonflydb.io/docs/getting-started/docker>`_
-   * - KeyDB
-     - Latest
-     - `KeyDB Docker Image <https://hub.docker.com/r/eqalpha/keydb>`_
    * - Elasticsearch
      - 7, 8
      - `Elasticsearch Docker Images <https://www.docker.elastic.co/>`_
@@ -105,7 +94,7 @@ You can specify multiple databases:
 
    pip install pytest-databases[postgres,mysql,redis]
 
-See the :doc:`guides/getting-started` guide for a full list of available extras and detailed installation instructions.
+See the :doc:`getting-started` guide for a full list of available extras and detailed installation instructions.
 
 **Basic Usage**
 
@@ -129,8 +118,6 @@ See the :doc:`guides/getting-started` guide for a full list of available extras 
     .. code-block:: python
 
        from pytest_databases.docker.postgres import PostgresService
-       # Assuming you have a database client like psycopg installed
-       # pip install psycopg
        import psycopg
 
        # postgres_service provides connection details for the running service
@@ -146,7 +133,7 @@ See the :doc:`guides/getting-started` guide for a full list of available extras 
                     assert cursor.fetchone() == (1,)
 
        # postgres_connection provides a ready-made connection object
-       def test_direct_connection_fixture(postgres_connection) -> None:
+       def test_direct_connection_fixture(postgres_connection: psycopg.Connection) -> None:
             """Example test using the direct connection fixture."""
             with postgres_connection.cursor() as cursor:
                 cursor.execute("CREATE TABLE IF NOT EXISTS foo (id INT);")
@@ -154,7 +141,7 @@ See the :doc:`guides/getting-started` guide for a full list of available extras 
                 cursor.execute("SELECT COUNT(*) FROM foo;")
                 assert cursor.fetchone() == (1,)
 
-For more detailed examples and advanced usage, refer to the :doc:`guides/getting-started` and :doc:`guides/examples` sections.
+For more detailed examples and advanced usage, refer to the :doc:`getting-started` details and the :doc:`databases/index` documentation.
 
 Indices and tables
 ==================

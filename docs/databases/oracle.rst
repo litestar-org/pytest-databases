@@ -1,10 +1,7 @@
-\
-.. _db_oracle:
-
 Oracle
 ======
 
-Integration with Oracle.
+Integration with `Oracle Database <https://www.oracle.com/database/>`_
 
 Installation
 ------------
@@ -13,34 +10,53 @@ Installation
 
    pip install pytest-databases[oracle]
 
-Docker Image
-------------
-
-`Oracle Database Docker Images <https://hub.docker.com/r/oracle/database/>`_
-
-Configuration
--------------
-
-* ``ORACLE_18C_IMAGE``: Docker image to use for Oracle 18c (default: "gvenzl/oracle-xe:18")
-* ``ORACLE_23AI_IMAGE``: Docker image to use for Oracle 23c (default: "gvenzl/oracle-free:23")
-* ``ORACLE_18C_SERVICE_NAME``: Service name for Oracle 18c (default: "XEPDB1")
-* ``ORACLE_23AI_SERVICE_NAME``: Service name for Oracle 23c (default: "FREEPDB1")
-* ``ORACLE_USER``: Username for Oracle (default: "app")
-* ``ORACLE_PASSWORD``: Password for Oracle (default: "super-secret")
-* ``ORACLE_SYSTEM_PASSWORD``: System password for Oracle (default: "super-secret")
-
-API
----
-
-.. automodule:: pytest_databases.docker.oracle
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Usage Example
 -------------
 
 .. code-block:: python
 
-   # Example usage will be added here
-   pass
+    import pytest
+    import oracledb
+    from pytest_databases.docker.oracle import OracleService
+
+    pytest_plugins = ["pytest_databases.docker.oracle"]
+
+    def test(oracle_service: OracleService) -> None:
+        conn = oracledb.connect(
+            user=oracle_service.user,
+            password=oracle_service.password,
+            service_name=oracle_service.service_name,
+            host=oracle_service.host,
+            port=oracle_service.port,
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM dual")
+            res = cur.fetchone()[0]
+            assert res == 1
+
+    def test(oracle_startup_connection: oracledb.Connection) -> None:
+        with oracle_startup_connection.cursor() as cursor:
+            cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
+            cursor.execute("select * from simple_table")
+            result = cursor.fetchall()
+            assert result is not None and result[0][0] == 1
+
+Available Fixtures
+------------------
+
+* ``oracle_image``: The Docker image to use for Oracle.
+* ``oracle_service``: A fixture that provides an Oracle service.
+* ``oracle_startup_connection``: A fixture that provides an Oracle connection.
+
+The following version-specific fixtures are also available:
+
+* ``oracle_18c_image``, ``oracle_18c_service_name``, ``oracle_18c_service``, ``oracle_18c_connection``: Oracle 18c
+* ``oracle_23ai_image``, ``oracle_23ai_service_name``, ``oracle_23ai_service``, ``oracle_23ai_connection``: Oracle 23ai
+
+Service API
+-----------
+
+.. automodule:: pytest_databases.docker.oracle
+   :members:
+   :undoc-members:
+   :show-inheritance:

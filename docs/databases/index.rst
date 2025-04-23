@@ -1,6 +1,3 @@
-\
-.. _databases:
-
 Databases
 =========
 
@@ -19,9 +16,6 @@ This section provides detailed information on the supported databases, including
    bigquery
    cockroachdb
    redis
-   valkey
-   dragonfly
-   keydb
    elasticsearch
    azure_blob_storage
    minio

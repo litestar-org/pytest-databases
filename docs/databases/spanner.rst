@@ -1,10 +1,9 @@
-\
-.. _db_spanner:
+Spanner
+=======
 
-Google Spanner
-==============
+Integration with `Google Cloud Spanner <https://cloud.google.com/spanner>`_ using the `Spanner Emulator <https://cloud.google.com/spanner/docs/emulator>`_
 
-Integration with Google Spanner Emulator.
+This integration uses the official `Google Cloud Spanner Python Client <https://cloud.google.com/python/docs/reference/spanner/latest>`_ for testing against the Spanner Emulator. The emulator provides a local development environment that mimics the behavior of Cloud Spanner, allowing you to test your application without connecting to the actual service.
 
 Installation
 ------------
@@ -13,32 +12,50 @@ Installation
 
    pip install pytest-databases[spanner]
 
-Emulator
---------
-
-`Spanner Emulator <https://cloud.google.com/spanner/docs/emulator>`_
-
-Configuration
--------------
-
-* ``SPANNER_IMAGE``: Docker image to use for Spanner (default: "gcr.io/cloud-spanner-emulator/emulator:latest")
-* ``XDIST_SPANNER_ISOLATION_LEVEL``: Isolation level for xdist workers (default: "server")
-* ``SPANNER_PROJECT``: Project ID for Spanner (default: "emulator-test-project")
-* ``SPANNER_INSTANCE``: Instance name for Spanner (default: "emulator-test-instance")
-* ``SPANNER_DATABASE``: Database name for Spanner (default: "emulator-test-database")
-
-API
----
-
-.. automodule:: pytest_databases.docker.spanner
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Usage Example
 -------------
 
 .. code-block:: python
 
-   # Example usage will be added here
-   pass
+    import pytest
+    from google.cloud import spanner
+    import contextlib
+    from pytest_databases.docker.spanner import SpannerService
+
+    pytest_plugins = ["pytest_databases.docker.spanner"]
+
+    def test(spanner_service: SpannerService) -> None:
+        spanner_client = spanner.Client(
+            project=spanner_service.project,
+            credentials=spanner_service.credentials,
+            client_options=spanner_service.client_options,
+        )
+        instance = spanner_client.instance(spanner_service.instance_name)
+        with contextlib.suppress(Exception):
+            instance.create()
+
+        database = instance.database(spanner_service.database_name)
+        with contextlib.suppress(Exception):
+            database.create()
+
+        with database.snapshot() as snapshot:
+            resp = next(iter(snapshot.execute_sql("SELECT 1")))
+        assert resp[0] == 1
+
+    def test(spanner_connection: spanner.Client) -> None:
+        assert isinstance(spanner_connection, spanner.Client)
+
+Available Fixtures
+------------------
+
+* ``spanner_image``: The Docker image to use for Spanner.
+* ``spanner_service``: A fixture that provides a Spanner service.
+* ``spanner_connection``: A fixture that provides a Spanner connection.
+
+Service API
+-----------
+
+.. automodule:: pytest_databases.docker.spanner
+   :members:
+   :undoc-members:
+   :show-inheritance:

@@ -252,7 +252,4 @@ Here is a summary table (refer to individual database pages under :doc:`../datab
 Next Steps
 ==========
 
-*   Dive deeper into :ref:`configuration` details and database-specific variables.
-*   Explore practical :doc:`./examples` demonstrating various testing scenarios.
-*   Consult the :doc:`../api/index` reference for detailed information on specific classes and functions.
 *   Browse the :doc:`../databases/index` section for specifics on each supported database.
