@@ -1,7 +1,7 @@
 Google AlloyDB Omni
 ===================
 
-Integration with `AlloyDB Omni <https://cloud.google.com/alloydb/omni/docs/introduction>`_
+Integration with `AlloyDB Omni <https://cloud.google.com/alloydb/omni?hl=en>`_
 
 
 Installation

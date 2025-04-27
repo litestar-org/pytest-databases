@@ -1,15 +1,20 @@
-import os
 import sys
+from datetime import datetime
+from pathlib import Path
 
-sys.path.insert(0, os.path.abspath(".."))
+from pytest_databases.__metadata__ import __project__, __version__
+
+sys.path.insert(0, str(Path("..").resolve()))
+
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+current_year = datetime.now().year  # noqa: DTZ005
 
-project = "pytest-databases"
-copyright = "2024, Litestar"
-author = "Litestar"
-release = "0.12.3"
+project = __project__
+copyright = f"{current_year}, Litestar Organization"  # noqa: A001
+author = "Litestar Organization"
+release = __version__
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -35,16 +40,18 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "shibuya"
+html_title = "Pytest Databases"
+pygments_style = "dracula"
 html_static_path = ["_static"]
-html_css_files = ["custom.css"]  # If you need custom CSS
+html_css_files = ["custom.css"]
 html_logo = "_static/logo.svg"
 html_favicon = "_static/logo.svg"  # Optional: use logo as favicon
 
 # Shibuya theme options: https://shibuya.lepture.com/install/
 html_theme_options = {
-    "accent_color": "indigo",
+    "accent_color": "amber",
     "github_url": "https://github.com/litestar-org/pytest-databases",
-    "globaltoc_expand_depth": 2,
+    "discord_url": "https://discord.gg/litestar",
 }
 
 # Autodoc settings

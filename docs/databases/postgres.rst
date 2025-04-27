@@ -1,7 +1,7 @@
 PostgreSQL
 ==========
 
-Integration with `PostgreSQL <https://www.postgresql.org/>`_ using the `PostgreSQL Docker Image <https://hub.docker.com/r/postgres/postgres>`_ or `pgvector Docker Image <https://hub.docker.com/r/ankane/pgvector>`_
+Integration with `PostgreSQL <https://www.postgresql.org/>`_ using the `PostgreSQL Docker Image <https://hub.docker.com/_/postgres>`_ or `pgvector Docker Image <https://hub.docker.com/r/ankane/pgvector>`_
 
 Installation
 ------------
