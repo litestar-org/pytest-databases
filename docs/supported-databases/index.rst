@@ -1,5 +1,5 @@
-Databases
-=========
+Supported Databases
+===================
 
 This section provides detailed information on the supported databases, including installation, configuration, available services, and fixtures.
 

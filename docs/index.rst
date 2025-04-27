@@ -30,9 +30,7 @@
    .. raw:: html
 
       <a href="getting-started/index.html" class="btn-no-wrap">Get Started</a>
-      <a href="pytest-databases/index.html" class="btn-no-wrap">Usage Docs</a>
-      <a href="databases/index.html" class="btn-no-wrap">API Docs</a>
-      <a href="https://blog.litestar.dev" class="btn-no-wrap">Blog</a>
+      <a href="supported-databases/index.html" class="btn-no-wrap">Usage & API Docs</a>
 
 .. grid:: 1 1 2 2
     :padding: 0
@@ -44,34 +42,35 @@
 
       The latest updates and enhancements to Pytest Databases.
 
-    .. grid-item-card:: :octicon:`comment-discussion` Discussions
-      :link: https://github.com/litestar-org/pytest-databases/discussions
-
-      Join discussions, pose questions, or share insights.
-
     .. grid-item-card:: :octicon:`issue-opened` Issues
       :link: https://github.com/litestar-org/pytest-databases/issues
 
       Report issues or suggest new features.
 
+    .. grid-item-card:: :octicon:`comment-discussion` Discussions
+      :link: https://github.com/litestar-org/pytest-databases/discussions
+
+      Join discussions, pose questions, or share insights.
+
     .. grid-item-card:: :octicon:`beaker` Contributing
       :link: contribution-guide
       :link-type: doc
 
-      Contribute to Litestar's growth with code, docs, and more.
+      Contribute to this project's growth with code, docs, and more.
 
 .. toctree::
    :caption: Contents:
    :hidden:
 
    getting-started/index
-   pytest-databases/index
-   databases/index
+   supported-databases/index
 
 .. toctree::
     :titlesonly:
     :caption: Contributing
     :hidden:
 
+    changelog
+    contribution-guide
     Available Issues <https://github.com/litestar-org/pytest-databases/issues>
     Code of Conduct <https://github.com/litestar-org/.github?tab=coc-ov-file#readme>

@@ -4,12 +4,7 @@ Contribution guide
 Setting up the environment
 --------------------------
 
-1. ``make install-pipx``
-2. ``make install-hatch``
-3. ``make configure-hatch``
-4. ``make install``
-5. Install `pre-commit <https://pre-commit.com/>`_
-6. ``pre-commit install``
+1. ``make install``
 
 Code contributions
 ------------------
@@ -46,7 +41,7 @@ Guidelines for writing code
 Writing and running tests
 +++++++++++++++++++++++++
 
-.. todo:: Write this section
+Coming soon.
 
 Project documentation
 ---------------------

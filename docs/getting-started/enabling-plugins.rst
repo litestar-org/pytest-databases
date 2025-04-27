@@ -5,7 +5,17 @@ After installing the necessary extras, you need to tell pytest to load the corre
 
 Choose **one** of the following methods:
 
-**1. `pyproject.toml`**:
+**1. `conftest.py`**:
+
+.. code-block:: python
+
+   # Example: Enable PostgreSQL and Redis plugins
+   pytest_plugins = [
+       "pytest_databases.docker.postgres",
+       "pytest_databases.docker.redis",
+   ]
+
+**2. `pyproject.toml`**:
 
 .. code-block:: toml
 
@@ -16,7 +26,7 @@ Choose **one** of the following methods:
        "pytest_databases.docker.redis",
    ]
 
-**2. `pytest.ini`**:
+**3. `pytest.ini`**:
 
 .. code-block:: ini
 
@@ -25,13 +35,3 @@ Choose **one** of the following methods:
    pytest_plugins =
        pytest_databases.docker.postgres
        pytest_databases.docker.redis
-
-**3. `conftest.py`**:
-
-.. code-block:: python
-
-   # Example: Enable PostgreSQL and Redis plugins
-   pytest_plugins = [
-       "pytest_databases.docker.postgres",
-       "pytest_databases.docker.redis",
-   ]

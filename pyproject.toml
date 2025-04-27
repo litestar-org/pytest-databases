@@ -86,7 +86,7 @@ dev = [
   # lint
   "mypy",
   "ruff",
-  "pylint",
+  "pyright",
   "pre-commit",
   "types-click",
   "types-six",
@@ -312,6 +312,10 @@ known-first-party = ["pytest_databases", "tests"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 60
 
 [tool.ruff.lint.per-file-ignores]
 # Allow print/pprint

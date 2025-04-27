@@ -1,5 +1,5 @@
-Google AlloyDB Omni
-===================
+AlloyDB Omni
+============
 
 Integration with `AlloyDB Omni <https://cloud.google.com/alloydb/omni?hl=en>`_
 

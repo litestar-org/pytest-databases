@@ -8,12 +8,12 @@ import time
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Any, Callable
 
-import docker
 import filelock
 import pytest
-from docker.errors import ImageNotFound
 from typing_extensions import Self
 
+import docker
+from docker.errors import ImageNotFound
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
