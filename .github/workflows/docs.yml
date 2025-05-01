@@ -40,12 +40,7 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Build Release Documentation
-        run: uv run sphinx-build -M html docs dist/docs -E -a -j auto -W --keep-going
-        if: github.event_name == 'release'
-
-      - name: Build Documentation
-        run: uv run sphinx-build -M html docs dist/docs -E -a -j auto -W --keep-going
-        if: github.event_name != 'release'
+        run: uv run scripts/build_docs.py dist/docs
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

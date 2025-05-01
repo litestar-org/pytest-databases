@@ -15,7 +15,7 @@ These variables apply globally to the Docker setup:
 Database-Specific Variables
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Each database type has its own set of environment variables for fine-grained control (e.g., ``POSTGRES_USER``, ``POSTGRES_PASSWORD``, ``POSTGRES_DB``, ``POSTGRES_PORT``, ``POSTGRES_TAG`` for PostgreSQL).
+Some drivers have additional environment variables for configuration.
 
 Please refer to the documentation for the specific database you are using under the :doc:`../supported-databases/index` section for a complete list of its configuration variables.
 
