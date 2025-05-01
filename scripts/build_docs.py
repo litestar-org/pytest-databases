@@ -40,7 +40,7 @@ def build(output_dir: str) -> None:
     subprocess.run(["make", "docs"], check=True)  # noqa: S607
 
     output_path = Path(output_dir)
-    output_path.mkdir()
+    output_path.mkdir(parents=True, exist_ok=True)
     output_path.joinpath(".nojekyll").touch(exist_ok=True)
     output_path.joinpath("index.html").write_text(REDIRECT_TEMPLATE.format(target="latest"))
 
