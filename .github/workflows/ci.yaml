@@ -58,7 +58,7 @@ jobs:
 
       - if: matrix.python-version == '3.12'
         name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5.4.2
+        uses: codecov/codecov-action@v5.4.3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: litestar-org/pytest-databases
