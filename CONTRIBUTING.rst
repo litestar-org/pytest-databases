@@ -4,7 +4,8 @@ Contribution guide
 Setting up the environment
 --------------------------
 
-1. ``make install``
+1. `Install MariaDB <https://mariadb.com/kb/en/binary-packages/>`_
+2. ``make install``
 
 Code contributions
 ------------------

@@ -83,6 +83,7 @@ dev = [
   "pytest-xdist",
   "pytest-sugar",
   "slotscheck",
+  "psycopg-binary", # This fixes tests failing on M series CPUs.
   # lint
   "mypy",
   "ruff",
@@ -111,9 +112,7 @@ dev = [
   "myst-parser",
   "sphinx-autodoc-typehints",
   "sphinx-rtd-theme",
-
 ]
-
 
 ##################
 # External Tools #

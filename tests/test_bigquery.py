@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pytest
 
-if TYPE_CHECKING:
-    import pytest
+from tests.conftest import PLATFORM_PROCESSOR
 
 
+@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No bigquery image for arm.")
 def test_service_fixture(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     from google.cloud import bigquery
@@ -29,6 +29,7 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
+@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No bigquery image for arm.")
 def test_client_fixture(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     from google.cloud import bigquery
@@ -43,6 +44,7 @@ def test_client_fixture(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
+@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No bigquery image for arm.")
 def test_xdist(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     from google.cloud import bigquery
