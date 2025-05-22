@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from tests.conftest import PLATFORM_PROCESSOR
-
 
 @pytest.mark.parametrize(
     "service_fixture",
     [
         "mysql_8_service",
-        pytest.param("mysql_56_service", marks=pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No ARM container")),
-        pytest.param("mysql_57_service", marks=pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No ARM container")),
+        "mysql_56_service",
+        "mysql_57_service",
     ],
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
@@ -38,8 +36,8 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
 @pytest.mark.parametrize(
     "connection_fixture",
     [
-        pytest.param("mysql_56_connection", marks=pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No ARM container")),
-        pytest.param("mysql_57_connection", marks=pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No ARM container")),
+    "mysql_56_connection",
+    "mysql_57_connection",
     ],
 )
 def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
@@ -58,7 +56,6 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
     result.assert_outcomes(passed=1)
 
 
-@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No ARM container. Can this be changed to mysql8?")
 def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.mysql"]
@@ -76,7 +73,6 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=2)
 
 
-@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="No ARM container. Can this be changed to mysql8?")
 def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     import pytest
