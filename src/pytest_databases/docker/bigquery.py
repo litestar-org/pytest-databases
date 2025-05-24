@@ -27,6 +27,11 @@ def bigquery_image() -> str:
     return "ghcr.io/goccy/bigquery-emulator:latest"
 
 
+@pytest.fixture(scope="session")
+def platform() -> str:
+    return "linux/x86_64"
+
+
 @dataclass
 class BigQueryService(ServiceContainer):
     project: str
@@ -47,6 +52,7 @@ def bigquery_service(
     docker_service: DockerService,
     xdist_bigquery_isolation_level: XdistIsolationLevel,
     bigquery_image: str,
+    platform: str,
 ) -> Generator[BigQueryService, None, None]:
     project = "emulator-test-project"
     dataset = "test-dataset"
@@ -83,6 +89,7 @@ def bigquery_service(
         container_port=9050,
         timeout=60,
         transient=xdist_bigquery_isolation_level == "server",
+        platform=platform,
     ) as service:
         yield BigQueryService(
             host=service.host,

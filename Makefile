@@ -118,7 +118,7 @@ clean:                                              ## Cleanup temporary build a
 .PHONY: test
 test:                                              ## Run the tests
 	@echo "${INFO} Running test cases... 🧪"
-	@uv run pytest -n 2 --quiet
+	@uv run pytest --quiet --runpytest subprocess
 	@echo "${OK} Tests passed ✨"
 
 .PHONY: coverage

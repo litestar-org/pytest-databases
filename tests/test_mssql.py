@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests.conftest import PLATFORM_PROCESSOR
+
 
 @pytest.mark.parametrize(
     "service_fixture",
@@ -9,6 +11,7 @@ import pytest
         "mssql_service",
     ],
 )
+@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="ARM bug. https://github.com/pymssql/pymssql/issues/822")
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
     pytester.makepyfile(f"""
     import pymssql
@@ -39,6 +42,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
         "mssql_connection",
     ],
 )
+@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="ARM bug. https://github.com/pymssql/pymssql/issues/822")
 def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
     pytester.makepyfile(f"""
     import pymssql
@@ -58,6 +62,7 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
     result.assert_outcomes(passed=1)
 
 
+@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="ARM bug. https://github.com/pymssql/pymssql/issues/822")
 def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     import pymssql
@@ -76,6 +81,7 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=2)
 
 
+@pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="ARM bug. https://github.com/pymssql/pymssql/issues/822")
 def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     import pymssql

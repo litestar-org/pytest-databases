@@ -30,12 +30,18 @@ def xdist_mysql_isolation_level() -> XdistIsolationLevel:
     return "database"
 
 
+@pytest.fixture(scope="session")
+def platform() -> str:
+    return "linux/x86_64"
+
+
 @contextlib.contextmanager
 def _provide_mysql_service(
     docker_service: DockerService,
     image: str,
     name: str,
     isolation_level: XdistIsolationLevel,
+    platform: str,
 ) -> Generator[MySQLService, None, None]:
     user = "app"
     password = "super-secret"
@@ -95,6 +101,7 @@ def _provide_mysql_service(
             'FLUSH PRIVILEGES;"'
         ),
         transient=isolation_level == "server",
+        platform=platform,
     ) as service:
         yield MySQLService(
             db=db_name,
@@ -114,12 +121,14 @@ def mysql_service(mysql_8_service: MySQLService) -> MySQLService:
 def mysql_56_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
+    platform: str,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:5.6",
         name="mysql-56",
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
+        platform=platform,
     ) as service:
         yield service
 
@@ -128,12 +137,14 @@ def mysql_56_service(
 def mysql_57_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
+    platform: str,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:5.7",
         name="mysql-57",
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
+        platform=platform,
     ) as service:
         yield service
 
@@ -142,12 +153,14 @@ def mysql_57_service(
 def mysql_8_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
+    platform: str,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:8",
         name="mysql-8",
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
+        platform=platform,
     ) as service:
         yield service
 
