@@ -1,7 +1,7 @@
 PostgreSQL
 ==========
 
-Integration with `PostgreSQL <https://www.postgresql.org/>`_ using the `PostgreSQL Docker Image <https://hub.docker.com/_/postgres>`_ or `pgvector Docker Image <https://hub.docker.com/r/ankane/pgvector>`_
+Integration with `PostgreSQL <https://www.postgresql.org/>`_ using the `PostgreSQL Docker Image <https://hub.docker.com/_/postgres>`_, Google's `AlloyDB Omni <https://cloud.google.com/alloydb/omni?hl=en>`_ or `pgvector Docker Image <https://hub.docker.com/r/ankane/pgvector>`_
 
 Installation
 ------------
@@ -36,12 +36,16 @@ Usage Example
 Available Fixtures
 ------------------
 
+* ``postgres_user``: The PostgreSQL user.
+* ``postgres_password``: The PostgreSQL password.
+* ``postgres_database``: The PostgreSQL database name to use.
 * ``postgres_image``: The Docker image to use for PostgreSQL.
 * ``postgres_service``: A fixture that provides a PostgreSQL service.
 * ``postgres_connection``: A fixture that provides a PostgreSQL connection.
 
 The following version-specific fixtures are also available:
 
+* ``alloydb_omni_image``, ``alloydb_omni_service``, ``alloydb_omni_connection``: Latest Available AlloyDB Omni Docker image.
 * ``postgres_11_image``, ``postgres_11_service``, ``postgres_11_connection``: PostgreSQL 11.x
 * ``postgres_12_image``, ``postgres_12_service``, ``postgres_12_connection``: PostgreSQL 12.x
 * ``postgres_13_image``, ``postgres_13_service``, ``postgres_13_connection``: PostgreSQL 13.x
@@ -49,9 +53,9 @@ The following version-specific fixtures are also available:
 * ``postgres_15_image``, ``postgres_15_service``, ``postgres_15_connection``: PostgreSQL 15.x
 * ``postgres_16_image``, ``postgres_16_service``, ``postgres_16_connection``: PostgreSQL 16.x
 * ``postgres_17_image``, ``postgres_17_service``, ``postgres_17_connection``: PostgreSQL 17.x
-* ``pgvector_image``: The Docker image to use for pgvector.
-* ``pgvector_service``: A fixture that provides a pgvector service.
-* ``pgvector_connection``: A fixture that provides a pgvector connection.
+* ``postgres_18_image``, ``postgres_18_service``, ``postgres_18_connection``: PostgreSQL 18.x
+* ``pgvector_image``, ``pgvector_service``. ``pgvector_connection``: Latest Available pgvector Docker image.
+
 
 Service API
 -----------
