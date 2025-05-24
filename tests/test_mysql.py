@@ -36,8 +36,8 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
 @pytest.mark.parametrize(
     "connection_fixture",
     [
-        "mysql_56_connection",
-        "mysql_57_connection",
+    "mysql_56_connection",
+    "mysql_57_connection",
     ],
 )
 def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:

@@ -8,12 +8,12 @@ import time
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Any, Callable
 
+import docker
 import filelock
 import pytest
+from docker.errors import ImageNotFound
 from typing_extensions import Self
 
-import docker
-from docker.errors import ImageNotFound
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
@@ -137,20 +137,24 @@ class DockerService(AbstractContextManager):
         ulimits: list[Ulimit] | None = None,
         shm_size: int | None = None,
         mem_limit: str | None = None,
+        platform: str | None = None,
     ) -> Generator[ServiceContainer, None, None]:
         if check is None and wait_for_log is None:
             msg = "Must set at least check or wait_for_log"
             raise ValueError(msg)
 
+        platform_kwarg = {}
+        if platform is not None:
+            platform_kwarg = {"platform": platform}
+
         name = f"pytest_databases_{name}"
         lock = filelock.FileLock(self._tmp_path / name) if self._is_xdist else contextlib.nullcontext()
-
         with lock:
             container = self._get_container(name)
             try:
                 self._client.images.get(image)
             except ImageNotFound:
-                self._client.images.pull(*image.rsplit(":", maxsplit=1))  # pyright: ignore[reportCallIssue,reportArgumentType]
+                self._client.images.pull(*image.rsplit(":", maxsplit=1), **platform_kwarg)  # pyright: ignore[reportCallIssue,reportArgumentType]
 
             if container is None:
                 container = self._client.containers.run(  # pyright: ignore[reportCallIssue,reportArgumentType]
@@ -164,6 +168,7 @@ class DockerService(AbstractContextManager):
                     environment=env,
                     ulimits=ulimits,
                     mem_limit=mem_limit,
+                    **platform_kwarg,  # pyright: ignore[reportArgumentType]
                 )
 
                 # reload the container; sometimes it can take a while before docker
