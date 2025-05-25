@@ -8,12 +8,12 @@ import time
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Any, Callable
 
-import docker
 import filelock
 import pytest
-from docker.errors import ImageNotFound
+from docker.errors import APIError, ImageNotFound
 from typing_extensions import Self
 
+from docker import DockerClient
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
@@ -48,14 +48,14 @@ def get_docker_host() -> str:
     return next(context["DockerEndpoint"] for context in contexts if context["Current"] is True)
 
 
-def get_docker_client() -> docker.DockerClient:
+def get_docker_client() -> DockerClient:
     env = {**os.environ}
     if "DOCKER_HOST" not in env:
         env["DOCKER_HOST"] = get_docker_host()
-    return docker.DockerClient.from_env(environment=env)
+    return DockerClient.from_env(environment=env)
 
 
-def _stop_all_containers(client: docker.DockerClient) -> None:
+def _stop_all_containers(client: DockerClient) -> None:
     containers: list[Container] = client.containers.list(
         all=True,
         filters={"label": "pytest_databases"},
@@ -76,7 +76,7 @@ def _stop_all_containers(client: docker.DockerClient) -> None:
 class DockerService(AbstractContextManager):
     def __init__(
         self,
-        client: docker.DockerClient,
+        client: DockerClient,
         tmp_path: pathlib.Path,
         session: pytest.Session,
     ) -> None:
@@ -221,16 +221,16 @@ class DockerService(AbstractContextManager):
             try:
                 container.stop()
                 container.remove(force=True)
-            except docker.errors.APIError as exc:  # pyright: ignore[reportAttributeAccessIssue]
+            except APIError as exc:  # pyright: ignore[reportAttributeAccessIssue]
                 # '409 - Conflict' means removal is already in progress. this is the
-                # safest way of delaiyng with it, since the API is a bit borked when it
+                # safest way of delaying with it, since the API is a bit borked when it
                 # comes to concurrent requests
                 if exc.status_code not in {409, 404}:
                     raise
 
 
 @pytest.fixture(scope="session")
-def docker_client() -> Generator[docker.DockerClient, None, None]:
+def docker_client() -> Generator[DockerClient, None, None]:
     client = get_docker_client()
     try:
         yield client
@@ -240,7 +240,7 @@ def docker_client() -> Generator[docker.DockerClient, None, None]:
 
 @pytest.fixture(scope="session")
 def docker_service(
-    docker_client: docker.DockerClient,
+    docker_client: DockerClient,
     tmp_path_factory: pytest.TempPathFactory,
     request: pytest.FixtureRequest,
 ) -> Generator[DockerService, None, None]:

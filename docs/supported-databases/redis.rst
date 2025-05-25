@@ -1,7 +1,7 @@
 Redis
 =====
 
-Integration with `Redis <https://redis.io/>`_
+Integration with `Redis <https://redis.io/>`_ using the `Redis Docker Image <https://hub.docker.com/_/redis>`_, Snap's `Key DB<https://docs.keydb.dev/>` or `Dragonfly <https://www.dragonflydb.io/>`_.
 
 Installation
 ------------
@@ -42,6 +42,11 @@ Available Fixtures
 * ``redis_image``: The Docker image to use for Redis.
 * ``redis_service``: A fixture that provides a Redis service.
 * ``redis_connection``: A fixture that provides a Redis connection.
+
+The following version-specific fixtures are also available:
+
+* ``dragonflydb_port``, ``dragonflydb_host``, ``dragonflydb_image``, ``dragonflydb_service``, ``dragonflydb_connection``: Latest Available DragonflyDB Docker image.
+* ``keydb_port``, ``keydb_host``, ``keydb_image``, ``keydb_service``, ``keydb_connection``: Latest Available KeyDB Docker image.
 
 Service API
 -----------
