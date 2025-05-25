@@ -11,11 +11,11 @@ This section provides detailed information on the supported databases, including
    mariadb
    oracle
    sqlserver
-   alloydb
    spanner
    bigquery
    cockroachdb
    redis
+   valkey
    elasticsearch
    azure_blob_storage
    minio

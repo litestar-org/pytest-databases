@@ -49,7 +49,6 @@ def _provide_postgres_service(
     name: str,
     user: str,
     password: str,
-    database: str,
     xdist_postgres_isolate: XdistIsolationLevel,
 ) -> Generator[PostgresService, None, None]:
     def check(_service: ServiceContainer) -> bool:
@@ -60,7 +59,7 @@ def _provide_postgres_service(
                     port=_service.port,
                     user=user,
                     password=password,
-                    database=database,
+                    database="postgres",
                 )
             ) as conn:
                 db_open = conn.execute("SELECT 1").fetchone()
@@ -103,7 +102,6 @@ def postgres_11_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -112,7 +110,6 @@ def postgres_11_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -123,7 +120,6 @@ def postgres_12_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -132,7 +128,6 @@ def postgres_12_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -143,7 +138,6 @@ def postgres_13_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -152,7 +146,6 @@ def postgres_13_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -163,7 +156,6 @@ def postgres_14_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -172,7 +164,6 @@ def postgres_14_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -183,7 +174,6 @@ def postgres_15_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -192,7 +182,6 @@ def postgres_15_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -203,7 +192,6 @@ def postgres_16_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -212,7 +200,6 @@ def postgres_16_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -223,7 +210,6 @@ def postgres_17_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -232,7 +218,6 @@ def postgres_17_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -361,7 +346,6 @@ def postgres_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -370,7 +354,6 @@ def postgres_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -403,7 +386,6 @@ def pgvector_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -412,7 +394,6 @@ def pgvector_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
@@ -445,7 +426,6 @@ def alloydb_omni_service(
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_user: str,
     postgres_password: str,
-    postgres_database: str,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -454,7 +434,6 @@ def alloydb_omni_service(
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         user=postgres_user,
         password=postgres_password,
-        database=postgres_database,
     ) as service:
         yield service
 
