@@ -45,7 +45,7 @@ Available Fixtures
 
 The following version-specific fixtures are also available:
 
-* ``alloydb_omni_image``, ``alloydb_omni_service``, ``alloydb_omni_connection``: Latest Available AlloyDB Omni Docker image.
+* ``alloydb_omni_image``, ``alloydb_omni_service``, ``alloydb_omni_connection``: Latest Available AlloyDB Omni 16 Docker image.
 * ``postgres_11_image``, ``postgres_11_service``, ``postgres_11_connection``: PostgreSQL 11.x
 * ``postgres_12_image``, ``postgres_12_service``, ``postgres_12_connection``: PostgreSQL 12.x
 * ``postgres_13_image``, ``postgres_13_service``, ``postgres_13_connection``: PostgreSQL 13.x

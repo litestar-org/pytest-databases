@@ -376,7 +376,7 @@ def postgres_connection(
 
 @pytest.fixture(autouse=False, scope="session")
 def pgvector_image() -> str:
-    return "pgvector/pgvector:latest"
+    return "pgvector/pgvector:pg15"
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -416,7 +416,7 @@ def pgvector_connection(
 
 @pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_image() -> str:
-    return "google/alloydbomni"
+    return "google/alloydbomni:16"
 
 
 @pytest.fixture(autouse=False, scope="session")
