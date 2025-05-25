@@ -36,17 +36,17 @@ def redis_responsive(service_container: ServiceContainer) -> bool:
         client.close()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(autouse=False, scope="session")
 def redis_port(redis_service: RedisService) -> int:
     return redis_service.port
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(autouse=False, scope="session")
 def redis_host(redis_service: RedisService) -> str:
     return redis_service.host
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(autouse=False, scope="session")
 def redis_image() -> str:
     return "redis:latest"
 
@@ -76,3 +76,87 @@ def redis_service(
         transient=xdist_redis_isolation_level == "server",
     ) as service:
         yield RedisService(host=service.host, port=service.port, db=db)
+
+
+@pytest.fixture(autouse=False, scope="session")
+def dragonfly_image() -> str:
+    return "docker.dragonflydb.io/dragonflydb/dragonfly"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def dragonfly_service(
+    docker_service: DockerService,
+    dragonfly_image: str,
+    xdist_redis_isolation_level: XdistIsolationLevel,
+) -> Generator[RedisService, None, None]:
+    worker_num = get_xdist_worker_num()
+    name = "dragonfly"
+    db = 0
+    if worker_num is not None:
+        if xdist_redis_isolation_level == "database":
+            container_num = worker_num // 1
+            name += f"_{container_num + 1}"
+            db = worker_num
+        else:
+            name += f"_{worker_num + 1}"
+
+    with docker_service.run(
+        dragonfly_image,
+        check=redis_responsive,
+        container_port=6379,
+        name=name,
+        transient=xdist_redis_isolation_level == "server",
+    ) as service:
+        yield RedisService(host=service.host, port=service.port, db=db)
+
+
+@pytest.fixture(autouse=False, scope="session")
+def dragonfly_port(dragonfly_service: RedisService) -> int:
+    return dragonfly_service.port
+
+
+@pytest.fixture(autouse=False, scope="session")
+def dragonfly_host(dragonfly_service: RedisService) -> str:
+    return dragonfly_service.host
+
+
+@pytest.fixture(autouse=False, scope="session")
+def keydb_image() -> str:
+    return "eqalpha/keydb"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def keydb_service(
+    docker_service: DockerService,
+    keydb_image: str,
+    xdist_redis_isolation_level: XdistIsolationLevel,
+) -> Generator[RedisService, None, None]:
+    worker_num = get_xdist_worker_num()
+    name = "keydb"
+    db = 0
+    if worker_num is not None:
+        if xdist_redis_isolation_level == "database":
+            container_num = worker_num // 1
+            name += f"_{container_num + 1}"
+            db = worker_num
+        else:
+            name += f"_{worker_num + 1}"
+
+    with docker_service.run(
+        keydb_image,
+        check=redis_responsive,
+        container_port=6379,
+        name=name,
+        transient=xdist_redis_isolation_level == "server",
+    ) as service:
+        yield RedisService(host=service.host, port=service.port, db=db)
+
+
+@pytest.fixture(autouse=False, scope="session")
+def keydb_port(keydb_service: RedisService) -> int:
+    return keydb_service.port
+
+
+@pytest.fixture(autouse=False, scope="session")
+def keydb_host(keydb_service: RedisService) -> str:
+    return keydb_service.host

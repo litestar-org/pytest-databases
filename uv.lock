@@ -712,7 +712,7 @@ name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0b/9f/a65090624ecf468cdca03533906e7c69ed7588582240cfe7cc9e770b50eb/exceptiongroup-1.3.0.tar.gz", hash = "sha256:b241f5885f560bc56a59ee63ca4c6a8bfa46ae4ad651af316d4e81817bb9fd88", size = 29749, upload-time = "2025-05-10T17:42:51.123Z" }
 wheels = [
@@ -2064,6 +2064,9 @@ redis = [
 spanner = [
     { name = "google-cloud-spanner" },
 ]
+valkey = [
+    { name = "valkey" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -2080,7 +2083,7 @@ dev = [
     { name = "pytest-cdist" },
     { name = "pytest-click" },
     { name = "pytest-cov" },
-    { name = "pytest-databases", extra = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mariadb", "minio", "mssql", "mysql", "oracle", "postgres", "redis", "spanner"] },
+    { name = "pytest-databases", extra = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mariadb", "minio", "mssql", "mysql", "oracle", "postgres", "redis", "spanner", "valkey"] },
     { name = "pytest-mock" },
     { name = "pytest-sugar" },
     { name = "pytest-xdist" },
@@ -2131,8 +2134,9 @@ requires-dist = [
     { name = "redis", marker = "extra == 'dragonfly'" },
     { name = "redis", marker = "extra == 'keydb'" },
     { name = "redis", marker = "extra == 'redis'" },
+    { name = "valkey", marker = "extra == 'valkey'" },
 ]
-provides-extras = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mariadb", "minio", "mssql", "mysql", "oracle", "postgres", "redis", "spanner"]
+provides-extras = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mariadb", "minio", "mssql", "mysql", "oracle", "postgres", "redis", "spanner", "valkey"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2148,7 +2152,7 @@ dev = [
     { name = "pytest-cdist", specifier = ">=0.2" },
     { name = "pytest-click" },
     { name = "pytest-cov" },
-    { name = "pytest-databases", extras = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mssql", "mysql", "mariadb", "oracle", "postgres", "redis", "spanner", "minio"] },
+    { name = "pytest-databases", extras = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "keydb", "mssql", "mysql", "mariadb", "oracle", "postgres", "redis", "spanner", "minio", "valkey"] },
     { name = "pytest-mock" },
     { name = "pytest-sugar" },
     { name = "pytest-xdist" },
@@ -3248,6 +3252,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a6/ae/9bbb19b9e1c450cf9ecaef06463e40234d98d95bf572fab11b4f19ae5ded/uvicorn-0.34.2.tar.gz", hash = "sha256:0e929828f6186353a80b58ea719861d2629d766293b6d19baf086ba31d4f3328", size = 76815, upload-time = "2025-04-19T06:02:50.101Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/4b/4cef6ce21a2aaca9d852a6e84ef4f135d99fcd74fa75105e2fc0c8308acd/uvicorn-0.34.2-py3-none-any.whl", hash = "sha256:deb49af569084536d269fe0a6d67e3754f104cf03aba7c11c40f01aadf33c403", size = 62483, upload-time = "2025-04-19T06:02:48.42Z" },
+]
+
+[[package]]
+name = "valkey"
+version = "6.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "async-timeout", marker = "python_full_version < '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/38/d4/04b6a234e584e21ccb63b895ca9dfb4e759e4c139c1ab3f9484982ee6491/valkey-6.1.0.tar.gz", hash = "sha256:a652df15ed89c41935ffae6dfd09c56f4a9ab80b592e5ed9204d538e2ddad6d3", size = 4600944, upload-time = "2025-02-11T17:20:46.706Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/b0/c4d47032bbda89cff7af99c0b096db9b9453b9f0c1e24cf027aa616be389/valkey-6.1.0-py3-none-any.whl", hash = "sha256:cfe769edae894f74ac946eff1e93f7d7f466032c3030ba7e9d089a742459ac9c", size = 259302, upload-time = "2025-02-11T17:20:42.96Z" },
 ]
 
 [[package]]

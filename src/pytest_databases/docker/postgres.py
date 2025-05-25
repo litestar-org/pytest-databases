@@ -32,19 +32,14 @@ class PostgresService(ServiceContainer):
     user: str
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(autouse=False, scope="session")
 def postgres_password() -> str:
     return "super-secret"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(autouse=False, scope="session")
 def postgres_user() -> str:
     return "postgres"
-
-
-@pytest.fixture(scope="session")
-def postgres_database() -> str:
-    return "pytest_databases"
 
 
 @contextmanager
@@ -74,12 +69,13 @@ def _provide_postgres_service(
             return False
 
     worker_num = get_xdist_worker_num()
+    db_name = "pytest_databases"
     if worker_num is not None:
         suffix = f"_{worker_num}"
         if xdist_postgres_isolate == "server":
             name += suffix
         else:
-            database += suffix
+            db_name += suffix
 
     with docker_service.run(
         image=image,
@@ -89,11 +85,11 @@ def _provide_postgres_service(
         env={
             "POSTGRES_PASSWORD": password,
         },
-        exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {database};'",
+        exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
         transient=xdist_postgres_isolate == "server",
     ) as service:
         yield PostgresService(
-            database=database,
+            database=db_name,
             host=service.host,
             port=service.port,
             user=user,
@@ -242,26 +238,6 @@ def postgres_17_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres_18_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_database: str,
-) -> Generator[PostgresService, None, None]:
-    with _provide_postgres_service(
-        docker_service,
-        image="postgres:18",
-        name="postgres-18",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        user=postgres_user,
-        password=postgres_password,
-        database=postgres_database,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
 def postgres_11_connection(
     postgres_11_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
@@ -368,22 +344,6 @@ def postgres_17_connection(
             user=postgres_17_service.user,
             password=postgres_17_service.password,
             database=postgres_17_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_18_connection(
-    postgres_18_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_18_service.host,
-            port=postgres_18_service.port,
-            user=postgres_18_service.user,
-            password=postgres_18_service.password,
-            database=postgres_18_service.database,
         ),
     ) as conn:
         yield conn
