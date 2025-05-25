@@ -15,6 +15,7 @@ This section provides detailed information on the supported databases, including
    bigquery
    cockroachdb
    yugabyte
+   mongodb
    redis
    valkey
    elasticsearch

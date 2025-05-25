@@ -33,6 +33,7 @@ keywords = [
   "azure",
   "valkey",
   "dragonflydb",
+  "mongodb",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -47,7 +48,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 # direct dependencies of this package
-dependencies = ["pytest", "filelock", "docker"]
+dependencies = ["pytest", "filelock", "docker", "pymongo"]
 
 [project.urls]
 Documentation = "https://github.com/litestar-org/pytest-databases#readme"
@@ -64,6 +65,7 @@ elasticsearch8 = ["elasticsearch8"]
 keydb = ["redis"]
 mariadb = ["mariadb"]
 minio = ["minio"]
+mongodb = ["pymongo"]
 mssql = ["pymssql"]
 mysql = ["mysql-connector-python"]
 oracle = ["oracledb"]
