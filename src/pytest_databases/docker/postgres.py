@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import os
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -33,6 +34,11 @@ class PostgresService(ServiceContainer):
 
 
 @pytest.fixture(autouse=False, scope="session")
+def postgres_host() -> str:
+    return os.environ.get("POSTGRES_HOST", "127.0.0.1")
+
+
+@pytest.fixture(autouse=False, scope="session")
 def postgres_password() -> str:
     return "super-secret"
 
@@ -47,6 +53,7 @@ def _provide_postgres_service(
     docker_service: DockerService,
     image: str,
     name: str,
+    host: str,
     user: str,
     password: str,
     xdist_postgres_isolate: XdistIsolationLevel,
@@ -79,6 +86,7 @@ def _provide_postgres_service(
     with docker_service.run(
         image=image,
         check=check,
+        container_host=host,
         container_port=5432,
         name=name,
         env={
@@ -100,6 +108,7 @@ def _provide_postgres_service(
 def postgres_11_service(
     docker_service: DockerService,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -108,6 +117,7 @@ def postgres_11_service(
         image="postgres:11",
         name="postgres-11",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -118,6 +128,7 @@ def postgres_11_service(
 def postgres_12_service(
     docker_service: DockerService,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -126,6 +137,7 @@ def postgres_12_service(
         image="postgres:12",
         name="postgres-12",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -136,6 +148,7 @@ def postgres_12_service(
 def postgres_13_service(
     docker_service: DockerService,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -144,6 +157,7 @@ def postgres_13_service(
         image="postgres:13",
         name="postgres-13",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -154,6 +168,7 @@ def postgres_13_service(
 def postgres_14_service(
     docker_service: DockerService,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -162,6 +177,7 @@ def postgres_14_service(
         image="postgres:14",
         name="postgres-14",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -172,6 +188,7 @@ def postgres_14_service(
 def postgres_15_service(
     docker_service: DockerService,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -180,6 +197,7 @@ def postgres_15_service(
         image="postgres:15",
         name="postgres-15",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -190,6 +208,7 @@ def postgres_15_service(
 def postgres_16_service(
     docker_service: DockerService,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -198,6 +217,7 @@ def postgres_16_service(
         image="postgres:16",
         name="postgres-16",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -208,6 +228,7 @@ def postgres_16_service(
 def postgres_17_service(
     docker_service: DockerService,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -216,6 +237,7 @@ def postgres_17_service(
         image="postgres:17",
         name="postgres-17",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -344,6 +366,7 @@ def postgres_service(
     docker_service: DockerService,
     postgres_image: str,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -352,6 +375,7 @@ def postgres_service(
         image=postgres_image,
         name="postgres",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -384,6 +408,7 @@ def pgvector_service(
     docker_service: DockerService,
     pgvector_image: str,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -392,6 +417,7 @@ def pgvector_service(
         image=pgvector_image,
         name="pgvector",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
@@ -424,6 +450,7 @@ def alloydb_omni_service(
     docker_service: DockerService,
     pgvector_image: str,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -432,6 +459,7 @@ def alloydb_omni_service(
         image=pgvector_image,
         name="alloydb-omni",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:

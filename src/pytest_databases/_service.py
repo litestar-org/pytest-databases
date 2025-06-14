@@ -126,6 +126,7 @@ class DockerService(AbstractContextManager):
         image: str,
         container_port: int,
         name: str,
+        container_host: str = "127.0.0.1",
         command: str | None = None,
         env: dict[str, Any] | None = None,
         exec_after_start: str | list[str] | None = None,
@@ -187,7 +188,7 @@ class DockerService(AbstractContextManager):
             container.ports[next(k for k in container.ports if k.startswith(str(container_port)))][0]["HostPort"]
         )
         service = ServiceContainer(
-            host="127.0.0.1",
+            host=container_host,
             port=host_port,
         )
 
