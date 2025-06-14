@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import filelock
 import pytest
-from docker import DockerClient
 from docker.errors import APIError, ImageNotFound
 from typing_extensions import Self
 
+from docker import DockerClient
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 

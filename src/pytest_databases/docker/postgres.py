@@ -128,6 +128,7 @@ def postgres_11_service(
 def postgres_12_service(
     docker_service: DockerService,
     xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
     postgres_user: str,
     postgres_password: str,
 ) -> Generator[PostgresService, None, None]:
@@ -136,6 +137,7 @@ def postgres_12_service(
         image="postgres:12",
         name="postgres-12",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
         user=postgres_user,
         password=postgres_password,
     ) as service:
