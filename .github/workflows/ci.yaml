@@ -26,7 +26,7 @@ jobs:
         cdist-group: [1, 2, 3]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install additional dependencies
         run: sudo apt-get update && sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev && sudo apt-get autoremove -y  && sudo apt-get clean -y
@@ -70,7 +70,7 @@ jobs:
       - name: Install additional dependencies
         run: sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -94,7 +94,7 @@ jobs:
   #   runs-on: ubuntu-latest
   #   steps:
   #     - name: Check out repository
-  #       uses: actions/checkout@v4
+  #       uses: actions/checkout@v5
   #       with:
   #         fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
   #     - name: Download Artifacts
