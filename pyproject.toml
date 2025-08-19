@@ -65,7 +65,7 @@ keydb = ["redis"]
 mariadb = ["mariadb"]
 minio = ["minio"]
 mssql = ["pymssql"]
-mysql = ["pymysql"]
+mysql = ["pymysql[rsa]"]
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
@@ -86,7 +86,8 @@ dev = [
   "pytest-xdist",
   "pytest-sugar",
   "slotscheck",
-  "psycopg-binary",                                                                                                                                                    # This fixes tests failing on M series CPUs.
+  "psycopg-binary",
+  "pymysql[rsa,ed25519]",                                                                                                                                              # This fixes tests failing on M series CPUs.
   # lint
   "mypy",
   "ruff",
