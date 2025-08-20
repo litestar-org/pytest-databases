@@ -80,6 +80,21 @@ def _provide_mysql_service(
         else:
             db_name += suffix
 
+    # For MySQL 8, we need to handle authentication plugin compatibility
+    exec_commands = (
+        f'mysql --user=root --password={root_password} -e "CREATE DATABASE {db_name};'
+        f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
+    )
+
+    # For MySQL 8, change the authentication plugin to mysql_native_password
+    # to avoid issues with caching_sha2_password and cryptography library
+    if "mysql:8" in image or "mysql:9" in image:
+        exec_commands += (
+            f"ALTER USER '{user}'@'%' IDENTIFIED WITH mysql_native_password BY '{password}'; "
+        )
+
+    exec_commands += 'FLUSH PRIVILEGES;"'
+
     with docker_service.run(
         image=image,
         check=check,
@@ -95,11 +110,7 @@ def _provide_mysql_service(
         },
         timeout=60,
         pause=0.5,
-        exec_after_start=(
-            f'mysql --user=root --password={root_password} -e "CREATE DATABASE {db_name};'
-            f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
-            'FLUSH PRIVILEGES;"'
-        ),
+        exec_after_start=exec_commands,
         transient=isolation_level == "server",
         platform=platform,
     ) as service:
