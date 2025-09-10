@@ -75,7 +75,7 @@ def test_one(postgres_service: PostgresService) -> None:
 
 ## Documentation
 
-Full documentation is available at [https://pytest-databases.readthedocs.io/](https://pytest-databases.readthedocs.io/)
+Full documentation is available at [https://litestar-org.github.io/pytest-databases/latest/](https://litestar-org.github.io/pytest-databases/latest/)
 
 ## Contributing
 
