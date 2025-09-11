@@ -13,11 +13,11 @@ import pytest
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
     pytester.makepyfile(f"""
-    import mysql.connector
+    import pymysql
     pytest_plugins = ["pytest_databases.docker.mysql"]
 
     def test({service_fixture}):
-        with mysql.connector.connect(
+        with pymysql.connect(
             host={service_fixture}.host,
             port={service_fixture}.port,
             user={service_fixture}.user,
