@@ -84,7 +84,6 @@ dev = [
   "pytest-mock",
   "pytest-click",
   "pytest-xdist",
-  "pytest-sugar",
   "slotscheck",
   "psycopg-binary",                                                                                                                                                    # This fixes tests failing on M series CPUs.
   # lint
