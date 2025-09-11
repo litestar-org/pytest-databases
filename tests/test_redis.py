@@ -93,6 +93,13 @@ def test_two({redis_compatible_service}: RedisService) -> None:
     assert not client.get("one")
     client.set("one", "1")
     assert {redis_compatible_service}.db == get_xdist_worker_num()
+    
+    
+def test_use_same_db({redis_compatible_service}: RedisService) -> None:
+    client_0 = redis.Redis.from_url("redis://", host={redis_compatible_service}.host, port={redis_compatible_service}.port, db=0)
+    client_1 = redis.Redis.from_url("redis://", host={redis_compatible_service}.host, port={redis_compatible_service}.port, db=1)
+    assert client_0.get("one") == "1"
+    assert client_1.get("one") == "1"
 """)
     result = pytester.runpytest("-n", "2")
     result.assert_outcomes(passed=2)
