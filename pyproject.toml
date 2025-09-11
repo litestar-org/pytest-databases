@@ -76,7 +76,7 @@ valkey = ["valkey"]
 dev = [
   # tests
   "bump-my-version",
-  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,oracle,postgres,redis,spanner,minio,valkey]",
+  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner,minio,valkey]",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
