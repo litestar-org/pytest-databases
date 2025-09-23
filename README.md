@@ -26,7 +26,7 @@ Ready-made database fixtures for your pytest tests.
 
 `pytest-databases` uses the Docker Python SDK to manage the startup and shutdown of database services in containers. The following databases are currently available:
 
-- **Postgres**: Version 12, 13, 14, 15, 16 and 17 are available
+- **Postgres**: Version 12, 13, 14, 15, 16, 17 and 18 are available
 - **MySQL**: Version 5.6, 5.7 and 8 are available
 - **Oracle**: Version 18c XE and 23C Free are available
 - **SQL Server**: Version 2022 is available
