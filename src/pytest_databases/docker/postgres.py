@@ -254,7 +254,7 @@ def postgres_18_service(
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
-        image="postgres:18rc1",
+        image="postgres:18",
         name="postgres-18",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         host=postgres_host,
