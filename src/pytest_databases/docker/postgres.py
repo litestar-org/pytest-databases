@@ -245,6 +245,26 @@ def postgres_17_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
+def postgres_18_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="postgres:18",
+        name="postgres-18",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
 def postgres_11_connection(
     postgres_11_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
@@ -357,8 +377,24 @@ def postgres_17_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
+def postgres_18_connection(
+    postgres_18_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=postgres_18_service.host,
+            port=postgres_18_service.port,
+            user=postgres_18_service.user,
+            password=postgres_18_service.password,
+            database=postgres_18_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
 def postgres_image() -> str:
-    return "postgres:17"
+    return "postgres:18"
 
 
 @pytest.fixture(autouse=False, scope="session")
