@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import filelock
 import pytest
-from docker import DockerClient
 from docker.errors import APIError, ImageNotFound
 from typing_extensions import Self
 
+from docker import DockerClient
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
@@ -176,17 +176,24 @@ class DockerService(AbstractContextManager):
                 # spins it up and the metadata becomes available, so we're redoing the
                 # check with a small incremental backup here
                 for i in range(10):
+                    container.reload()
                     if any(v for v in container.ports.values()):
                         break
-                    container.reload()
                     time.sleep(0.1 + (i / 10))
                 else:
                     msg = f"Service {name!r} failed to create container"
                     raise ValueError(msg)
 
-        host_port = int(
-            container.ports[next(k for k in container.ports if k.startswith(str(container_port)))][0]["HostPort"]
-        )
+        # Try TCP first (most common), fallback to UDP
+        binding = container.ports.get(f"{container_port}/tcp") or container.ports.get(f"{container_port}/udp")
+        if not binding:
+            msg = (
+                f"Container port {container_port} not found in exposed ports. "
+                f"Available ports: {list(container.ports.keys())}"
+            )
+            raise RuntimeError(msg)
+
+        host_port = int(binding[0]["HostPort"])
         service = ServiceContainer(
             host=container_host,
             port=host_port,

@@ -95,8 +95,8 @@ def test_two({redis_compatible_service}: RedisService) -> None:
     assert not client.get("one")
     client.set("one", "1")
     assert client.get("one") == b"1"
-    
-    
+
+
 def test_use_same_db({redis_compatible_service}: RedisService) -> None:
     client_0 = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db=0)
     client_1 = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db=1)
