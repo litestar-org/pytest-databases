@@ -139,6 +139,7 @@ class DockerService(AbstractContextManager):
         shm_size: int | None = None,
         mem_limit: str | None = None,
         platform: str | None = None,
+        protocol: str = "tcp",
     ) -> Generator[ServiceContainer, None, None]:
         if check is None and wait_for_log is None:
             msg = "Must set at least check or wait_for_log"
@@ -184,11 +185,19 @@ class DockerService(AbstractContextManager):
                     msg = f"Service {name!r} failed to create container"
                     raise ValueError(msg)
 
-        # Try TCP first (most common), fallback to UDP
-        binding = container.ports.get(f"{container_port}/tcp") or container.ports.get(f"{container_port}/udp")
+        # Get port binding based on protocol configuration
+        binding = None
+        if protocol == "both":
+            binding = container.ports.get(f"{container_port}/tcp") or container.ports.get(f"{container_port}/udp")
+        elif protocol in {"tcp", "udp"}:
+            binding = container.ports.get(f"{container_port}/{protocol}")
+        else:
+            msg = f"Invalid protocol '{protocol}'. Must be 'tcp', 'udp', or 'both'."
+            raise ValueError(msg)
+
         if not binding:
             msg = (
-                f"Container port {container_port} not found in exposed ports. "
+                f"Container port {container_port}/{protocol} not found in exposed ports. "
                 f"Available ports: {list(container.ports.keys())}"
             )
             raise RuntimeError(msg)
