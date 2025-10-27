@@ -51,7 +51,7 @@ jobs:
         run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
 
       - if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-xml
           path: coverage.xml
