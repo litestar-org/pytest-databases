@@ -16,13 +16,13 @@ Usage Example
 .. code-block:: python
 
     import pytest
-    import mysql.connector
+    import pymysql
     from pytest_databases.docker.mysql import MySQLService
 
     pytest_plugins = ["pytest_databases.docker.mysql"]
 
     def test(mysql_service: MySQLService) -> None:
-        with mysql.connector.connect(
+        with pymysql.connect(
             host=mysql_service.host,
             port=mysql_service.port,
             user=mysql_service.user,
@@ -33,7 +33,7 @@ Usage Example
             resp = cursor.fetchone()
             assert resp is not None and resp[0] == 1
 
-    def test(mysql_connection: mysql.connector.MySQLConnection) -> None:
+    def test(mysql_connection: pymysql.Connection) -> None:
         with mysql_connection.cursor() as cursor:
             cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
             cursor.execute("select * from simple_table")
