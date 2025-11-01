@@ -76,7 +76,6 @@ valkey = ["valkey"]
 dev = [
   # tests
   "bump-my-version",
-  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner,minio,valkey]",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
@@ -86,7 +85,7 @@ dev = [
   "pytest-xdist",
   "slotscheck",
   "psycopg-binary",
-  "pymysql[rsa,ed25519]",                                                                                                                                              # This fixes tests failing on M series CPUs.
+  "pymysql[rsa,ed25519]", # This fixes tests failing on M series CPUs.
   # lint
   "mypy",
   "ruff",
