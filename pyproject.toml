@@ -65,7 +65,7 @@ keydb = ["redis"]
 mariadb = ["mariadb"]
 minio = ["minio"]
 mssql = ["pymssql"]
-mysql = ["pymysql[rsa]"]
+mysql = ["pymysql[rsa,ed25519]"]
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
@@ -83,6 +83,7 @@ dev = [
   "pytest-mock",
   "pytest-click",
   "pytest-xdist",
+  "pytest-sugar",
   "slotscheck",
   "psycopg-binary",
   "pymysql[rsa,ed25519]", # This fixes tests failing on M series CPUs.
