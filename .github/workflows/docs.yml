@@ -20,7 +20,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install additional dependencies
         run: sudo apt-get update && sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev && sudo apt-get autoremove -y  && sudo apt-get clean -y
