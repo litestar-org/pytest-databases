@@ -16,7 +16,7 @@ jobs:
         run: sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev
 
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
