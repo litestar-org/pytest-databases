@@ -4,7 +4,7 @@ import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import mysql.connector
+import pymysql
 import pytest
 
 from pytest_databases._service import DockerService, ServiceContainer
@@ -13,7 +13,7 @@ from pytest_databases.helpers import get_xdist_worker_num
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from mysql.connector.abstracts import MySQLConnectionAbstract
+    from pymysql import Connection
 
     from pytest_databases.types import XdistIsolationLevel
 
@@ -50,15 +50,15 @@ def _provide_mysql_service(
 
     def check(_service: ServiceContainer) -> bool:
         try:
-            conn = mysql.connector.connect(
+            conn = pymysql.connect(
                 host=_service.host,
                 port=_service.port,
                 user=user,
                 database=database,
                 password=password,
             )
-        except mysql.connector.errors.OperationalError as exc:
-            if "Lost connection" in exc.msg:  # type: ignore
+        except pymysql.OperationalError as exc:
+            if "Lost connection" in str(exc):
                 return False
             raise
 
@@ -66,7 +66,7 @@ def _provide_mysql_service(
             with conn.cursor() as cursor:
                 cursor.execute("select 1 as is_available")
                 resp = cursor.fetchone()
-            return resp is not None and resp[0] == 1  # type: ignore
+            return resp is not None and resp[0] == 1
         finally:
             with contextlib.suppress(Exception):
                 conn.close()
@@ -79,6 +79,21 @@ def _provide_mysql_service(
             name += suffix
         else:
             db_name += suffix
+
+    # For MySQL 8, we need to handle authentication plugin compatibility
+    exec_commands = (
+        f'mysql --user=root --password={root_password} -e "CREATE DATABASE {db_name};'
+        f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
+    )
+
+    # For MySQL 8, change the authentication plugin to mysql_native_password
+    # to avoid issues with caching_sha2_password and cryptography library
+    if "mysql:8" in image or "mysql:9" in image:
+        exec_commands += (
+            f"ALTER USER '{user}'@'%' IDENTIFIED WITH mysql_native_password BY '{password}'; "
+        )
+
+    exec_commands += 'FLUSH PRIVILEGES;"'
 
     with docker_service.run(
         image=image,
@@ -95,11 +110,7 @@ def _provide_mysql_service(
         },
         timeout=60,
         pause=0.5,
-        exec_after_start=(
-            f'mysql --user=root --password={root_password} -e "CREATE DATABASE {db_name};'
-            f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
-            'FLUSH PRIVILEGES;"'
-        ),
+        exec_after_start=exec_commands,
         transient=isolation_level == "server",
         platform=platform,
     ) as service:
@@ -166,41 +177,41 @@ def mysql_8_service(
 
 
 @pytest.fixture(scope="session")
-def mysql_56_connection(mysql_56_service: MySQLService) -> Generator[MySQLConnectionAbstract, None, None]:
-    with mysql.connector.connect(
+def mysql_56_connection(mysql_56_service: MySQLService) -> Generator[Connection, None, None]:
+    with pymysql.connect(
         host=mysql_56_service.host,
         port=mysql_56_service.port,
         user=mysql_56_service.user,
         database=mysql_56_service.db,
         password=mysql_56_service.password,
     ) as conn:
-        yield conn  # type: ignore
+        yield conn
 
 
 @pytest.fixture(scope="session")
-def mysql_57_connection(mysql_57_service: MySQLService) -> Generator[MySQLConnectionAbstract, None, None]:
-    with mysql.connector.connect(
+def mysql_57_connection(mysql_57_service: MySQLService) -> Generator[Connection, None, None]:
+    with pymysql.connect(
         host=mysql_57_service.host,
         port=mysql_57_service.port,
         user=mysql_57_service.user,
         database=mysql_57_service.db,
         password=mysql_57_service.password,
     ) as conn:
-        yield conn  # type: ignore
+        yield conn
 
 
 @pytest.fixture(scope="session")
-def mysql_connection(mysql_8_connection: MySQLConnectionAbstract) -> MySQLConnectionAbstract:
+def mysql_connection(mysql_8_connection: Connection) -> Connection:
     return mysql_8_connection
 
 
 @pytest.fixture(scope="session")
-def mysql_8_connection(mysql_8_service: MySQLService) -> Generator[MySQLConnectionAbstract, None, None]:
-    with mysql.connector.connect(
+def mysql_8_connection(mysql_8_service: MySQLService) -> Generator[Connection, None, None]:
+    with pymysql.connect(
         host=mysql_8_service.host,
         port=mysql_8_service.port,
         user=mysql_8_service.user,
         database=mysql_8_service.db,
         password=mysql_8_service.password,
     ) as conn:
-        yield conn  # type: ignore
+        yield conn
