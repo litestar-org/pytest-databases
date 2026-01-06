@@ -19,3 +19,4 @@ This section provides detailed information on the supported databases, including
    elasticsearch
    azure_blob_storage
    minio
+   rustfs

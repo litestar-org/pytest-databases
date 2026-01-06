@@ -33,6 +33,7 @@ keywords = [
   "azure",
   "valkey",
   "dragonflydb",
+  "rustfs",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -69,6 +70,7 @@ mysql = ["mysql-connector-python"]
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
+rustfs = ["boto3"]
 spanner = ["google-cloud-spanner"]
 valkey = ["valkey"]
 
@@ -76,7 +78,7 @@ valkey = ["valkey"]
 dev = [
   # tests
   "bump-my-version",
-  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner,minio,valkey]",
+  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,rustfs,spanner,minio,valkey]",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
@@ -159,7 +161,7 @@ version = "{current_version}"
 strict-imports = false
 
 [tool.codespell]
-ignore-words-list = "alog"
+ignore-words-list = "alog,rustfs,rustfsadmin"
 skip = 'uv.lock, package-lock.json'
 
 [tool.pyright]
@@ -384,6 +386,7 @@ markers = [
   "duckdb: DuckDB Tests",
   "mssql: Microsoft SQL Server Tests",
   "elasticsearch: Elasticsearch Tests",
+  "rustfs: RustFS Tests",
 ]
 testpaths = ["tests"]
 

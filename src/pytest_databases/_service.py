@@ -1,3 +1,4 @@
+# ruff: noqa: B901,RUF100
 from __future__ import annotations
 
 import contextlib
@@ -288,7 +289,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[
         return (yield)
     finally:
         if not hasattr(session.config, "workerinput") and _get_ctrl_file(session).exists():
-            # if we're running on xdist, delete the ctrl file, telling the deamon proc
+            # if we're running on xdist, delete the ctrl file, telling the daemon proc
             # to stop all running containers.
             # when not running on xdist, containers are stopped by the service itself
             _stop_all_containers(get_docker_client())

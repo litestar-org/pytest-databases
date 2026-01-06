@@ -41,6 +41,7 @@ Ready-made database fixtures for your pytest tests.
 - **Elasticsearch**: Version 7 and 8 are available
 - **Azure blob storage**: Via azurite
 - **Minio**: Latest version
+- **RustFS**: Latest version (S3-compatible, Apache 2.0 licensed)
 
 ## Installation
 
