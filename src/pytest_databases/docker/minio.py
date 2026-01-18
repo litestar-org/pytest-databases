@@ -11,6 +11,8 @@ from pytest_databases.docker import TRUE_VALUES
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
+pytest_plugins = ["pytest_databases"]
+
 if TYPE_CHECKING:
     from collections.abc import Generator
 

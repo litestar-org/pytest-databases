@@ -9,6 +9,8 @@ import pytest
 from pytest_databases._service import DockerService, ServiceContainer
 from pytest_databases.helpers import get_xdist_worker_num
 
+pytest_plugins = ["pytest_databases"]
+
 if TYPE_CHECKING:
     from collections.abc import Generator
 

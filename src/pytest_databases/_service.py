@@ -285,7 +285,7 @@ def _get_ctrl_file(session: pytest.Session) -> pathlib.Path:
 @pytest.hookimpl(wrapper=True)
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[Any, Any, Any]:
     try:
-        return (yield)
+        yield
     finally:
         if not hasattr(session.config, "workerinput") and _get_ctrl_file(session).exists():
             # if we're running on xdist, delete the ctrl file, telling the deamon proc
