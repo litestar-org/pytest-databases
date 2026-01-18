@@ -48,7 +48,7 @@ def azure_blob_service(
     azurite_in_memory: bool,
     azure_blob_xdist_isolation_level: XdistIsolationLevel,
 ) -> Generator[ServiceContainer, None, None]:
-    command = "azurite-blob --blobHost 0.0.0.0 --blobPort 10000"
+    command = "azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck"
     if azurite_in_memory:
         command += " --inMemoryPersistence"
 
