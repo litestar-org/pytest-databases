@@ -21,7 +21,8 @@ def test_one(azure_blob_container_client: ContainerClient) -> None:
 def test_two(azure_blob_container_client: ContainerClient) -> None:
     assert azure_blob_container_client.exists()
 """)
-    result = pytester.runpytest("-p", "pytest_databases")
+    # Use subprocess to avoid PyO3/cryptography "may only be initialized once" error
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=2)
 
 

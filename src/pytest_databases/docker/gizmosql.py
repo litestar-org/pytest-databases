@@ -56,10 +56,11 @@ def _make_connection_kwargs(
 def xdist_gizmosql_isolation_level() -> XdistIsolationLevel:
     """Xdist isolation level for GizmoSQL.
 
-    Note: Only 'server' isolation is supported because DuckDB/SQLite
-    backends don't support multiple databases per instance.
+    Note: For xdist parallel testing, only 'server' isolation is recommended
+    because DuckDB/SQLite backends don't support multiple databases per instance.
+    Override this fixture to return 'server' when using pytest-xdist.
     """
-    return "server"
+    return "database"
 
 
 @pytest.fixture(scope="session")
