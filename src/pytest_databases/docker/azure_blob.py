@@ -10,8 +10,6 @@ from azure.storage.blob.aio import ContainerClient as AsyncContainerClient
 from pytest_databases.helpers import get_xdist_worker_count, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
-pytest_plugins = ["pytest_databases"]
-
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
 

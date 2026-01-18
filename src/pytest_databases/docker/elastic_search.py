@@ -11,8 +11,6 @@ from elasticsearch7 import Elasticsearch as Elasticsearch8
 
 from pytest_databases.types import ServiceContainer
 
-pytest_plugins = ["pytest_databases"]
-
 if TYPE_CHECKING:
     from collections.abc import Generator
 

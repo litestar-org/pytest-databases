@@ -25,9 +25,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
     from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
 
 
-    pytest_plugins = [
-        "pytest_databases.docker.postgres",
-    ]
+    pytest_plugins = ["pytest_databases.docker.postgres"]
 
     def test({service_fixture}) -> None:
         with psycopg.connect(
@@ -43,7 +41,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
             assert db_open is not None and db_open[0] == 1
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -70,9 +68,7 @@ def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixtur
     from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
 
 
-    pytest_plugins = [
-        "pytest_databases.docker.postgres",
-    ]
+    pytest_plugins = ["pytest_databases.docker.postgres"]
 
     def test({connection_fixture}) -> None:
         {connection_fixture}.execute("CREATE TABLE if not exists simple_table as SELECT 1")
@@ -80,7 +76,7 @@ def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixtur
         assert result is not None and result[0] == 1
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -100,7 +96,7 @@ def test_xdist_isolate_db(pytester: pytest.Pytester) -> None:
         postgres_connection.execute("CREATE TABLE foo AS SELECT 1")
     """)
 
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=1)
 
 
@@ -110,9 +106,7 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     import psycopg
     from pytest_databases.docker.postgres import _make_connection_string
 
-    pytest_plugins = [
-        "pytest_databases.docker.postgres",
-    ]
+    pytest_plugins = ["pytest_databases.docker.postgres"]
 
     @pytest.fixture(scope="session")
     def xdist_postgres_isolation_level():
@@ -145,5 +139,5 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
             conn.execute("CREATE DATABASE foo")
     """)
 
-    result = pytester.runpytest_subprocess("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

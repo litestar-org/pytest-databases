@@ -10,8 +10,6 @@ from adbc_driver_flightsql import dbapi as flightsql
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
-pytest_plugins = ["pytest_databases"]
-
 if TYPE_CHECKING:
     from collections.abc import Generator
 

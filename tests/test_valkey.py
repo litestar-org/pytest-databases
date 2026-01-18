@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-pytest_plugins = ["pytest_databases.docker.valkey"]
-
 
 @pytest.fixture(params=[pytest.param("valkey_service", id="valkey")])
 def valkey_compatible_service(request: pytest.FixtureRequest) -> str:
@@ -17,14 +15,12 @@ import valkey
 from pytest_databases.docker.valkey import ValkeyService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = [
-    "pytest_databases.docker.valkey",
-]
+pytest_plugins = ["pytest_databases.docker.valkey"]
 
 def test_valkey_service({valkey_compatible_service}: ValkeyService) -> None:
     assert valkey.Valkey.from_url("valkey://", host={valkey_compatible_service}.host, port={valkey_compatible_service}.port).ping()
 """)
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -35,9 +31,7 @@ import valkey
 from pytest_databases.docker.valkey import ValkeyService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = [
-    "pytest_databases.docker.valkey",
-]
+pytest_plugins = ["pytest_databases.docker.valkey"]
 
 def test_one({valkey_compatible_service}: ValkeyService) -> None:
     client = valkey.Valkey.from_url("valkey://", host={valkey_compatible_service}.host, port={valkey_compatible_service}.port)
@@ -51,7 +45,7 @@ def test_two({valkey_compatible_service}: ValkeyService) -> None:
     client.set("one", "1")
     assert {valkey_compatible_service}.db == get_xdist_worker_num()
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 
@@ -62,9 +56,7 @@ import valkey
 from pytest_databases.docker.valkey import ValkeyService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = [
-    "pytest_databases.docker.valkey",
-]
+pytest_plugins = ["pytest_databases.docker.valkey"]
 
 @pytest.fixture(scope="session")
 def xdist_valkey_isolation_level():
@@ -83,5 +75,5 @@ def test_two({valkey_compatible_service}: ValkeyService) -> None:
     client.set("one", "1")
     assert {valkey_compatible_service}.db == 0
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

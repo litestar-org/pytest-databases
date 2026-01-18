@@ -25,7 +25,7 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
         assert resp[0].one == 1
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -39,7 +39,7 @@ def test_client_fixture(pytester: pytest.Pytester) -> None:
         assert isinstance(bigquery_client, bigquery.Client)
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -56,5 +56,5 @@ def test_xdist(pytester: pytest.Pytester) -> None:
         bigquery_client.query(f"CREATE TABLE `{bigquery_service.dataset}.test` AS select 1 as the_value")
     """)
 
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

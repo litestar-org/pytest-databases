@@ -1,41 +1,3 @@
-# from __future__ import annotations
-#
-# from typing import TYPE_CHECKING
-#
-# import psycopg
-#
-# if TYPE_CHECKING:
-#     from pytest_databases.docker.cockroachdb import CockroachDBService
-#
-# pytest_plugins = [
-#     "pytest_databases.docker.cockroachdb",
-# ]
-#
-#
-# def test_cockroachdb_default_config(cockroachdb_driver_opts: dict[str, str]) -> None:
-#     assert cockroachdb_driver_opts == {"sslmode": "disable"}
-#
-#
-# def test_cockroachdb_service(
-#     cockroachdb_service: CockroachDBService,
-# ) -> None:
-#     opts = "&".join(f"{k}={v}" for k, v in cockroachdb_service.driver_opts.items())
-#     with psycopg.connect(
-#         f"postgresql://root@{cockroachdb_service.host}:{cockroachdb_service.port}/{cockroachdb_service.database}?{opts}"
-#     ) as conn:
-#         conn.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
-#         result = conn.execute("select * from simple_table").fetchone()
-#         assert result is not None and result[0] == 1
-#
-#
-# def test_cockroachdb_services_after_start(
-#     cockroachdb_startup_connection: psycopg.Connection,
-# ) -> None:
-#     cockroachdb_startup_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
-#     result = cockroachdb_startup_connection.execute("select * from simple_table").fetchone()
-#     assert result is not None and result[0] == 1
-
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -61,7 +23,7 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
             assert db_open is not None and db_open[0] == 1
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -80,7 +42,7 @@ def test_startup_connection_fixture(pytester: pytest.Pytester) -> None:
         assert result is not None and result[0] == 1
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -107,7 +69,7 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
             conn.execute("CREATE TABLE foo AS SELECT 1")
     """)
 
-    result = pytester.runpytest_subprocess("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 
@@ -138,5 +100,5 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
             conn.execute("CREATE DATABASE foo")
     """)
 
-    result = pytester.runpytest_subprocess("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

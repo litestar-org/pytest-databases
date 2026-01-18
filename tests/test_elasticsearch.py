@@ -29,7 +29,7 @@ def test_elasticsearch_7(pytester: pytest.Pytester) -> None:
         assert info["version"]["number"] == "7.17.19"
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -56,5 +56,5 @@ def test_elasticsearch_8(pytester: pytest.Pytester) -> None:
         assert info["version"]["number"] == "8.13.0"
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
