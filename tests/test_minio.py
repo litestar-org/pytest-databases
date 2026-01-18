@@ -54,7 +54,7 @@ def test_two(minio_client: Minio, minio_default_bucket_name: str) -> None:
     minio_client.make_bucket(isolated_bucket_name)
     assert minio_client.bucket_exists(isolated_bucket_name)
 """)
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 
@@ -80,5 +80,5 @@ def test_two(minio_client: Minio, minio_default_bucket_name: str) -> None:
     assert minio_client.bucket_exists(isolated_bucket_name)
 
 """)
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

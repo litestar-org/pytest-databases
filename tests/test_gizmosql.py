@@ -130,7 +130,7 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
                 assert result is not None
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 

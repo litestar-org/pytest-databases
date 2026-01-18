@@ -45,7 +45,7 @@ def test_two({valkey_compatible_service}: ValkeyService) -> None:
     client.set("one", "1")
     assert {valkey_compatible_service}.db == get_xdist_worker_num()
 """)
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 
@@ -75,5 +75,5 @@ def test_two({valkey_compatible_service}: ValkeyService) -> None:
     client.set("one", "1")
     assert {valkey_compatible_service}.db == 0
 """)
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

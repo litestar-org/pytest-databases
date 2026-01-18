@@ -95,7 +95,7 @@ def test_use_same_db({redis_compatible_service}: RedisService) -> None:
     assert client_0.get("foo") == b"0"
     assert client_1.get("foo") == b"1"
 """)
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=3)
 
 
@@ -126,5 +126,5 @@ def test_two({redis_compatible_service}: RedisService) -> None:
     client.set("one", "1")
     assert {redis_compatible_service}.db == 0
 """)
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

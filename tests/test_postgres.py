@@ -96,7 +96,7 @@ def test_xdist_isolate_db(pytester: pytest.Pytester) -> None:
         postgres_connection.execute("CREATE TABLE foo AS SELECT 1")
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=1)
 
 

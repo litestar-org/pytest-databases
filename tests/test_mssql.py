@@ -77,7 +77,7 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
             cursor.execute("CREATE view simple_table as SELECT 1 as the_value;")
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2", "-vv")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2", "-vv")
     result.assert_outcomes(passed=2)
 
 
@@ -117,5 +117,5 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
             cursor.execute("CREATE DATABASE db_test")
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

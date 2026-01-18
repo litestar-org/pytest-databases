@@ -47,7 +47,7 @@ def test_two(azure_blob_container_client: ContainerClient) -> None:
     assert not azure_blob_container_client.exists()
     azure_blob_container_client.create_container()
 """)
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 
@@ -73,5 +73,5 @@ def test_two(azure_blob_container_client: ContainerClient, azure_blob_default_co
     assert azure_blob_container_client.account_name == f"test_account_{get_xdist_worker_num()}"
 
 """)
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

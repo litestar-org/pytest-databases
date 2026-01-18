@@ -56,5 +56,5 @@ def test_xdist(pytester: pytest.Pytester) -> None:
         bigquery_client.query(f"CREATE TABLE `{bigquery_service.dataset}.test` AS select 1 as the_value")
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
