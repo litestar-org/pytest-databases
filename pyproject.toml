@@ -33,6 +33,8 @@ keywords = [
   "azure",
   "valkey",
   "dragonflydb",
+  "gizmosql",
+  "flightsql",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -71,12 +73,13 @@ postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 valkey = ["valkey"]
+gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 
 [dependency-groups]
 dev = [
   # tests
   "bump-my-version",
-  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner,minio,valkey]",
+  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,gizmosql,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner,minio,valkey]",
   "coverage[toml]>=6.2",
   "pytest",
   "pytest-cov",
@@ -384,6 +387,7 @@ markers = [
   "duckdb: DuckDB Tests",
   "mssql: Microsoft SQL Server Tests",
   "elasticsearch: Elasticsearch Tests",
+  "gizmosql: GizmoSQL Tests",
 ]
 testpaths = ["tests"]
 
