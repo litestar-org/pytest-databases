@@ -1,9 +1,5 @@
 import pytest
 
-pytest_plugins = [
-    "pytest_databases.docker.azure_blob",
-]
-
 
 def test_default_no_xdist(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
@@ -22,7 +18,7 @@ def test_one(azure_blob_container_client: ContainerClient) -> None:
 def test_two(azure_blob_container_client: ContainerClient) -> None:
     assert azure_blob_container_client.exists()
 """)
-    result = pytester.runpytest()
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=2)
 
 
@@ -50,7 +46,7 @@ def test_two(azure_blob_container_client: ContainerClient) -> None:
     assert not azure_blob_container_client.exists()
     azure_blob_container_client.create_container()
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 
@@ -78,5 +74,5 @@ def test_two(azure_blob_container_client: ContainerClient, azure_blob_default_co
     assert azure_blob_container_client.account_name == f"test_account_{get_xdist_worker_num()}"
 
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

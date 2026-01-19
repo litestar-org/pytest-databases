@@ -57,8 +57,9 @@ def _provide_mysql_service(
                 database=database,
                 password=password,
             )
-        except mysql.connector.errors.OperationalError as exc:
-            if "Lost connection" in exc.msg:  # type: ignore
+        except (mysql.connector.errors.OperationalError, mysql.connector.errors.InterfaceError) as exc:
+            msg = getattr(exc, "msg", str(exc))
+            if "Lost connection" in msg:
                 return False
             raise
 

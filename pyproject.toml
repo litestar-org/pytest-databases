@@ -12,7 +12,7 @@ license = "MIT"
 name = "pytest-databases"
 readme = "README.md"
 requires-python = ">=3.9"
-version = "0.13.0"
+version = "0.15.1"
 #
 authors = [{ name = "Cody Fincher", email = "cody@litestar.dev" }]
 keywords = [
@@ -33,6 +33,8 @@ keywords = [
   "azure",
   "valkey",
   "dragonflydb",
+  "gizmosql",
+  "flightsql",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -61,6 +63,7 @@ cockroachdb = ["psycopg"]
 dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
+gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 keydb = ["redis"]
 mariadb = ["mariadb"]
 minio = ["minio"]
@@ -131,12 +134,12 @@ test = [
 
 [tool.bumpversion]
 allow_dirty = true
-commit = true
+commit = false
 commit_args = "--no-verify"
-current_version = "0.13.0"
+current_version = "0.15.1"
 ignore_missing_files = false
 ignore_missing_version = false
-message = "chore(release): bump to v{new_version}"
+message = "chore(release): bump to `v{new_version}`"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 regex = false
 replace = "{new_version}"
@@ -144,7 +147,7 @@ search = "{current_version}"
 serialize = ["{major}.{minor}.{patch}"]
 sign_tags = false
 tag = false
-tag_message = "chore(release): v{new_version}"
+tag_message = "chore(release): `v{new_version}`"
 tag_name = "v{new_version}"
 
 [[tool.bumpversion.files]]
@@ -306,6 +309,8 @@ lint.ignore = [
   "DOC502",  # Raised exception missing from docstring
   "A005",    # module shadows builtin
   "S608",
+  "RUF067",  # __init__ module should only contain docstrings and re-exports
+  "B901",    # Using `yield` and `return {value}` in a generator function can lead to confusing behavior
 ]
 lint.select = ["ALL"]
 # Allow unused variables when underscore-prefixed.
@@ -393,6 +398,7 @@ markers = [
   "duckdb: DuckDB Tests",
   "mssql: Microsoft SQL Server Tests",
   "elasticsearch: Elasticsearch Tests",
+  "gizmosql: GizmoSQL Tests",
 ]
 testpaths = ["tests"]
 

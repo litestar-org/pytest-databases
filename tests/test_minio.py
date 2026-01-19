@@ -1,9 +1,5 @@
 import pytest
 
-pytest_plugins = [
-    "pytest_databases.docker.minio",
-]
-
 
 def test_default_no_xdist(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
@@ -23,7 +19,7 @@ def test_one(minio_client: Minio) -> None:
 def test_two(minio_client: Minio) -> None:
     assert minio_client.bucket_exists("pytest-databases-test-no-xdist")
 """)
-    result = pytester.runpytest()
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=2)
 
 
@@ -57,7 +53,7 @@ def test_two(minio_client: Minio, minio_default_bucket_name: str) -> None:
     minio_client.make_bucket(isolated_bucket_name)
     assert minio_client.bucket_exists(isolated_bucket_name)
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 
@@ -85,5 +81,5 @@ def test_two(minio_client: Minio, minio_default_bucket_name: str) -> None:
     assert minio_client.bucket_exists(isolated_bucket_name)
 
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

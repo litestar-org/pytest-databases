@@ -26,18 +26,18 @@ jobs:
         cdist-group: [1, 2, 3]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install additional dependencies
         run: sudo apt-get update && sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev && sudo apt-get autoremove -y  && sudo apt-get clean -y
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
 
       - name: Intall dependencies
         run: uv sync --frozen
@@ -51,14 +51,14 @@ jobs:
         run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
 
       - if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-xml
           path: coverage.xml
 
       - if: matrix.python-version == '3.12'
         name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5.4.3
+        uses: codecov/codecov-action@v5.5.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: litestar-org/pytest-databases
@@ -70,15 +70,15 @@ jobs:
       - name: Install additional dependencies
         run: sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.9
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
 
       - name: Intall dependencies
         run: uv sync --frozen
@@ -94,7 +94,7 @@ jobs:
   #   runs-on: ubuntu-latest
   #   steps:
   #     - name: Check out repository
-  #       uses: actions/checkout@v4
+  #       uses: actions/checkout@v6
   #       with:
   #         fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
   #     - name: Download Artifacts
