@@ -56,17 +56,17 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
 
     def test_1(mongodb_database):
         collection = mongodb_database["test_collection"]
-        collection.insert_one({{"key": "value1"}})
-        result = collection.find_one({{"key": "value1"}})
+        collection.insert_one({"key": "value1"})
+        result = collection.find_one({"key": "value1"})
         assert result is not None and result["key"] == "value1"
 
     def test_2(mongodb_database):
         collection = mongodb_database["test_collection"]
         # If isolation is working, this collection should be empty or not exist
-        result = collection.find_one({{"key": "value1"}})
+        result = collection.find_one({"key": "value1"})
         assert result is None
-        collection.insert_one({{"key": "value2"}})
-        result = collection.find_one({{"key": "value2"}})
+        collection.insert_one({"key": "value2"})
+        result = collection.find_one({"key": "value2"})
         assert result is not None and result["key"] == "value2"
     """)
 
@@ -88,7 +88,7 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
         # as they would be on different MongoDB server instances.
         db = mongodb_connection["test_db_server_1"]
         collection = db["test_collection"]
-        collection.insert_one({{"key": "server1"}})
+        collection.insert_one({"key": "server1"})
         assert collection.count_documents({}) == 1
 
     def test_2(mongodb_connection):
@@ -96,7 +96,7 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
         collection = db["test_collection"]
         # This count should be 0 if it's a new server instance
         assert collection.count_documents({}) == 0
-        collection.insert_one({{"key": "server2"}})
+        collection.insert_one({"key": "server2"})
         assert collection.count_documents({}) == 1
     """)
 

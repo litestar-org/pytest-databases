@@ -45,8 +45,15 @@ def _provide_mongodb_service(
     password = "mongo_password"
     default_database_name = "pytest_db"
 
+    container_name = name
+    database_name = default_database_name
     worker_num = get_xdist_worker_num()
-    database_name = f"{default_database_name}_{worker_num}" if worker_num is not None and isolation_level == "database" else default_database_name
+    if worker_num is not None:
+        suffix = f"_{worker_num}"
+        if isolation_level == "server":
+            container_name += suffix
+        else:
+            database_name += suffix
 
     def check(_service: ServiceContainer) -> bool:
         client: MongoClient | None = None
@@ -72,22 +79,19 @@ def _provide_mongodb_service(
 
     with docker_service.run(
         image=image,
-        name=name,
-        container_port=27017,  # Default MongoDB port
+        name=container_name,
+        container_port=27017,
         env={
             "MONGO_INITDB_ROOT_USERNAME": username,
             "MONGO_INITDB_ROOT_PASSWORD": password,
         },
         check=check,
-        pause=0.5,  # Time for MongoDB to initialize
-        timeout=120,  # Total timeout for service to be ready
+        pause=0.5,
+        timeout=120,
+        transient=isolation_level == "server",
     ) as service:
         yield MongoDBService(
-            host=service.host,
-            port=service.port,
-            username=username,
-            password=password,
-            database=database_name
+            host=service.host, port=service.port, username=username, password=password, database=database_name
         )
 
 
@@ -102,9 +106,7 @@ def mongodb_service(
     xdist_mongodb_isolation_level: XdistIsolationLevel,
     mongodb_image: str,
 ) -> Generator[MongoDBService, None, None]:
-    with _provide_mongodb_service(
-        docker_service, mongodb_image, "mongodb", xdist_mongodb_isolation_level
-    ) as service:
+    with _provide_mongodb_service(docker_service, mongodb_image, "mongodb", xdist_mongodb_isolation_level) as service:
         yield service
 
 
@@ -126,8 +128,7 @@ def mongodb_connection(mongodb_service: MongoDBService) -> Generator[MongoClient
 
 @pytest.fixture(autouse=False, scope="function")
 def mongodb_database(
-    mongodb_connection: MongoClient,
-    mongodb_service: MongoDBService
+    mongodb_connection: MongoClient, mongodb_service: MongoDBService
 ) -> Generator[Database, None, None]:
     """Provides a MongoDB database instance for testing.
 

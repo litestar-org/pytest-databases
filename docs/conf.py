@@ -63,6 +63,9 @@ autodoc_default_options = {
     "exclude-members": "__weakref__",
 }
 
+# Mock imports for modules not needed during doc generation
+autodoc_mock_imports = ["OpenSSL"]
+
 # Intersphinx settings
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
