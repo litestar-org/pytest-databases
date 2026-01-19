@@ -23,7 +23,7 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
             assert db_open is not None and db_open[0] == 1
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -42,7 +42,7 @@ def test_startup_connection_fixture(pytester: pytest.Pytester) -> None:
         assert result is not None and result[0] == 1
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 

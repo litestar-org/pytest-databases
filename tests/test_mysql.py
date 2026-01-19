@@ -29,7 +29,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
         assert resp is not None and resp[0] == 1
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-vv")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)
 
 
@@ -52,7 +52,7 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
             assert result is not None and result[0][0] == 1
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-vv")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)
 
 

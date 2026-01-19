@@ -22,7 +22,7 @@ def test_one(minio_client: Minio) -> None:
 def test_two(minio_client: Minio) -> None:
     assert minio_client.bucket_exists("pytest-databases-test-no-xdist")
 """)
-    result = pytester.runpytest("-p", "pytest_databases")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=2)
 
 

@@ -32,7 +32,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
                 assert result is not None and result[0] == 1
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-vv")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)
 
 
@@ -63,7 +63,7 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
             assert result[1] == 'test'
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-vv")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)
 
 
@@ -153,5 +153,5 @@ def test_custom_image(pytester: pytest.Pytester) -> None:
         assert gizmosql_service.password == "gizmosql_password"
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-vv")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)

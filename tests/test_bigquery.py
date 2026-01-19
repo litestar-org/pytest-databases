@@ -25,7 +25,7 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
         assert resp[0].one == 1
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -39,7 +39,7 @@ def test_client_fixture(pytester: pytest.Pytester) -> None:
         assert isinstance(bigquery_client, bigquery.Client)
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
