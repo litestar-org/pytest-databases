@@ -46,7 +46,7 @@ def yugabyte_service(
     def yugabyte_responsive(_service: ServiceContainer) -> bool:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_driver_opts.items()) if yugabyte_driver_opts else ""
         try:
-            conn = psycopg.connect(f"postgresql://root@{_service.host}:{_service.port}/defaultdb?{opts}")
+            conn = psycopg.connect(f"postgresql://yugabyte:yugabyte@{_service.host}:{_service.port}/yugabyte?{opts}")
         except Exception:  # noqa: BLE001
             return False
 
@@ -68,12 +68,13 @@ def yugabyte_service(
 
     with docker_service.run(
         image=yugabyte_image,
-        container_port=26257,
+        container_port=5433,  # YugabyteDB YSQL port (not CockroachDB's 26257)
         check=yugabyte_responsive,
         name=container_name,
         command="bin/yugabyted start --background=false",
-        exec_after_start=f'cockroach sql --insecure -e "CREATE DATABASE {db_name}";',
+        exec_after_start=f'bin/ysqlsh -c "CREATE DATABASE {db_name};"',  # ysqlsh not cockroach
         transient=xdist_yugabyte_isolation_level == "server",
+        timeout=60,  # YugabyteDB needs longer startup time
     ) as service:
         yield YugabyteService(
             host=service.host,
@@ -90,6 +91,6 @@ def yugabyte_connection(
 ) -> Generator[psycopg.Connection, None, None]:
     opts = "&".join(f"{k}={v}" for k, v in yugabyte_driver_opts.items()) if yugabyte_driver_opts else ""
     with psycopg.connect(
-        f"postgresql://root@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+        f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
     ) as conn:
         yield conn
