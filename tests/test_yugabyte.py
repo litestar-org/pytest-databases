@@ -17,7 +17,7 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
     def test(yugabyte_service) -> None:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
         with psycopg.connect(
-            f"postgresql://root@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
         ) as conn:
             db_open = conn.execute("SELECT 1").fetchone()
             assert db_open is not None and db_open[0] == 1
@@ -57,14 +57,14 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     def test_one(yugabyte_service) -> None:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
         with psycopg.connect(
-            f"postgresql://root@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
         ) as conn:
             conn.execute("CREATE TABLE foo AS SELECT 1")
 
     def test_two(yugabyte_service) -> None:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
         with psycopg.connect(
-            f"postgresql://root@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
         ) as conn:
             conn.execute("CREATE TABLE foo AS SELECT 1")
     """)
@@ -88,14 +88,16 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     def test_one(yugabyte_service) -> None:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
         with psycopg.connect(
-            f"postgresql://root@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}",
+            autocommit=True,
         ) as conn:
             conn.execute("CREATE DATABASE foo")
 
     def test_two(yugabyte_service) -> None:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
         with psycopg.connect(
-            f"postgresql://root@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}",
+            autocommit=True,
         ) as conn:
             conn.execute("CREATE DATABASE foo")
     """)

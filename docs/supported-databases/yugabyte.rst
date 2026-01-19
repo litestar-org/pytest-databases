@@ -24,7 +24,7 @@ Usage Example
     @pytest.fixture(scope="session")
     def yugabyte_uri(yugabyte_service: YugabyteService) -> str:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
-        return f"postgresql://root@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+        return f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
 
     def test_yugabyte_service(yugabyte_uri: str) -> None:
         with psycopg.connect(yugabyte_uri) as conn:
