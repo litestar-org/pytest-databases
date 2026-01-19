@@ -35,7 +35,7 @@ def test_elasticsearch_7(pytester: pytest.Pytester) -> None:
 
 def test_elasticsearch_8(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
-    from elasticsearch7 import Elasticsearch
+    from elasticsearch8 import Elasticsearch
 
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
