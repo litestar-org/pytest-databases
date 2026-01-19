@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-pytest_plugins = [
-    "pytest_databases.docker.redis",
-]
-
 
 @pytest.fixture(
     params=[
@@ -46,9 +42,9 @@ def redis_image():
     return "{redis_image_name}"
 
 def test_redis_service(redis_service: RedisService) -> None:
-    assert redis.Redis.from_url("redis://", host=redis_service.host, port=redis_service.port).ping()
+    assert redis.Redis(host=redis_service.host, port=redis_service.port).ping()
 """)
-    result = pytester.runpytest()
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -64,9 +60,9 @@ pytest_plugins = [
 ]
 
 def test_redis_service({redis_compatible_service}: RedisService) -> None:
-    assert redis.Redis.from_url("redis://", host={redis_compatible_service}.host, port={redis_compatible_service}.port).ping()
+    assert redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port).ping()
 """)
-    result = pytester.runpytest()
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -82,20 +78,31 @@ pytest_plugins = [
 ]
 
 def test_one({redis_compatible_service}: RedisService) -> None:
-    client = redis.Redis.from_url("redis://", host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
-    assert not client.get("one")
-    client.set("one", "1")
+    client = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
     assert {redis_compatible_service}.db == get_xdist_worker_num()
+    assert not client.get("one")
+    client.set("one", "0")
+    assert client.get("one") == b"0"
 
 
 def test_two({redis_compatible_service}: RedisService) -> None:
-    client = redis.Redis.from_url("redis://", host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
+    client = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
+    assert {redis_compatible_service}.db == get_xdist_worker_num()
     assert not client.get("one")
     client.set("one", "1")
-    assert {redis_compatible_service}.db == get_xdist_worker_num()
+    assert client.get("one") == b"1"
+
+
+def test_use_same_db({redis_compatible_service}: RedisService) -> None:
+    client_0 = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db=0)
+    client_1 = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db=1)
+    client_0.set("foo", "0")
+    client_1.set("foo", "1")
+    assert client_0.get("foo") == b"0"
+    assert client_1.get("foo") == b"1"
 """)
-    result = pytester.runpytest("-n", "2")
-    result.assert_outcomes(passed=2)
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
+    result.assert_outcomes(passed=3)
 
 
 def test_xdist_isolate_server(pytester: pytest.Pytester, redis_compatible_service: str) -> None:
@@ -115,17 +122,17 @@ def xdist_redis_isolation_level():
 
 
 def test_one({redis_compatible_service}: RedisService) -> None:
-    client = redis.Redis.from_url("redis://", host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
+    client = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
     assert not client.get("one")
     client.set("one", "1")
     assert {redis_compatible_service}.db == 0
 
 
 def test_two({redis_compatible_service}: RedisService) -> None:
-    client = redis.Redis.from_url("redis://", host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
+    client = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
     assert not client.get("one")
     client.set("one", "1")
     assert {redis_compatible_service}.db == 0
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

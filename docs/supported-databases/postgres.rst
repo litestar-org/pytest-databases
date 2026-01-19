@@ -8,7 +8,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[postgres]
+    pip install pytest-databases[postgres]
 
 Usage Example
 -------------
@@ -36,6 +36,7 @@ Usage Example
 Available Fixtures
 ------------------
 
+* ``postgres_host``: The PostgreSQL host address (defaults to "127.0.0.1", can be overridden with ``POSTGRES_HOST`` environment variable).
 * ``postgres_user``: The PostgreSQL user.
 * ``postgres_password``: The PostgreSQL password.
 * ``postgres_database``: The PostgreSQL database name to use.
@@ -53,13 +54,27 @@ The following version-specific fixtures are also available:
 * ``postgres_15_image``, ``postgres_15_service``, ``postgres_15_connection``: PostgreSQL 15.x
 * ``postgres_16_image``, ``postgres_16_service``, ``postgres_16_connection``: PostgreSQL 16.x
 * ``postgres_17_image``, ``postgres_17_service``, ``postgres_17_connection``: PostgreSQL 17.x
+* ``postgres_18_image``, ``postgres_18_service``, ``postgres_18_connection``: PostgreSQL 18.x
 * ``pgvector_image``, ``pgvector_service``. ``pgvector_connection``: Latest Available pgvector Docker image.
 
+Configuration
+-------------
+
+PostgreSQL services can be configured using environment variables:
+
+* ``POSTGRES_HOST``: The host address for the PostgreSQL container (default: "127.0.0.1")
+
+Example usage with custom host:
+
+.. code-block:: bash
+
+    export POSTGRES_HOST="192.168.1.100"
+    pytest
 
 Service API
 -----------
 
 .. automodule:: pytest_databases.docker.postgres
-   :members:
-   :undoc-members:
-   :show-inheritance:
+    :members:
+    :undoc-members:
+    :show-inheritance:

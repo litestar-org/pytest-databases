@@ -62,8 +62,6 @@ def redis_service(
     db = 0
     if worker_num is not None:
         if xdist_redis_isolation_level == "database":
-            container_num = worker_num // 1
-            name += f"_{container_num + 1}"
             db = worker_num
         else:
             name += f"_{worker_num + 1}"
@@ -94,8 +92,6 @@ def dragonfly_service(
     db = 0
     if worker_num is not None:
         if xdist_redis_isolation_level == "database":
-            container_num = worker_num // 1
-            name += f"_{container_num + 1}"
             db = worker_num
         else:
             name += f"_{worker_num + 1}"
@@ -136,8 +132,6 @@ def keydb_service(
     db = 0
     if worker_num is not None:
         if xdist_redis_isolation_level == "database":
-            container_num = worker_num // 1
-            name += f"_{container_num + 1}"
             db = worker_num
         else:
             name += f"_{worker_num + 1}"

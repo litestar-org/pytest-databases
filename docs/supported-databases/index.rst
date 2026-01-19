@@ -16,6 +16,7 @@ This section provides detailed information on the supported databases, including
    cockroachdb
    yugabyte
    mongodb
+   gizmosql
    redis
    valkey
    elasticsearch

@@ -26,12 +26,12 @@ Usage Example
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
         return f"postgresql://root@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
 
-    def test(yugabyte_uri: str) -> None:
+    def test_yugabyte_service(yugabyte_uri: str) -> None:
         with psycopg.connect(yugabyte_uri) as conn:
             db_open = conn.execute("SELECT 1").fetchone()
             assert db_open is not None and db_open[0] == 1
 
-    def test(yugabyte_connection: psycopg.Connection) -> None:
+    def test_yugabyte_connection(yugabyte_connection: psycopg.Connection) -> None:
         yugabyte_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
         result = yugabyte_connection.execute("select * from simple_table").fetchone()
         assert result is not None and result[0] == 1
