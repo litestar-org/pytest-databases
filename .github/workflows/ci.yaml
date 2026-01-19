@@ -40,7 +40,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Intall dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       - if: matrix.python-version == '3.12'
         name: Run tests with coverage tracking
@@ -81,7 +81,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Intall dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       - name: Run tests with coverage tracking
         run: uv run pytest -k elasticsearch
