@@ -24,7 +24,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
         client.admin.command("ping")
     """)
 
-    result = pytester.runpytest("-vv")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -46,7 +46,7 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
         assert result is not None and result["key"] == "value"
     """)
 
-    result = pytester.runpytest("-vv")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -70,7 +70,7 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
         assert result is not None and result["key"] == "value2"
     """)
 
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
 
 
@@ -100,5 +100,5 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
         assert collection.count_documents({}) == 1
     """)
 
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

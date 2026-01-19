@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pymongo
-from pymongo.errors import ConnectionFailure
 import pytest
+from pymongo.errors import ConnectionFailure
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
@@ -16,9 +16,10 @@ from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from pytest_databases._service import DockerService
     from pymongo import MongoClient
     from pymongo.database import Database
+
+    from pytest_databases._service import DockerService
 
 
 @dataclass
@@ -60,10 +61,11 @@ def _provide_mongodb_service(
                 socketTimeoutMS=2000,
             )
             client.admin.command("ping")
-            return True
         except ConnectionFailure:
             traceback.print_exc()
             return False
+        else:
+            return True
         finally:
             if client:
                 client.close()
@@ -78,7 +80,7 @@ def _provide_mongodb_service(
         },
         check=check,
         pause=0.5,  # Time for MongoDB to initialize
-        timeout=120, # Total timeout for service to be ready
+        timeout=120,  # Total timeout for service to be ready
     ) as service:
         yield MongoDBService(
             host=service.host,
@@ -127,7 +129,11 @@ def mongodb_database(
     mongodb_connection: MongoClient,
     mongodb_service: MongoDBService
 ) -> Generator[Database, None, None]:
-    """Provides a MongoDB database instance for testing."""
+    """Provides a MongoDB database instance for testing.
+
+    Yields:
+        A MongoDB database instance.
+    """
     db = mongodb_connection[mongodb_service.database]
     yield db
     # For a truly clean state per test, you might consider dropping the database here,
