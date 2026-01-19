@@ -88,14 +88,16 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     def test_one(yugabyte_service) -> None:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
         with psycopg.connect(
-            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}",
+            autocommit=True,
         ) as conn:
             conn.execute("CREATE DATABASE foo")
 
     def test_two(yugabyte_service) -> None:
         opts = "&".join(f"{k}={v}" for k, v in yugabyte_service.driver_opts.items())
         with psycopg.connect(
-            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}"
+            f"postgresql://yugabyte:yugabyte@{yugabyte_service.host}:{yugabyte_service.port}/{yugabyte_service.database}?{opts}",
+            autocommit=True,
         ) as conn:
             conn.execute("CREATE DATABASE foo")
     """)

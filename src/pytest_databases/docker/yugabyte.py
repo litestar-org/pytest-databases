@@ -72,7 +72,7 @@ def yugabyte_service(
         check=yugabyte_responsive,
         name=container_name,
         command="bin/yugabyted start --background=false",
-        exec_after_start=f'bin/ysqlsh -U yugabyte -c "CREATE DATABASE {db_name};"',
+        exec_after_start=f"sh -c 'bin/ysqlsh -h $(hostname) -U yugabyte -d yugabyte -c \"CREATE DATABASE {db_name};\"'",
         transient=xdist_yugabyte_isolation_level == "server",
         timeout=60,  # YugabyteDB needs longer startup time
     ) as service:
