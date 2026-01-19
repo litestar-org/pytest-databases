@@ -12,7 +12,6 @@ from pytest_databases._service import (
     docker_service,
     get_docker_client,
     get_docker_host,
-    pytest_sessionfinish,
 )
 
 __all__ = [
@@ -21,5 +20,4 @@ __all__ = [
     "docker_service",
     "get_docker_client",
     "get_docker_host",
-    "pytest_sessionfinish",
 ]
