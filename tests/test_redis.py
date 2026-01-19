@@ -33,7 +33,9 @@ import redis
 from pytest_databases.docker.redis import RedisService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = ["pytest_databases.docker.redis"]
+pytest_plugins = [
+    "pytest_databases.docker.redis",
+]
 
 @pytest.fixture(scope="session")
 def redis_image():
@@ -42,7 +44,6 @@ def redis_image():
 def test_redis_service(redis_service: RedisService) -> None:
     assert redis.Redis(host=redis_service.host, port=redis_service.port).ping()
 """)
-    # Use subprocess to isolate from main process and avoid cleanup issues
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
@@ -54,12 +55,13 @@ import redis
 from pytest_databases.docker.redis import RedisService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = ["pytest_databases.docker.redis"]
+pytest_plugins = [
+    "pytest_databases.docker.redis",
+]
 
 def test_redis_service({redis_compatible_service}: RedisService) -> None:
     assert redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port).ping()
 """)
-    # Use subprocess to isolate from main process and avoid cleanup issues
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
@@ -71,7 +73,9 @@ import redis
 from pytest_databases.docker.redis import RedisService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = ["pytest_databases.docker.redis"]
+pytest_plugins = [
+    "pytest_databases.docker.redis",
+]
 
 def test_one({redis_compatible_service}: RedisService) -> None:
     client = redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port, db={redis_compatible_service}.db)
@@ -108,7 +112,9 @@ import redis
 from pytest_databases.docker.redis import RedisService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = ["pytest_databases.docker.redis"]
+pytest_plugins = [
+    "pytest_databases.docker.redis",
+]
 
 @pytest.fixture(scope="session")
 def xdist_redis_isolation_level():

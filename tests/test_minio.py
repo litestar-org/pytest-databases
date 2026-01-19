@@ -1,9 +1,4 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 
 def test_default_no_xdist(pytester: pytest.Pytester) -> None:
@@ -11,7 +6,9 @@ def test_default_no_xdist(pytester: pytest.Pytester) -> None:
 import pytest
 from minio import Minio
 
-pytest_plugins = ["pytest_databases.docker.minio"]
+pytest_plugins = [
+    "pytest_databases.docker.minio",
+]
 
 
 def test_one(minio_client: Minio) -> None:
@@ -31,7 +28,9 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
 import pytest
 from minio import Minio
 from pytest_databases.helpers import get_xdist_worker_num
-pytest_plugins = ["pytest_databases.docker.minio"]
+pytest_plugins = [
+    "pytest_databases.docker.minio",
+]
 
 
 @pytest.fixture(scope="session")
@@ -62,7 +61,9 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
 from minio import Minio
 from pytest_databases.helpers import get_xdist_worker_num
-pytest_plugins = ["pytest_databases.docker.minio"]
+pytest_plugins = [
+    "pytest_databases.docker.minio",
+]
 
 
 def test_one(minio_client: Minio, minio_default_bucket_name: str) -> None:

@@ -1,9 +1,4 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 
 def test_default_no_xdist(pytester: pytest.Pytester) -> None:
@@ -11,7 +6,9 @@ def test_default_no_xdist(pytester: pytest.Pytester) -> None:
 import pytest
 from azure.storage.blob import ContainerClient
 
-pytest_plugins = ["pytest_databases.docker.azure_blob"]
+pytest_plugins = [
+    "pytest_databases.docker.azure_blob",
+]
 
 
 def test_one(azure_blob_container_client: ContainerClient) -> None:
@@ -21,7 +18,6 @@ def test_one(azure_blob_container_client: ContainerClient) -> None:
 def test_two(azure_blob_container_client: ContainerClient) -> None:
     assert azure_blob_container_client.exists()
 """)
-    # Use subprocess to avoid PyO3/cryptography "may only be initialized once" error
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=2)
 
@@ -31,7 +27,9 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
 import pytest
 from azure.storage.blob import ContainerClient
 
-pytest_plugins = ["pytest_databases.docker.azure_blob"]
+pytest_plugins = [
+    "pytest_databases.docker.azure_blob",
+]
 
 
 @pytest.fixture(scope="session")
@@ -57,7 +55,9 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
 from azure.storage.blob import ContainerClient
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = ["pytest_databases.docker.azure_blob"]
+pytest_plugins = [
+    "pytest_databases.docker.azure_blob",
+]
 
 
 def test_one(azure_blob_container_client: ContainerClient, azure_blob_default_container_name: str) -> None:

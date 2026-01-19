@@ -25,7 +25,9 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
     from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
 
 
-    pytest_plugins = ["pytest_databases.docker.postgres"]
+    pytest_plugins = [
+        "pytest_databases.docker.postgres",
+    ]
 
     def test({service_fixture}) -> None:
         with psycopg.connect(
@@ -68,7 +70,9 @@ def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixtur
     from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
 
 
-    pytest_plugins = ["pytest_databases.docker.postgres"]
+    pytest_plugins = [
+        "pytest_databases.docker.postgres",
+    ]
 
     def test({connection_fixture}) -> None:
         {connection_fixture}.execute("CREATE TABLE if not exists simple_table as SELECT 1")
@@ -106,7 +110,9 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     import psycopg
     from pytest_databases.docker.postgres import _make_connection_string
 
-    pytest_plugins = ["pytest_databases.docker.postgres"]
+    pytest_plugins = [
+        "pytest_databases.docker.postgres",
+    ]
 
     @pytest.fixture(scope="session")
     def xdist_postgres_isolation_level():

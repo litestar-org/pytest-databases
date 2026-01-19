@@ -15,12 +15,13 @@ import valkey
 from pytest_databases.docker.valkey import ValkeyService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = ["pytest_databases.docker.valkey"]
+pytest_plugins = [
+    "pytest_databases.docker.valkey",
+]
 
 def test_valkey_service({valkey_compatible_service}: ValkeyService) -> None:
     assert valkey.Valkey.from_url("valkey://", host={valkey_compatible_service}.host, port={valkey_compatible_service}.port).ping()
 """)
-    # Use subprocess to isolate from main process and avoid cleanup issues
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
@@ -32,7 +33,9 @@ import valkey
 from pytest_databases.docker.valkey import ValkeyService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = ["pytest_databases.docker.valkey"]
+pytest_plugins = [
+    "pytest_databases.docker.valkey",
+]
 
 def test_one({valkey_compatible_service}: ValkeyService) -> None:
     client = valkey.Valkey.from_url("valkey://", host={valkey_compatible_service}.host, port={valkey_compatible_service}.port)
@@ -57,7 +60,9 @@ import valkey
 from pytest_databases.docker.valkey import ValkeyService
 from pytest_databases.helpers import get_xdist_worker_num
 
-pytest_plugins = ["pytest_databases.docker.valkey"]
+pytest_plugins = [
+    "pytest_databases.docker.valkey",
+]
 
 @pytest.fixture(scope="session")
 def xdist_valkey_isolation_level():

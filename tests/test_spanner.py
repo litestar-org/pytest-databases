@@ -32,7 +32,6 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
         assert resp[0] == 1
     """)
 
-    # Use subprocess to isolate grpc native extensions from main process
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)
 
@@ -46,6 +45,5 @@ def test_spanner_connection(pytester: pytest.Pytester) -> None:
         assert isinstance(spanner_connection, spanner.Client)
     """)
 
-    # Use subprocess to isolate grpc native extensions from main process
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)

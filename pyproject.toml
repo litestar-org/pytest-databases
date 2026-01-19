@@ -63,6 +63,7 @@ cockroachdb = ["psycopg"]
 dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
+gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 keydb = ["redis"]
 mariadb = ["mariadb"]
 minio = ["minio"]
@@ -73,7 +74,6 @@ postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 valkey = ["valkey"]
-gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 
 [dependency-groups]
 dev = [
@@ -88,7 +88,7 @@ dev = [
   "pytest-click",
   "pytest-xdist",
   "slotscheck",
-  "psycopg-binary",                                                                                                                                                    # This fixes tests failing on M series CPUs.
+  "psycopg-binary",                                                                                                                                                             # This fixes tests failing on M series CPUs.
   # lint
   "mypy",
   "ruff",
@@ -300,6 +300,8 @@ lint.ignore = [
   "DOC502",  # Raised exception missing from docstring
   "A005",    # module shadows builtin
   "S608",
+  "RUF067",  # __init__ module should only contain docstrings and re-exports
+  "B901",    # Using `yield` and `return {value}` in a generator function can lead to confusing behavior
 ]
 lint.select = ["ALL"]
 # Allow unused variables when underscore-prefixed.
