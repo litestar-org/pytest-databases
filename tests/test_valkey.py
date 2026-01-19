@@ -20,7 +20,8 @@ pytest_plugins = ["pytest_databases.docker.valkey"]
 def test_valkey_service({valkey_compatible_service}: ValkeyService) -> None:
     assert valkey.Valkey.from_url("valkey://", host={valkey_compatible_service}.host, port={valkey_compatible_service}.port).ping()
 """)
-    result = pytester.runpytest("-p", "pytest_databases")
+    # Use subprocess to isolate from main process and avoid cleanup issues
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 

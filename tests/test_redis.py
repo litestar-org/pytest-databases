@@ -42,7 +42,8 @@ def redis_image():
 def test_redis_service(redis_service: RedisService) -> None:
     assert redis.Redis(host=redis_service.host, port=redis_service.port).ping()
 """)
-    result = pytester.runpytest("-p", "pytest_databases")
+    # Use subprocess to isolate from main process and avoid cleanup issues
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -58,7 +59,8 @@ pytest_plugins = ["pytest_databases.docker.redis"]
 def test_redis_service({redis_compatible_service}: RedisService) -> None:
     assert redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port).ping()
 """)
-    result = pytester.runpytest("-p", "pytest_databases")
+    # Use subprocess to isolate from main process and avoid cleanup issues
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 

@@ -32,7 +32,8 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
             return resp[0] == 1 if resp is not None else False
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-vv")
+    # Use subprocess to isolate pymssql native extensions from main process
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)
 
 
@@ -58,7 +59,8 @@ def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) 
 
     """)
 
-    result = pytester.runpytest("-p", "pytest_databases", "-vv")
+    # Use subprocess to isolate pymssql native extensions from main process
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)
 
 
