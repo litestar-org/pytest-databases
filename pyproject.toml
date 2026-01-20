@@ -74,34 +74,18 @@ postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 valkey = ["valkey"]
+yugabyte = ["psycopg2-yugabytedb"]
 
 [dependency-groups]
+build = ["bump-my-version"]
 dev = [
-  # tests
-  "bump-my-version",
-  "pytest-databases[azure-storage,bigquery,cockroachdb,dragonfly,elasticsearch7,elasticsearch8,gizmosql,keydb,mssql,mysql,mariadb,oracle,postgres,redis,spanner,minio,valkey]",
-  "coverage[toml]>=6.2",
-  "pytest",
-  "pytest-cov",
-  "pytest-cdist>=0.2",
-  "pytest-mock",
-  "pytest-click",
-  "pytest-xdist",
-  "slotscheck",
-  "psycopg-binary",                                                                                                                                                             # This fixes tests failing on M series CPUs.
-  # lint
-  "mypy",
-  "ruff",
-  "pyright",
-  "pre-commit",
-  "types-click",
-  "types-six",
-  "types-decorator",
-  "types-pyyaml",
-  "types-docutils",
-  "types-redis",
-  "types-pymysql",
-  # docs
+  { include-group = "extra" },
+  { include-group = "lint" },
+  { include-group = "doc" },
+  { include-group = "test" },
+  { include-group = "build" },
+]
+doc = [
   "auto-pytabs[sphinx]>=0.5.0",
   "shibuya",
   "sphinx>=7.0.0; python_version <= \"3.9\"",
@@ -117,6 +101,31 @@ dev = [
   "myst-parser",
   "sphinx-autodoc-typehints",
   "sphinx-rtd-theme",
+]
+extra = ["psycopg2-binary", "psycopg[binary,pool]", "psycopg2-yugabytedb-binary"]
+lint = [
+  "mypy",
+  "ruff",
+  "pyright",
+  "pre-commit",
+  "types-click",
+  "types-six",
+  "types-decorator",
+  "types-pyyaml",
+  "types-docutils",
+  "types-redis",
+  "types-pymysql",
+  "slotscheck",
+]
+test = [
+  "coverage[toml]>=6.2",
+  "pytest",
+  "pytest-cov",
+  "pytest-cdist>=0.2",
+  "pytest-mock",
+  "pytest-click",
+  "pytest-xdist",
+  "pytest-sugar",
 ]
 
 ##################
