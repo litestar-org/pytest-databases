@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-pytest_plugins = [
-    "pytest_databases.docker.redis",
-]
-
 
 @pytest.fixture(
     params=[
@@ -48,7 +44,7 @@ def redis_image():
 def test_redis_service(redis_service: RedisService) -> None:
     assert redis.Redis(host=redis_service.host, port=redis_service.port).ping()
 """)
-    result = pytester.runpytest()
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -66,7 +62,7 @@ pytest_plugins = [
 def test_redis_service({redis_compatible_service}: RedisService) -> None:
     assert redis.Redis(host={redis_compatible_service}.host, port={redis_compatible_service}.port).ping()
 """)
-    result = pytester.runpytest()
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -105,7 +101,7 @@ def test_use_same_db({redis_compatible_service}: RedisService) -> None:
     assert client_0.get("foo") == b"0"
     assert client_1.get("foo") == b"1"
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=3)
 
 
@@ -138,5 +134,5 @@ def test_two({redis_compatible_service}: RedisService) -> None:
     client.set("one", "1")
     assert {redis_compatible_service}.db == 0
 """)
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)

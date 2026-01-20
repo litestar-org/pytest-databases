@@ -43,7 +43,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
             assert db_open is not None and db_open[0] == 1
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -80,7 +80,7 @@ def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixtur
         assert result is not None and result[0] == 1
     """)
 
-    result = pytester.runpytest()
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
@@ -100,7 +100,7 @@ def test_xdist_isolate_db(pytester: pytest.Pytester) -> None:
         postgres_connection.execute("CREATE TABLE foo AS SELECT 1")
     """)
 
-    result = pytester.runpytest("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=1)
 
 
@@ -145,5 +145,5 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
             conn.execute("CREATE DATABASE foo")
     """)
 
-    result = pytester.runpytest_subprocess("-n", "2")
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
