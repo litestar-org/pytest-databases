@@ -33,6 +33,7 @@ keywords = [
   "azure",
   "valkey",
   "dragonflydb",
+  "mongodb",
   "gizmosql",
   "flightsql",
 ]
@@ -67,6 +68,7 @@ gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 keydb = ["redis"]
 mariadb = ["mariadb"]
 minio = ["minio"]
+mongodb = ["pymongo"]
 mssql = ["pymssql"]
 mysql = ["mysql-connector-python"]
 oracle = ["oracledb"]
