@@ -16,6 +16,7 @@ import pytest
         "postgres_18_service",
         "alloydb_omni_service",
         "pgvector_service",
+        "paradedb_service",
     ],
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
@@ -61,6 +62,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
         "postgres_18_connection",
         "alloydb_omni_connection",
         "pgvector_connection",
+        "paradedb_connection",
     ],
 )
 def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
