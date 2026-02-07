@@ -477,6 +477,48 @@ def pgvector_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
+def paradedb_image() -> str:
+    return "paradedb/paradedb:0.21.5-pg16"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_service(
+    docker_service: DockerService,
+    paradedb_image: str,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image=paradedb_image,
+        name="paradedb",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_connection(
+    paradedb_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=paradedb_service.host,
+            port=paradedb_service.port,
+            user=paradedb_service.user,
+            password=paradedb_service.password,
+            database=paradedb_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_image() -> str:
     return "google/alloydbomni:16"
 
