@@ -1,7 +1,7 @@
 PostgreSQL
 ==========
 
-Integration with `PostgreSQL <https://www.postgresql.org/>`_ using the `PostgreSQL Docker Image <https://hub.docker.com/_/postgres>`_, Google's `AlloyDB Omni <https://cloud.google.com/alloydb/omni?hl=en>`_ or `pgvector Docker Image <https://hub.docker.com/r/ankane/pgvector>`_
+Integration with `PostgreSQL <https://www.postgresql.org/>`_ using the `PostgreSQL Docker Image <https://hub.docker.com/_/postgres>`_, Google's `AlloyDB Omni <https://cloud.google.com/alloydb/omni?hl=en>`_, `pgvector Docker Image <https://hub.docker.com/r/ankane/pgvector>`_, or `ParadeDB Docker Image <https://hub.docker.com/r/paradedb/paradedb>`_
 
 Installation
 ------------
@@ -56,6 +56,7 @@ The following version-specific fixtures are also available:
 * ``postgres_17_image``, ``postgres_17_service``, ``postgres_17_connection``: PostgreSQL 17.x
 * ``postgres_18_image``, ``postgres_18_service``, ``postgres_18_connection``: PostgreSQL 18.x
 * ``pgvector_image``, ``pgvector_service``. ``pgvector_connection``: Latest Available pgvector Docker image.
+* ``paradedb_image``, ``paradedb_service``, ``paradedb_connection``: ParadeDB (PostgreSQL with BM25 full-text search and analytics extensions).
 
 Configuration
 -------------

@@ -135,8 +135,7 @@ def mongodb_database(
     Yields:
         A MongoDB database instance.
     """
-    db = mongodb_connection[mongodb_service.database]
-    yield db
+    yield mongodb_connection[mongodb_service.database]
     # For a truly clean state per test, you might consider dropping the database here,
     # but it depends on the desired test isolation and speed.
     # e.g., mongodb_connection.drop_database(mongodb_service.database)
