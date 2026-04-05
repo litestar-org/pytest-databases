@@ -25,6 +25,7 @@ Configuration
 * ``RUSTFS_ACCESS_KEY``: Access key for RustFS (default: "rustfsadmin")
 * ``RUSTFS_SECRET_KEY``: Secret key for RustFS (default: "rustfsadmin")
 * ``RUSTFS_SECURE``: Whether to use HTTPS (default: "false")
+* ``RUSTFS_DEFAULT_BUCKET_NAME``: The default bucket to create (default: "pytest-databases")
 
 Usage Example
 -------------
