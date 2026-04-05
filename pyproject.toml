@@ -66,10 +66,8 @@ elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
 gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 keydb = ["redis"]
-mariadb = ["mariadb"]
 mongodb = ["pymongo"]
 mssql = ["pymssql"]
-mysql = ["mysql-connector-python"]
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
@@ -127,6 +125,8 @@ test = [
   "pytest-click",
   "pytest-xdist",
   "pytest-sugar",
+  "mysql-connector-python",
+  "mariadb",
 ]
 
 ##################
