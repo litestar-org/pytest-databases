@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import contextlib
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -5,7 +8,7 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 import pytest
-from minio.api import Minio
+from docker.errors import ImageNotFound
 
 from pytest_databases.docker import TRUE_VALUES
 from pytest_databases.helpers import get_xdist_worker_num
@@ -47,6 +50,8 @@ def xdist_minio_isolation_level() -> XdistIsolationLevel:
 
 @pytest.fixture(scope="session")
 def minio_default_bucket_name(xdist_minio_isolation_level: XdistIsolationLevel) -> str:
+    if env_bucket := os.getenv("MINIO_DEFAULT_BUCKET_NAME"):
+        return env_bucket
     worker_num = get_xdist_worker_num()
     if worker_num is not None and xdist_minio_isolation_level == "server":
         return f"pytest-databases-{worker_num}"
@@ -59,6 +64,8 @@ def minio_service(
     minio_access_key: str,
     minio_secret_key: str,
     minio_secure: bool,
+    minio_default_bucket_name: str,
+    xdist_minio_isolation_level: XdistIsolationLevel,
 ) -> "Generator[MinioService, None, None]":
     def check(_service: ServiceContainer) -> bool:
         scheme = "https" if minio_secure else "http"
@@ -73,7 +80,14 @@ def minio_service(
             return False
 
     command = "server /data"
+    worker_num = get_xdist_worker_num()
     name = "minio"
+    transient = False
+
+    if worker_num is not None and xdist_minio_isolation_level == "server":
+        name = f"{name}_{worker_num}"
+        transient = True
+
     env = {
         "MINIO_ROOT_USER": minio_access_key,
         "MINIO_ROOT_PASSWORD": minio_secret_key,
@@ -88,7 +102,36 @@ def minio_service(
         pause=0.5,
         env=env,
         check=check,
+        transient=transient,
     ) as service:
+        # Create default bucket using minio/mc container
+        scheme = "https" if minio_secure else "http"
+        endpoint_url = f"{scheme}://{service.host}:{service.port}"
+
+        client = docker_service._client
+
+        try:
+            client.images.get("minio/mc:latest")
+        except ImageNotFound:
+            client.images.pull("minio/mc:latest")
+
+        command = [
+            "sh",
+            "-c",
+            (
+                f"mc alias set local {endpoint_url} {minio_access_key} {minio_secret_key} && "
+                f"mc mb local/{minio_default_bucket_name}"
+            ),
+        ]
+
+        with contextlib.suppress(Exception):
+            client.containers.run(
+                image="minio/mc:latest",
+                command=command,
+                remove=True,
+                network_mode="host",
+            )
+
         yield MinioService(
             host=service.host,
             port=service.port,
@@ -97,24 +140,3 @@ def minio_service(
             secret_key=minio_secret_key,
             secure=minio_secure,
         )
-
-
-@pytest.fixture(scope="session")
-def minio_client(
-    minio_service: "MinioService",
-    minio_default_bucket_name: str,
-) -> "Generator[Minio, None, None]":
-    client = Minio(
-        endpoint=minio_service.endpoint,
-        access_key=minio_service.access_key,
-        secret_key=minio_service.secret_key,
-        secure=minio_service.secure,
-    )
-    try:
-        if not client.bucket_exists(minio_default_bucket_name):
-            client.make_bucket(minio_default_bucket_name)
-    except Exception as e:
-        msg = f"Failed to create bucket {minio_default_bucket_name}"
-        raise RuntimeError(msg) from e
-    else:
-        yield client
