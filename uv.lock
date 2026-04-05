@@ -3872,18 +3872,11 @@ keydb = [
     { name = "redis", version = "7.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "redis", version = "7.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
-mariadb = [
-    { name = "mariadb" },
-]
 mongodb = [
     { name = "pymongo" },
 ]
 mssql = [
     { name = "pymssql" },
-]
-mysql = [
-    { name = "mysql-connector-python", version = "9.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "mysql-connector-python", version = "9.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
 oracle = [
     { name = "oracledb" },
@@ -3915,8 +3908,11 @@ dev = [
     { name = "bump-my-version" },
     { name = "coverage", version = "7.10.7", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version < '3.10'" },
     { name = "coverage", version = "7.13.5", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version >= '3.10'" },
+    { name = "mariadb" },
     { name = "mypy", version = "1.19.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "mypy", version = "1.20.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "mysql-connector-python", version = "9.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "mysql-connector-python", version = "9.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "myst-parser", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "myst-parser", version = "4.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "myst-parser", version = "5.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -4025,6 +4021,9 @@ lint = [
 test = [
     { name = "coverage", version = "7.10.7", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version < '3.10'" },
     { name = "coverage", version = "7.13.5", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version >= '3.10'" },
+    { name = "mariadb" },
+    { name = "mysql-connector-python", version = "9.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "mysql-connector-python", version = "9.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest-cdist", version = "0.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -4046,8 +4045,6 @@ requires-dist = [
     { name = "filelock" },
     { name = "google-cloud-bigquery", marker = "extra == 'bigquery'" },
     { name = "google-cloud-spanner", marker = "extra == 'spanner'" },
-    { name = "mariadb", marker = "extra == 'mariadb'" },
-    { name = "mysql-connector-python", marker = "extra == 'mysql'" },
     { name = "oracledb", marker = "extra == 'oracle'" },
     { name = "psycopg", marker = "extra == 'cockroachdb'" },
     { name = "psycopg", marker = "extra == 'postgres'", specifier = ">=3" },
@@ -4061,7 +4058,7 @@ requires-dist = [
     { name = "redis", marker = "extra == 'redis'" },
     { name = "valkey", marker = "extra == 'valkey'" },
 ]
-provides-extras = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "gizmosql", "keydb", "mariadb", "mongodb", "mssql", "mysql", "oracle", "postgres", "redis", "spanner", "valkey", "yugabyte"]
+provides-extras = ["azure-storage", "bigquery", "cockroachdb", "dragonfly", "elasticsearch7", "elasticsearch8", "gizmosql", "keydb", "mongodb", "mssql", "oracle", "postgres", "redis", "spanner", "valkey", "yugabyte"]
 
 [package.metadata.requires-dev]
 build = [{ name = "bump-my-version" }]
@@ -4069,7 +4066,9 @@ dev = [
     { name = "auto-pytabs", extras = ["sphinx"], specifier = ">=0.5.0" },
     { name = "bump-my-version" },
     { name = "coverage", extras = ["toml"], specifier = ">=6.2" },
+    { name = "mariadb" },
     { name = "mypy" },
+    { name = "mysql-connector-python" },
     { name = "myst-parser" },
     { name = "pre-commit" },
     { name = "psycopg", extras = ["binary", "pool"] },
@@ -4144,6 +4143,8 @@ lint = [
 ]
 test = [
     { name = "coverage", extras = ["toml"], specifier = ">=6.2" },
+    { name = "mariadb" },
+    { name = "mysql-connector-python" },
     { name = "pytest" },
     { name = "pytest-cdist", specifier = ">=0.2" },
     { name = "pytest-click" },

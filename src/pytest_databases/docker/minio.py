@@ -115,14 +115,14 @@ def minio_service(
         except ImageNotFound:
             client.images.pull("minio/mc:latest")
 
-        command = [
+        command = " ".join([
             "sh",
             "-c",
             (
                 f"mc alias set local {endpoint_url} {minio_access_key} {minio_secret_key} && "
                 f"mc mb local/{minio_default_bucket_name}"
             ),
-        ]
+        ])
 
         with contextlib.suppress(Exception):
             client.containers.run(
