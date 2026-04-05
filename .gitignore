@@ -150,3 +150,8 @@ node_modules
 .astro
 .vite
 .npmrc
+.agents/
+.beads/
+.gemini/
+.claude/
+.geminiignore
