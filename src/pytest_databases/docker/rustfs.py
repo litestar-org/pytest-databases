@@ -50,6 +50,8 @@ def xdist_rustfs_isolation_level() -> XdistIsolationLevel:
 
 @pytest.fixture(scope="session")
 def rustfs_default_bucket_name(xdist_rustfs_isolation_level: XdistIsolationLevel) -> str:
+    if env_bucket := os.getenv("RUSTFS_DEFAULT_BUCKET_NAME"):
+        return env_bucket
     worker_num = get_xdist_worker_num()
     if worker_num is not None and xdist_rustfs_isolation_level == "server":
         return f"pytest-databases-{worker_num}"
