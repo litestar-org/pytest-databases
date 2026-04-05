@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import time
 import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -55,7 +56,7 @@ def _provide_mysql_service(
 
         # Attempt to run a simple SELECT 1 to ensure the server is fully ready
         res = container.exec_run(
-            ["mysql", f"--user=root", f"--password={root_password}", "-e", "SELECT 1"],
+            ["mysql", "--user=root", f"--password={root_password}", "-e", "SELECT 1"],
         )
         return res.exit_code == 0
 
@@ -99,11 +100,10 @@ def _provide_mysql_service(
             # Retry setup a few times if it fails
             for _ in range(5):
                 res = container.exec_run(
-                    ["mysql", f"--user=root", f"--password={root_password}", "-e", setup_sql],
+                    ["mysql", "--user=root", f"--password={root_password}", "-e", setup_sql],
                 )
                 if res.exit_code == 0:
                     break
-                import time
                 time.sleep(1)
 
         yield MySQLService(
@@ -206,7 +206,7 @@ def mysql_56_connection(mysql_56_service: MySQLService) -> Generator[Any, None, 
         "The 'mysql_56_connection' fixture is deprecated and will be removed in a future release. "
         "To recreate this connection, you can use the following snippet:\n\n"
         "import mysql.connector\n\n"
-        "@pytest.fixture(scope=\"session\")\n"
+        '@pytest.fixture(scope="session")\n'
         "def my_mysql_connection(mysql_56_service):\n"
         "    with mysql.connector.connect(\n"
         "        host=mysql_56_service.host,\n"
@@ -219,7 +219,7 @@ def mysql_56_connection(mysql_56_service: MySQLService) -> Generator[Any, None, 
         DeprecationWarning,
         stacklevel=2,
     )
-    import mysql.connector
+    import mysql.connector  # noqa: PLC0415
     with mysql.connector.connect(
         host=mysql_56_service.host,
         port=mysql_56_service.port,
@@ -236,7 +236,7 @@ def mysql_57_connection(mysql_57_service: MySQLService) -> Generator[Any, None, 
         "The 'mysql_57_connection' fixture is deprecated and will be removed in a future release. "
         "To recreate this connection, you can use the following snippet:\n\n"
         "import mysql.connector\n\n"
-        "@pytest.fixture(scope=\"session\")\n"
+        '@pytest.fixture(scope="session")\n'
         "def my_mysql_connection(mysql_57_service):\n"
         "    with mysql.connector.connect(\n"
         "        host=mysql_57_service.host,\n"
@@ -249,7 +249,7 @@ def mysql_57_connection(mysql_57_service: MySQLService) -> Generator[Any, None, 
         DeprecationWarning,
         stacklevel=2,
     )
-    import mysql.connector
+    import mysql.connector  # noqa: PLC0415
     with mysql.connector.connect(
         host=mysql_57_service.host,
         port=mysql_57_service.port,
@@ -271,7 +271,7 @@ def mysql_8_connection(mysql_8_service: MySQLService) -> Generator[Any, None, No
         "The 'mysql_8_connection' fixture is deprecated and will be removed in a future release. "
         "To recreate this connection, you can use the following snippet:\n\n"
         "import mysql.connector\n\n"
-        "@pytest.fixture(scope=\"session\")\n"
+        '@pytest.fixture(scope="session")\n'
         "def my_mysql_connection(mysql_8_service):\n"
         "    with mysql.connector.connect(\n"
         "        host=mysql_8_service.host,\n"
@@ -284,7 +284,7 @@ def mysql_8_connection(mysql_8_service: MySQLService) -> Generator[Any, None, No
         DeprecationWarning,
         stacklevel=2,
     )
-    import mysql.connector
+    import mysql.connector  # noqa: PLC0415
     with mysql.connector.connect(
         host=mysql_8_service.host,
         port=mysql_8_service.port,
@@ -301,7 +301,7 @@ def mysql_84_connection(mysql_84_service: MySQLService) -> Generator[Any, None, 
         "The 'mysql_84_connection' fixture is deprecated and will be removed in a future release. "
         "To recreate this connection, you can use the following snippet:\n\n"
         "import mysql.connector\n\n"
-        "@pytest.fixture(scope=\"session\")\n"
+        '@pytest.fixture(scope="session")\n'
         "def my_mysql_connection(mysql_84_service):\n"
         "    with mysql.connector.connect(\n"
         "        host=mysql_84_service.host,\n"
@@ -314,7 +314,7 @@ def mysql_84_connection(mysql_84_service: MySQLService) -> Generator[Any, None, 
         DeprecationWarning,
         stacklevel=2,
     )
-    import mysql.connector
+    import mysql.connector  # noqa: PLC0415
     with mysql.connector.connect(
         host=mysql_84_service.host,
         port=mysql_84_service.port,
@@ -331,7 +331,7 @@ def mysql_96_connection(mysql_96_service: MySQLService) -> Generator[Any, None, 
         "The 'mysql_96_connection' fixture is deprecated and will be removed in a future release. "
         "To recreate this connection, you can use the following snippet:\n\n"
         "import mysql.connector\n\n"
-        "@pytest.fixture(scope=\"session\")\n"
+        '@pytest.fixture(scope="session")\n'
         "def my_mysql_connection(mysql_96_service):\n"
         "    with mysql.connector.connect(\n"
         "        host=mysql_96_service.host,\n"
@@ -344,7 +344,7 @@ def mysql_96_connection(mysql_96_service: MySQLService) -> Generator[Any, None, 
         DeprecationWarning,
         stacklevel=2,
     )
-    import mysql.connector
+    import mysql.connector  # noqa: PLC0415
     with mysql.connector.connect(
         host=mysql_96_service.host,
         port=mysql_96_service.port,

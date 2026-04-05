@@ -1,5 +1,6 @@
 import pytest
 
+
 def test_rustfs_custom_bucket_env(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     pytester.makepyfile("""
 import pytest

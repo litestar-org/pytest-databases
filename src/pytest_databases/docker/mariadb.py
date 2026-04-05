@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import contextlib
 import os
+import time
 import warnings
-from collections.abc import Generator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +13,8 @@ from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from pytest_databases._service import DockerService
 
 
@@ -48,7 +50,7 @@ def _provide_mariadb_service(
 
         # Attempt to run a simple SELECT 1 to ensure the server is fully ready
         res = container.exec_run(
-            ["mariadb", f"--user=root", f"--password={root_password}", "-e", "SELECT 1"],
+            ["mariadb", "--user=root", f"--password={root_password}", "-e", "SELECT 1"],
         )
         return res.exit_code == 0
 
@@ -90,11 +92,10 @@ def _provide_mariadb_service(
             # Retry setup a few times if it fails
             for _ in range(5):
                 res = container.exec_run(
-                    ["mariadb", f"--user=root", f"--password={root_password}", "-e", setup_sql],
+                    ["mariadb", "--user=root", f"--password={root_password}", "-e", setup_sql],
                 )
                 if res.exit_code == 0:
                     break
-                import time
                 time.sleep(1)
 
         yield MariaDBService(
@@ -159,7 +160,7 @@ def mariadb_113_connection(mariadb_113_service: MariaDBService) -> Generator[Any
         "The 'mariadb_113_connection' fixture is deprecated and will be removed in a future release. "
         "To recreate this connection, you can use the following snippet:\n\n"
         "import mariadb\n\n"
-        "@pytest.fixture(scope=\"session\")\n"
+        '@pytest.fixture(scope="session")\n'
         "def my_mariadb_connection(mariadb_113_service):\n"
         "    with mariadb.connect(\n"
         "        host=mariadb_113_service.host,\n"
@@ -172,7 +173,7 @@ def mariadb_113_connection(mariadb_113_service: MariaDBService) -> Generator[Any
         DeprecationWarning,
         stacklevel=2,
     )
-    import mariadb
+    import mariadb  # noqa: PLC0415
     with mariadb.connect(
         host=mariadb_113_service.host,
         port=mariadb_113_service.port,
@@ -189,7 +190,7 @@ def mariadb_114_connection(mariadb_114_service: MariaDBService) -> Generator[Any
         "The 'mariadb_114_connection' fixture is deprecated and will be removed in a future release. "
         "To recreate this connection, you can use the following snippet:\n\n"
         "import mariadb\n\n"
-        "@pytest.fixture(scope=\"session\")\n"
+        '@pytest.fixture(scope="session")\n'
         "def my_mariadb_connection(mariadb_114_service):\n"
         "    with mariadb.connect(\n"
         "        host=mariadb_114_service.host,\n"
@@ -202,7 +203,7 @@ def mariadb_114_connection(mariadb_114_service: MariaDBService) -> Generator[Any
         DeprecationWarning,
         stacklevel=2,
     )
-    import mariadb
+    import mariadb  # noqa: PLC0415
     with mariadb.connect(
         host=mariadb_114_service.host,
         port=mariadb_114_service.port,
@@ -219,7 +220,7 @@ def mariadb_122_connection(mariadb_122_service: MariaDBService) -> Generator[Any
         "The 'mariadb_122_connection' fixture is deprecated and will be removed in a future release. "
         "To recreate this connection, you can use the following snippet:\n\n"
         "import mariadb\n\n"
-        "@pytest.fixture(scope=\"session\")\n"
+        '@pytest.fixture(scope="session")\n'
         "def my_mariadb_connection(mariadb_122_service):\n"
         "    with mariadb.connect(\n"
         "        host=mariadb_122_service.host,\n"
@@ -232,7 +233,7 @@ def mariadb_122_connection(mariadb_122_service: MariaDBService) -> Generator[Any
         DeprecationWarning,
         stacklevel=2,
     )
-    import mariadb
+    import mariadb  # noqa: PLC0415
     with mariadb.connect(
         host=mariadb_122_service.host,
         port=mariadb_122_service.port,
