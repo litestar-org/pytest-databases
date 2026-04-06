@@ -28,6 +28,7 @@ keywords = [
   "alloydb",
   "alloydbomni",
   "cockroachdb",
+  "doltdb",
   "redis",
   "elasticsearch",
   "azure",
