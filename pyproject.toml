@@ -12,7 +12,7 @@ license = "MIT"
 name = "pytest-databases"
 readme = "README.md"
 requires-python = ">=3.9"
-version = "0.17.0"
+version = "0.18.0"
 #
 authors = [{ name = "Cody Fincher", email = "cody@litestar.dev" }]
 keywords = [
@@ -66,11 +66,8 @@ elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
 gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 keydb = ["redis"]
-mariadb = ["mariadb"]
-minio = ["minio"]
 mongodb = ["pymongo"]
 mssql = ["pymssql"]
-mysql = ["mysql-connector-python"]
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
@@ -128,6 +125,8 @@ test = [
   "pytest-click",
   "pytest-xdist",
   "pytest-sugar",
+  "mysql-connector-python",
+  "mariadb",
 ]
 
 ##################
@@ -138,7 +137,7 @@ test = [
 allow_dirty = true
 commit = false
 commit_args = "--no-verify"
-current_version = "0.17.0"
+current_version = "0.18.0"
 ignore_missing_files = false
 ignore_missing_version = false
 message = "chore(release): bump to `v{new_version}`"

@@ -3,15 +3,10 @@ MariaDB
 
 Integration with `MariaDB <https://mariadb.org>`_, a community-developed, commercially supported fork of the MySQL relational database management system.
 
-This integration uses the official `MariaDB Python Connector <https://mariadb.com/docs/clients/mariadb-connectors/connector-python/>`_ to interact with MariaDB.
-
 Installation
 ------------
 
-.. code-block:: bash
-
-   pip install pytest-databases[mariadb]
-
+MariaDB support is built-in and does not require any additional Python client libraries for basic service management. However, to connect to the database from your tests, you should install your preferred MariaDB client (e.g., `mariadb`).
 
 Usage Example
 -------------
@@ -25,6 +20,7 @@ Usage Example
     pytest_plugins = ["pytest_databases.docker.mariadb"]
 
     def test(mariadb_service: MariaDBService) -> None:
+        # Create your own connection using the service fixture attributes
         with mariadb.connect(
             host=mariadb_service.host,
             port=mariadb_service.port,
@@ -36,24 +32,19 @@ Usage Example
             resp = cursor.fetchone()
             assert resp is not None and resp[0] == 1
 
-    def test(mariadb_connection: mariadb.Connection) -> None:
-        with mariadb_connection.cursor() as cursor:
-            cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
-            cursor.execute("select * from simple_table")
-            result = cursor.fetchall()
-            assert result is not None and result[0][0] == 1
-
 Available Fixtures
 ------------------
 
-* ``mariadb_service``: A fixture that provides a MariaDB service.
-* ``mariadb_connection``: A fixture that provides a MariaDB connection.
+* ``mariadb_service``: A fixture that provides a MariaDB service (11.4 LTS).
 
 The following version-specific fixtures are also available:
 
-* ``mariadb_113_service``: A fixture that provides a MariaDB 11.3 service.
-* ``mariadb_113_connection``: A fixture that provides a MariaDB 11.3 connection.
+* ``mariadb_113_service``: MariaDB 11.3
+* ``mariadb_114_service``: MariaDB 11.4 LTS
+* ``mariadb_122_service``: MariaDB 12.2 Rolling
 
+.. note::
+   The connection fixtures (e.g., ``mariadb_connection``, ``mariadb_114_connection``) are deprecated and will be removed in a future release. Users are encouraged to create their own connections as shown in the example above.
 
 Service API
 -----------
