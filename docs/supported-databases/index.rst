@@ -9,6 +9,7 @@ This section provides detailed information on the supported databases, including
    postgres
    mysql
    mariadb
+   dolt
    oracle
    sqlserver
    spanner
@@ -22,3 +23,4 @@ This section provides detailed information on the supported databases, including
    elasticsearch
    azure_blob_storage
    minio
+   rustfs
