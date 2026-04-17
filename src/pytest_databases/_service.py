@@ -204,6 +204,7 @@ class DockerService(AbstractContextManager):
 
         host_port = int(binding[0]["HostPort"])
         service = ServiceContainer(
+            container=container,
             host=container_host,
             port=host_port,
         )
