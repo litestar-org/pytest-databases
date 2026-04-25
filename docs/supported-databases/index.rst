@@ -9,6 +9,7 @@ This section provides detailed information on the supported databases, including
    postgres
    mysql
    mariadb
+   dolt
    oracle
    sqlserver
    spanner
