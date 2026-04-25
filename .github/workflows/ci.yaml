@@ -42,6 +42,57 @@ jobs:
       - name: Intall dependencies
         run: uv sync --frozen --all-extras
 
+      # Pre-pull docker images with retry to absorb transient registry failures
+      # (MCR WAF blocks on mcr.microsoft.com, Docker Hub anonymous rate limits)
+      # before pytest starts spawning fixture subprocesses.
+      - name: Pre-pull docker images
+        run: |
+          set -u
+          images=(
+            "mcr.microsoft.com/azure-storage/azurite"
+            "mcr.microsoft.com/mssql/server:2022-latest"
+            "postgres:11" "postgres:12" "postgres:13" "postgres:14"
+            "postgres:15" "postgres:16" "postgres:17" "postgres:18"
+            "pgvector/pgvector:pg15"
+            "paradedb/paradedb:0.21.5-pg16"
+            "google/alloydbomni:16"
+            "mysql:5.6" "mysql:5.7" "mysql:8"
+            "mariadb:11.3"
+            "gvenzl/oracle-free:23-slim-faststart"
+            "gvenzl/oracle-xe:18-slim-faststart"
+            "redis:latest"
+            "valkey/valkey:latest"
+            "mongo:latest"
+            "cockroachdb/cockroach:latest"
+            "software.yugabyte.com/yugabytedb/yugabyte:latest"
+            "quay.io/minio/minio"
+            "minio/mc:latest"
+            "rustfs/rustfs:latest"
+            "rustfs/rc:latest"
+            "gcr.io/cloud-spanner-emulator/emulator:latest"
+            "ghcr.io/goccy/bigquery-emulator:latest"
+            "gizmodata/gizmosql:latest"
+            "elasticsearch:7.17.19"
+            "elasticsearch:8.13.0"
+          )
+          failed=()
+          for image in "${images[@]}"; do
+            for attempt in 1 2 3 4 5; do
+              if docker pull --quiet "$image"; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "::warning::Failed to pull $image after 5 attempts"
+                failed+=("$image")
+              else
+                sleep $((attempt * attempt * 5))
+              fi
+            done
+          done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::warning::Could not pre-pull ${#failed[@]} images; tests may retry per-image: ${failed[*]}"
+          fi
+
       - if: matrix.python-version == '3.12'
         name: Run tests with coverage tracking
         run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
@@ -82,6 +133,18 @@ jobs:
 
       - name: Intall dependencies
         run: uv sync --frozen --all-extras
+
+      - name: Pre-pull docker images
+        run: |
+          set -u
+          for image in "elasticsearch:7.17.19" "elasticsearch:8.13.0"; do
+            for attempt in 1 2 3 4 5; do
+              if docker pull --quiet "$image"; then
+                break
+              fi
+              [ "$attempt" -eq 5 ] && echo "::warning::Failed to pull $image" || sleep $((attempt * attempt * 5))
+            done
+          done
 
       - name: Run tests with coverage tracking
         run: uv run pytest -k elasticsearch

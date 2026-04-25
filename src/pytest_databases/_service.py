@@ -156,7 +156,17 @@ class DockerService(AbstractContextManager):
             try:
                 self._client.images.get(image)
             except ImageNotFound:
-                self._client.images.pull(*image.rsplit(":", maxsplit=1), **platform_kwarg)  # pyright: ignore[reportCallIssue,reportArgumentType]
+                # Registries can fail transiently: Docker Hub rate-limits
+                # anonymous pulls with 500s, MCR's WAF returns 404s wrapping
+                # a block page. Retry a few times before giving up.
+                for attempt in range(3):
+                    try:
+                        self._client.images.pull(*image.rsplit(":", maxsplit=1), **platform_kwarg)  # pyright: ignore[reportCallIssue,reportArgumentType]
+                        break
+                    except (APIError, ImageNotFound):
+                        if attempt == 2:
+                            raise
+                        time.sleep(2**attempt)
 
             if container is None:
                 container = self._client.containers.run(  # pyright: ignore[reportCallIssue,reportArgumentType]
