@@ -80,23 +80,48 @@ def _provide_mariadb_service(
         pause=1.0,
         transient=isolation_level == "server",
     ) as service:
-        # Final setup: ensure the worker-specific database exists and permissions are correct
+        # check() above only verifies root SELECT 1; that becomes true before
+        # mariadb has fully provisioned the app user with the @'%' grant. Verify
+        # the app user can actually reach db_name from any host before yielding,
+        # otherwise tests race into 'Host not allowed' / 'access denied'.
         container_name = f"pytest_databases_{name}"
         container = docker_service._get_container(container_name)
-        if container:
-            setup_sql = (
-                f"CREATE DATABASE IF NOT EXISTS {db_name}; "
-                f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
-                "FLUSH PRIVILEGES;"
+        if container is None:
+            msg = f"MariaDB container {container_name!r} disappeared after startup"
+            raise RuntimeError(msg)
+
+        setup_sql = (
+            f"CREATE DATABASE IF NOT EXISTS {db_name}; "
+            f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
+            "FLUSH PRIVILEGES;"
+        )
+        verify_cmd = [
+            "mariadb",
+            f"--user={user}",
+            f"--password={password}",
+            db_name,
+            "-e",
+            "SELECT 1",
+        ]
+        last_err: bytes = b""
+        for attempt in range(15):
+            setup_res = container.exec_run(
+                ["mariadb", "--user=root", f"--password={root_password}", "-e", setup_sql],
             )
-            # Retry setup a few times if it fails
-            for _ in range(5):
-                res = container.exec_run(
-                    ["mariadb", "--user=root", f"--password={root_password}", "-e", setup_sql],
-                )
-                if res.exit_code == 0:
+            if setup_res.exit_code == 0:
+                verify_res = container.exec_run(verify_cmd)
+                if verify_res.exit_code == 0:
                     break
-                time.sleep(1)
+                last_err = verify_res.output
+            else:
+                last_err = setup_res.output
+            time.sleep(1 + attempt * 0.5)
+        else:
+            msg = (
+                f"MariaDB fixture {name!r}: user {user!r} could not reach database "
+                f"{db_name!r} after 15 attempts. Last output: {last_err!r}"
+            )
+            raise RuntimeError(msg)
 
         yield MariaDBService(
             db=db_name,
