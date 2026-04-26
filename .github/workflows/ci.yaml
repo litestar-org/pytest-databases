@@ -44,7 +44,8 @@ jobs:
 
       # Pre-pull docker images with retry to absorb transient registry failures
       # (MCR WAF blocks on mcr.microsoft.com, Docker Hub anonymous rate limits)
-      # before pytest starts spawning fixture subprocesses.
+      # before pytest starts spawning fixture subprocesses. Pull in parallel
+      # (-P 6) - sequential pulls of ~30 images cost 10+ min on a runner.
       - name: Pre-pull docker images
         run: |
           set -u
@@ -75,23 +76,16 @@ jobs:
             "elasticsearch:7.17.19"
             "elasticsearch:8.13.0"
           )
-          failed=()
-          for image in "${images[@]}"; do
+          printf '%s\n' "${images[@]}" | xargs -n1 -P6 -I{} bash -c '
+            image="$1"
             for attempt in 1 2 3 4 5; do
               if docker pull --quiet "$image"; then
-                break
+                exit 0
               fi
-              if [ "$attempt" -eq 5 ]; then
-                echo "::warning::Failed to pull $image after 5 attempts"
-                failed+=("$image")
-              else
-                sleep $((attempt * attempt * 5))
-              fi
+              [ "$attempt" -lt 5 ] && sleep $((attempt * attempt * 5))
             done
-          done
-          if [ "${#failed[@]}" -gt 0 ]; then
-            echo "::warning::Could not pre-pull ${#failed[@]} images; tests may retry per-image: ${failed[*]}"
-          fi
+            echo "::warning::Failed to pull $image after 5 attempts"
+          ' _ {}
 
       - if: matrix.python-version == '3.12'
         name: Run tests with coverage tracking
