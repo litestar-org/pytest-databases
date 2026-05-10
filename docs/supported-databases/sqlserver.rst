@@ -10,45 +10,34 @@ Installation
 
    pip install pytest-databases[mssql]
 
+The ``mssql`` extra is kept as a compatibility group. The fixture provides a running SQL Server service and validates
+availability with SQL Server's bundled tools. Install the SQL Server client library that your application already uses.
+
 Usage Example
 -------------
 
 .. code-block:: python
 
-    import pytest
-    import pymssql
+    import pyodbc
     from pytest_databases.docker.mssql import MSSQLService
 
     pytest_plugins = ["pytest_databases.docker.mssql"]
 
-    def test(mssql_service: MSSQLService) -> None:
-        conn = pymssql.connect(
-            host=mssql_service.host,
-            port=str(mssql_service.port),
-            database=mssql_service.database,
-            user=mssql_service.user,
-            password=mssql_service.password,
-            timeout=2,
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("select 1 as is_available")
-            resp = cursor.fetchone()
-            assert resp is not None and resp[0] == 1
-
-    def test(mssql_connection: pymssql.Connection) -> None:
-        with mssql_connection.cursor() as cursor:
-            cursor.execute("CREATE view simple_table as SELECT 1 as the_value")
-            cursor.execute("select * from simple_table")
-            result = cursor.fetchall()
-            assert result is not None and result[0][0] == 1
-            cursor.execute("drop view simple_table")
+    def test_sql_server_service(mssql_service: MSSQLService) -> None:
+        with pyodbc.connect(mssql_service.connection_string) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 AS is_available")
+            row = cursor.fetchone()
+            assert row is not None and row[0] == 1
 
 Available Fixtures
 ------------------
 
 * ``mssql_image``: The Docker image to use for SQL Server.
+* ``mssql_user``: The SQL Server user exposed on ``mssql_service``.
+* ``mssql_password``: The SQL Server password exposed on ``mssql_service``.
+* ``mssql_database``: The database created for ``mssql_service``.
 * ``mssql_service``: A fixture that provides a SQL Server service.
-* ``mssql_connection``: A fixture that provides a SQL Server connection.
 
 Service API
 -----------

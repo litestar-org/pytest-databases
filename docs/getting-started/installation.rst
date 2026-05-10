@@ -27,7 +27,7 @@ To use ``pytest-databases`` with specific databases, you need to install optiona
    * - Oracle
      - ``pytest-databases[oracle]``
    * - SQL Server
-     - ``pytest-databases[sqlserver]``
+     - ``pytest-databases[mssql]``
    * - Google AlloyDB Omni
      - ``pytest-databases[alloydb]``
    * - Google Spanner
