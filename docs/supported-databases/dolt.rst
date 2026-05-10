@@ -8,7 +8,9 @@ Dolt is a MySQL-compatible database that provides Git-like versioning for your d
 Installation
 ------------
 
-Dolt support is built-in and does not require any additional Python client libraries for basic service management. Since Dolt is MySQL-compatible, you can connect to the database from your tests using your preferred MySQL client (e.g., ``mysql-connector-python``).
+The fixture provides a running Dolt SQL service and validates availability with the container's bundled tools. Since
+Dolt is MySQL-compatible, use the service attributes with the MySQL client, ORM, or application configuration you
+normally use.
 
 Usage Example
 -------------
@@ -22,7 +24,6 @@ Usage Example
     pytest_plugins = ["pytest_databases.docker.dolt"]
 
     def test(dolt_service: DoltService) -> None:
-        # Create your own connection using the service fixture attributes
         with mysql.connector.connect(
             host=dolt_service.host,
             port=dolt_service.port,
@@ -38,6 +39,10 @@ Available Fixtures
 ------------------
 
 * ``dolt_service``: A fixture that provides a Dolt service (latest).
+* ``dolt_user``: The application user configured in the container.
+* ``dolt_password``: The application user password configured in the container.
+* ``dolt_root_password``: The root password configured in the container.
+* ``dolt_database``: The initial database configured in the container.
 
 Isolation Level
 ---------------

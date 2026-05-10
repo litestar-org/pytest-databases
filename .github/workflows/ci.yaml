@@ -52,6 +52,7 @@ jobs:
           images=(
             "mcr.microsoft.com/azure-storage/azurite"
             "mcr.microsoft.com/mssql/server:2022-latest"
+            "dolthub/dolt-sql-server:latest"
             "postgres:11" "postgres:12" "postgres:13" "postgres:14"
             "postgres:15" "postgres:16" "postgres:17" "postgres:18"
             "pgvector/pgvector:pg15"
