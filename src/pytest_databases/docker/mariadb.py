@@ -3,9 +3,8 @@ from __future__ import annotations
 import contextlib
 import os
 import time
-import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -13,9 +12,15 @@ from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterator
 
     from pytest_databases._service import DockerService
+
+
+def _output_to_bytes(output: bytes | Iterator[bytes]) -> bytes:
+    if isinstance(output, bytes):
+        return output
+    return b"".join(output)
 
 
 @dataclass
@@ -30,18 +35,37 @@ def xdist_mariadb_isolation_level() -> XdistIsolationLevel:
     return "database"
 
 
+@pytest.fixture(scope="session")
+def mariadb_user() -> str:
+    return os.getenv("MARIADB_USER", "app")
+
+
+@pytest.fixture(scope="session")
+def mariadb_password() -> str:
+    return os.getenv("MARIADB_PASSWORD", "super-secret")
+
+
+@pytest.fixture(scope="session")
+def mariadb_root_password() -> str:
+    return os.getenv("MARIADB_ROOT_PASSWORD", "super-secret")
+
+
+@pytest.fixture(scope="session")
+def mariadb_database() -> str:
+    return os.getenv("MARIADB_DATABASE", "db")
+
+
 @contextlib.contextmanager
 def _provide_mariadb_service(
     docker_service: DockerService,
     image: str,
     name: str,
     isolation_level: XdistIsolationLevel,
+    user: str,
+    password: str,
+    root_password: str,
+    database: str,
 ) -> Generator[MariaDBService, None, None]:
-    user = os.getenv("MARIADB_USER", "app")
-    password = os.getenv("MARIADB_PASSWORD", "super-secret")
-    root_password = os.getenv("MARIADB_ROOT_PASSWORD", "super-secret")
-    database = os.getenv("MARIADB_DATABASE", "db")
-
     def check(_service: ServiceContainer) -> bool:
         container_name = f"pytest_databases_{name}"
         container = docker_service._get_container(container_name)
@@ -112,9 +136,9 @@ def _provide_mariadb_service(
                 verify_res = container.exec_run(verify_cmd)
                 if verify_res.exit_code == 0:
                     break
-                last_err = verify_res.output
+                last_err = _output_to_bytes(verify_res.output)
             else:
-                last_err = setup_res.output
+                last_err = _output_to_bytes(setup_res.output)
             time.sleep(1 + attempt * 0.5)
         else:
             msg = (
@@ -137,12 +161,20 @@ def _provide_mariadb_service(
 def mariadb_113_service(
     docker_service: DockerService,
     xdist_mariadb_isolation_level: XdistIsolationLevel,
+    mariadb_user: str,
+    mariadb_password: str,
+    mariadb_root_password: str,
+    mariadb_database: str,
 ) -> Generator[MariaDBService, None, None]:
     with _provide_mariadb_service(
         docker_service=docker_service,
         image="mariadb:11.3",
         name="mariadb-11.3",
         isolation_level=xdist_mariadb_isolation_level,
+        user=mariadb_user,
+        password=mariadb_password,
+        root_password=mariadb_root_password,
+        database=mariadb_database,
     ) as service:
         yield service
 
@@ -151,12 +183,20 @@ def mariadb_113_service(
 def mariadb_114_service(
     docker_service: DockerService,
     xdist_mariadb_isolation_level: XdistIsolationLevel,
+    mariadb_user: str,
+    mariadb_password: str,
+    mariadb_root_password: str,
+    mariadb_database: str,
 ) -> Generator[MariaDBService, None, None]:
     with _provide_mariadb_service(
         docker_service=docker_service,
         image="mariadb:11.4",
         name="mariadb-11.4",
         isolation_level=xdist_mariadb_isolation_level,
+        user=mariadb_user,
+        password=mariadb_password,
+        root_password=mariadb_root_password,
+        database=mariadb_database,
     ) as service:
         yield service
 
@@ -165,12 +205,20 @@ def mariadb_114_service(
 def mariadb_122_service(
     docker_service: DockerService,
     xdist_mariadb_isolation_level: XdistIsolationLevel,
+    mariadb_user: str,
+    mariadb_password: str,
+    mariadb_root_password: str,
+    mariadb_database: str,
 ) -> Generator[MariaDBService, None, None]:
     with _provide_mariadb_service(
         docker_service=docker_service,
         image="mariadb:12.2",
         name="mariadb-12.2",
         isolation_level=xdist_mariadb_isolation_level,
+        user=mariadb_user,
+        password=mariadb_password,
+        root_password=mariadb_root_password,
+        database=mariadb_database,
     ) as service:
         yield service
 
@@ -178,98 +226,3 @@ def mariadb_122_service(
 @pytest.fixture(autouse=False, scope="session")
 def mariadb_service(mariadb_114_service: MariaDBService) -> MariaDBService:
     return mariadb_114_service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_113_connection(mariadb_113_service: MariaDBService) -> Generator[Any, None, None]:
-    warnings.warn(
-        "The 'mariadb_113_connection' fixture is deprecated and will be removed in a future release. "
-        "To recreate this connection, you can use the following snippet:\n\n"
-        "import mariadb\n\n"
-        '@pytest.fixture(scope="session")\n'
-        "def my_mariadb_connection(mariadb_113_service):\n"
-        "    with mariadb.connect(\n"
-        "        host=mariadb_113_service.host,\n"
-        "        port=mariadb_113_service.port,\n"
-        "        user=mariadb_113_service.user,\n"
-        "        database=mariadb_113_service.db,\n"
-        "        password=mariadb_113_service.password,\n"
-        "    ) as conn:\n"
-        "        yield conn",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import mariadb  # noqa: PLC0415
-    with mariadb.connect(
-        host=mariadb_113_service.host,
-        port=mariadb_113_service.port,
-        user=mariadb_113_service.user,
-        database=mariadb_113_service.db,
-        password=mariadb_113_service.password,
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_114_connection(mariadb_114_service: MariaDBService) -> Generator[Any, None, None]:
-    warnings.warn(
-        "The 'mariadb_114_connection' fixture is deprecated and will be removed in a future release. "
-        "To recreate this connection, you can use the following snippet:\n\n"
-        "import mariadb\n\n"
-        '@pytest.fixture(scope="session")\n'
-        "def my_mariadb_connection(mariadb_114_service):\n"
-        "    with mariadb.connect(\n"
-        "        host=mariadb_114_service.host,\n"
-        "        port=mariadb_114_service.port,\n"
-        "        user=mariadb_114_service.user,\n"
-        "        database=mariadb_114_service.db,\n"
-        "        password=mariadb_114_service.password,\n"
-        "    ) as conn:\n"
-        "        yield conn",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import mariadb  # noqa: PLC0415
-    with mariadb.connect(
-        host=mariadb_114_service.host,
-        port=mariadb_114_service.port,
-        user=mariadb_114_service.user,
-        database=mariadb_114_service.db,
-        password=mariadb_114_service.password,
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_122_connection(mariadb_122_service: MariaDBService) -> Generator[Any, None, None]:
-    warnings.warn(
-        "The 'mariadb_122_connection' fixture is deprecated and will be removed in a future release. "
-        "To recreate this connection, you can use the following snippet:\n\n"
-        "import mariadb\n\n"
-        '@pytest.fixture(scope="session")\n'
-        "def my_mariadb_connection(mariadb_122_service):\n"
-        "    with mariadb.connect(\n"
-        "        host=mariadb_122_service.host,\n"
-        "        port=mariadb_122_service.port,\n"
-        "        user=mariadb_122_service.user,\n"
-        "        database=mariadb_122_service.db,\n"
-        "        password=mariadb_122_service.password,\n"
-        "    ) as conn:\n"
-        "        yield conn",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import mariadb  # noqa: PLC0415
-    with mariadb.connect(
-        host=mariadb_122_service.host,
-        port=mariadb_122_service.port,
-        user=mariadb_122_service.user,
-        database=mariadb_122_service.db,
-        password=mariadb_122_service.password,
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_connection(mariadb_114_connection: Any) -> Any:
-    return mariadb_114_connection

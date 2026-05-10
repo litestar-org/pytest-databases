@@ -12,44 +12,25 @@ import pytest
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
     pytester.makepyfile(f"""
-    import mariadb
-
     pytest_plugins = ["pytest_databases.docker.mariadb"]
+
+    def run_mariadb(service, sql):
+        result = service.container.exec_run([
+            "mariadb",
+            f"--user={{service.user}}",
+            f"--password={{service.password}}",
+            "-D",
+            service.db,
+            "--batch",
+            "--skip-column-names",
+            "-e",
+            sql,
+        ])
+        assert result.exit_code == 0, result.output.decode(errors="replace")
+        return result.output.decode().strip()
 
     def test({service_fixture}):
-        with mariadb.connect(
-            host={service_fixture}.host,
-            port={service_fixture}.port,
-            user={service_fixture}.user,
-            database={service_fixture}.db,
-            password={service_fixture}.password,
-        ) as conn, conn.cursor() as cursor:
-            cursor.execute("select 1 as is_available")
-            resp = cursor.fetchone()
-        assert resp is not None and resp[0] == 1
-    """)
-
-    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
-    result.assert_outcomes(passed=1)
-
-
-@pytest.mark.parametrize(
-    "connection_fixture",
-    [
-        "mariadb_connection",
-        "mariadb_113_connection",
-    ],
-)
-def test_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
-    pytester.makepyfile(f"""
-    pytest_plugins = ["pytest_databases.docker.mariadb"]
-
-    def test({connection_fixture}):
-        with {connection_fixture}.cursor() as cursor:
-            cursor.execute("CREATE TABLE if not exists simple_table as SELECT 1 as the_value")
-            cursor.execute("select * from simple_table")
-            result = cursor.fetchall()
-            assert result is not None and result[0][0] == 1
+        assert run_mariadb({service_fixture}, "select 1 as is_available") == "1"
     """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
@@ -60,13 +41,23 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.mariadb"]
 
-    def test_1(mariadb_113_connection):
-        with mariadb_113_connection.cursor() as cursor:
-            cursor.execute("CREATE TABLE simple_table as SELECT 1 as the_value;")
+    def run_mariadb(service, sql):
+        result = service.container.exec_run([
+            "mariadb",
+            f"--user={service.user}",
+            f"--password={service.password}",
+            "-D",
+            service.db,
+            "-e",
+            sql,
+        ])
+        assert result.exit_code == 0, result.output.decode(errors="replace")
 
-    def test_2(mariadb_113_connection):
-        with mariadb_113_connection.cursor() as cursor:
-            cursor.execute("CREATE TABLE simple_table as SELECT 1 as the_value;")
+    def test_1(mariadb_113_service):
+        run_mariadb(mariadb_113_service, "CREATE TABLE simple_table as SELECT 1 as the_value;")
+
+    def test_2(mariadb_113_service):
+        run_mariadb(mariadb_113_service, "CREATE TABLE simple_table as SELECT 1 as the_value;")
     """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
@@ -82,13 +73,23 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     def xdist_mariadb_isolation_level():
         return "server"
 
-    def test_1(mariadb_113_connection):
-        with mariadb_113_connection.cursor() as cursor:
-            cursor.execute("CREATE DATABASE db_test")
+    def run_mariadb(service, sql):
+        result = service.container.exec_run([
+            "mariadb",
+            f"--user={service.user}",
+            f"--password={service.password}",
+            "-D",
+            service.db,
+            "-e",
+            sql,
+        ])
+        assert result.exit_code == 0, result.output.decode(errors="replace")
 
-    def test_2(mariadb_113_connection):
-        with mariadb_113_connection.cursor() as cursor:
-            cursor.execute("CREATE DATABASE db_test")
+    def test_1(mariadb_113_service):
+        run_mariadb(mariadb_113_service, "CREATE DATABASE db_test")
+
+    def test_2(mariadb_113_service):
+        run_mariadb(mariadb_113_service, "CREATE DATABASE db_test")
     """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")

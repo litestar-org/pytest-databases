@@ -6,7 +6,8 @@ Integration with `MariaDB <https://mariadb.org>`_, a community-developed, commer
 Installation
 ------------
 
-MariaDB support is built-in and does not require any additional Python client libraries for basic service management. However, to connect to the database from your tests, you should install your preferred MariaDB client (e.g., `mariadb`).
+The fixture provides a running MariaDB service and validates availability with the container's bundled tools. Use the
+service attributes with the MariaDB client, ORM, or application configuration you normally use.
 
 Usage Example
 -------------
@@ -20,7 +21,6 @@ Usage Example
     pytest_plugins = ["pytest_databases.docker.mariadb"]
 
     def test(mariadb_service: MariaDBService) -> None:
-        # Create your own connection using the service fixture attributes
         with mariadb.connect(
             host=mariadb_service.host,
             port=mariadb_service.port,
@@ -36,15 +36,16 @@ Available Fixtures
 ------------------
 
 * ``mariadb_service``: A fixture that provides a MariaDB service (11.4 LTS).
+* ``mariadb_user``: The application user configured in the container.
+* ``mariadb_password``: The application user password configured in the container.
+* ``mariadb_root_password``: The root password configured in the container.
+* ``mariadb_database``: The initial database configured in the container.
 
 The following version-specific fixtures are also available:
 
 * ``mariadb_113_service``: MariaDB 11.3
 * ``mariadb_114_service``: MariaDB 11.4 LTS
 * ``mariadb_122_service``: MariaDB 12.2 Rolling
-
-.. note::
-   The connection fixtures (e.g., ``mariadb_connection``, ``mariadb_114_connection``) are deprecated and will be removed in a future release. Users are encouraged to create their own connections as shown in the example above.
 
 Service API
 -----------
