@@ -87,24 +87,48 @@ def _provide_mysql_service(
         transient=isolation_level == "server",
         platform=platform,
     ) as service:
-        # Final setup: ensure the worker-specific database exists and permissions are correct
+        # The check() above only verifies root can SELECT 1; that signal is true
+        # before mysql has finished provisioning the app user and applying our
+        # post-start grants. Verify the app user can actually reach db_name
+        # before yielding so tests don't race the fixture into 'access denied'.
         container_name = f"pytest_databases_{name}"
         container = docker_service._get_container(container_name)
-        if container:
-            # Grant global privileges to the app user so they can create databases in tests if needed
-            setup_sql = (
-                f"CREATE DATABASE IF NOT EXISTS {db_name}; "
-                f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
-                "FLUSH PRIVILEGES;"
+        if container is None:
+            msg = f"MySQL container {container_name!r} disappeared after startup"
+            raise RuntimeError(msg)
+
+        setup_sql = (
+            f"CREATE DATABASE IF NOT EXISTS {db_name}; "
+            f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
+            "FLUSH PRIVILEGES;"
+        )
+        verify_cmd = [
+            "mysql",
+            f"--user={user}",
+            f"--password={password}",
+            db_name,
+            "-e",
+            "SELECT 1",
+        ]
+        last_err: bytes = b""
+        for attempt in range(15):
+            setup_res = container.exec_run(
+                ["mysql", "--user=root", f"--password={root_password}", "-e", setup_sql],
             )
-            # Retry setup a few times if it fails
-            for _ in range(5):
-                res = container.exec_run(
-                    ["mysql", "--user=root", f"--password={root_password}", "-e", setup_sql],
-                )
-                if res.exit_code == 0:
+            if setup_res.exit_code == 0:
+                verify_res = container.exec_run(verify_cmd)
+                if verify_res.exit_code == 0:
                     break
-                time.sleep(1)
+                last_err = verify_res.output
+            else:
+                last_err = setup_res.output
+            time.sleep(1 + attempt * 0.5)
+        else:
+            msg = (
+                f"MySQL fixture {name!r}: user {user!r} could not reach database "
+                f"{db_name!r} after 15 attempts. Last output: {last_err!r}"
+            )
+            raise RuntimeError(msg)
 
         yield MySQLService(
             db=db_name,

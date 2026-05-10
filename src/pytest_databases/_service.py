@@ -62,15 +62,23 @@ def _stop_all_containers(client: DockerClient) -> None:
         ignore_removed=True,
     )
     for container in containers:
-        if container.status == "running":
-            container.kill()
-        elif container.status in {"stopped", "dead"}:
-            container.remove()
-        elif container.status == "removing":
-            continue
-        else:
-            msg = f"Cannot handle container in state {container.status}"
-            raise RuntimeError(msg)
+        # Containers may disappear between the list and the kill/remove call -
+        # they are tagged remove=True so they vacate as soon as they stop, and
+        # transient teardown can race with this loop. Treat 404 (already gone)
+        # and 409 (removal already in progress) as success.
+        try:
+            if container.status == "running":
+                container.kill()
+            elif container.status in {"stopped", "dead"}:
+                container.remove()
+            elif container.status == "removing":
+                continue
+            else:
+                msg = f"Cannot handle container in state {container.status}"
+                raise RuntimeError(msg)
+        except APIError as exc:
+            if exc.status_code not in {404, 409}:
+                raise
 
 
 class DockerService(AbstractContextManager):
@@ -156,7 +164,17 @@ class DockerService(AbstractContextManager):
             try:
                 self._client.images.get(image)
             except ImageNotFound:
-                self._client.images.pull(*image.rsplit(":", maxsplit=1), **platform_kwarg)  # pyright: ignore[reportCallIssue,reportArgumentType]
+                # Registries can fail transiently: Docker Hub rate-limits
+                # anonymous pulls with 500s, MCR's WAF returns 404s wrapping
+                # a block page. Retry a few times before giving up.
+                for attempt in range(3):
+                    try:
+                        self._client.images.pull(*image.rsplit(":", maxsplit=1), **platform_kwarg)  # pyright: ignore[reportCallIssue,reportArgumentType]
+                        break
+                    except (APIError, ImageNotFound):
+                        if attempt == 2:
+                            raise
+                        time.sleep(2**attempt)
 
             if container is None:
                 container = self._client.containers.run(  # pyright: ignore[reportCallIssue,reportArgumentType]
