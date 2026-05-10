@@ -6,7 +6,8 @@ Integration with `MySQL <https://www.mysql.com/>`_
 Installation
 ------------
 
-MySQL support is built-in and does not require any additional Python client libraries for basic service management. However, to connect to the database from your tests, you should install your preferred MySQL client (e.g., `mysql-connector-python`).
+The fixture provides a running MySQL service and validates availability with the container's bundled tools. Use the
+service attributes with the MySQL client, ORM, or application configuration you normally use.
 
 Usage Example
 -------------
@@ -20,7 +21,6 @@ Usage Example
     pytest_plugins = ["pytest_databases.docker.mysql"]
 
     def test(mysql_service: MySQLService) -> None:
-        # Create your own connection using the service fixture attributes
         with mysql.connector.connect(
             host=mysql_service.host,
             port=mysql_service.port,
@@ -36,6 +36,10 @@ Available Fixtures
 ------------------
 
 * ``mysql_service``: A fixture that provides a MySQL service (8.4 LTS).
+* ``mysql_user``: The application user configured in the container.
+* ``mysql_password``: The application user password configured in the container.
+* ``mysql_root_password``: The root password configured in the container.
+* ``mysql_database``: The initial database configured in the container.
 
 The following version-specific fixtures are also available:
 
@@ -44,9 +48,6 @@ The following version-specific fixtures are also available:
 * ``mysql_8_service``: MySQL 8.0
 * ``mysql_84_service``: MySQL 8.4 LTS
 * ``mysql_96_service``: MySQL 9.6 Innovation
-
-.. note::
-   The connection fixtures (e.g., ``mysql_connection``, ``mysql_84_connection``) are deprecated and will be removed in a future release. Users are encouraged to create their own connections as shown in the example above.
 
 Service API
 -----------
