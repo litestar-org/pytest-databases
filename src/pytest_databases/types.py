@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from docker.models.containers import Container
+if TYPE_CHECKING:
+    from docker.models.containers import Container
 
 
 @dataclasses.dataclass

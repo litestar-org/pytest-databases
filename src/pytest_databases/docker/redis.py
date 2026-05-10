@@ -108,9 +108,12 @@ def dragonfly_service(
         name=name,
         transient=xdist_redis_isolation_level == "server",
     ) as service:
-        yield RedisService(            host=service.host,
+        yield RedisService(
+            host=service.host,
             port=service.port,
-            container=service.container, db=db)
+            container=service.container,
+            db=db,
+        )
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -150,9 +153,12 @@ def keydb_service(
         name=name,
         transient=xdist_redis_isolation_level == "server",
     ) as service:
-        yield RedisService(            host=service.host,
+        yield RedisService(
+            host=service.host,
             port=service.port,
-            container=service.container,db=db)
+            container=service.container,
+            db=db,
+        )
 
 
 @pytest.fixture(autouse=False, scope="session")
