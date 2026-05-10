@@ -79,6 +79,7 @@ def yugabyte_service(
         yield YugabyteService(
             host=service.host,
             port=service.port,
+            container=service.container,
             database=db_name,
             driver_opts=yugabyte_driver_opts,
         )

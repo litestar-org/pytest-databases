@@ -131,9 +131,10 @@ def _provide_mysql_service(
             raise RuntimeError(msg)
 
         yield MySQLService(
-            db=db_name,
             host=service.host,
             port=service.port,
+            container=service.container,
+            db=db_name,
             user=user,
             password=password,
         )

@@ -126,6 +126,7 @@ def gizmosql_service(
         yield GizmoSQLService(
             host=service.host,
             port=service.port,
+            container=service.container,
             username=gizmosql_username,
             password=gizmosql_password,
         )

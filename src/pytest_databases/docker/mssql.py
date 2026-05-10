@@ -105,9 +105,10 @@ def mssql_service(
             cursor.execute(f"CREATE DATABASE {db_name}")
 
         yield MSSQLService(
-            database=db_name,
             host=service.host,
             port=service.port,
+            container=service.container,
+            database=db_name,
             user="sa",
             password=password,
         )

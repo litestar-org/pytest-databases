@@ -92,6 +92,7 @@ def _provide_elasticsearch_service(
         yield ElasticsearchService(
             host=service.host,
             port=service.port,
+            container=service.container,
             user=user,
             password=password,
             scheme=scheme,
