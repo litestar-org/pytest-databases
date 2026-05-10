@@ -67,14 +67,16 @@ elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
 gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 keydb = ["redis"]
+mariadb = []
 mongodb = ["pymongo"]
 mssql = ["pymssql"]
+mysql = []
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 valkey = ["valkey"]
-yugabyte = ["psycopg2-yugabytedb"]
+yugabyte = []
 
 [dependency-groups]
 build = ["bump-my-version"]
@@ -102,7 +104,7 @@ doc = [
   "sphinx-autodoc-typehints",
   "sphinx-rtd-theme",
 ]
-extra = ["psycopg2-binary", "psycopg[binary,pool]", "psycopg2-yugabytedb-binary"]
+extra = ["psycopg[binary,pool]"]
 lint = [
   "mypy",
   "ruff",
@@ -126,15 +128,6 @@ test = [
   "pytest-click",
   "pytest-xdist",
   "pytest-sugar",
-  # mysql-connector-python's wheel coverage degrades unpredictably each release:
-  #   3.9:    9.4.x is the last release with cp39 wheels
-  #   3.10+:  9.6.x is the latest release with full Linux/macOS/Windows coverage
-  #           (9.7.0 dropped Linux/Windows for cp311 and dropped cp312/cp313 entirely)
-  # Lower bounds force uv to fork the resolution per-interpreter - without them
-  # a single 9.4.0 satisfies every marker and gets locked universally.
-  "mysql-connector-python<9.5; python_version < '3.10'",
-  "mysql-connector-python>=9.6,<9.7; python_version >= '3.10'",
-  "mariadb",
 ]
 
 ##################
