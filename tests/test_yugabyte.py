@@ -13,6 +13,18 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
 
     pytest_plugins = ["pytest_databases.docker.yugabyte"]
 
+    @pytest.fixture(scope="session")
+    def yugabyte_user():
+        return "custom_yugabyte_user"
+
+    @pytest.fixture(scope="session")
+    def yugabyte_password():
+        return "custom-yugabyte-password"
+
+    @pytest.fixture(scope="session")
+    def yugabyte_database():
+        return "custom_yugabyte_database"
+
     def run_ysqlsh(yugabyte_service, sql, database=None):
         database = database or yugabyte_service.database
         command = " ".join([
@@ -28,8 +40,9 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
         return result.output.decode().strip()
 
     def test(yugabyte_service) -> None:
-        assert yugabyte_service.user == "yugabyte"
-        assert yugabyte_service.password == "yugabyte"
+        assert yugabyte_service.user == "custom_yugabyte_user"
+        assert yugabyte_service.password == "custom-yugabyte-password"
+        assert yugabyte_service.database == "custom_yugabyte_database"
         assert run_ysqlsh(yugabyte_service, "SELECT 1") == "1"
         run_ysqlsh(yugabyte_service, "CREATE TABLE IF NOT EXISTS simple_table AS SELECT 1")
         assert run_ysqlsh(yugabyte_service, "SELECT * FROM simple_table") == "1"

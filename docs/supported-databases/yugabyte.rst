@@ -42,6 +42,7 @@ Available Fixtures
 * ``yugabyte_image``: The Docker image to use for Yugabyte DB.
 * ``yugabyte_user``: The Yugabyte user exposed on ``yugabyte_service``.
 * ``yugabyte_password``: The Yugabyte password exposed on ``yugabyte_service``.
+* ``yugabyte_database``: The database created for ``yugabyte_service``.
 * ``yugabyte_service``: A fixture that provides a Yugabyte DB service.
 
 Service API
