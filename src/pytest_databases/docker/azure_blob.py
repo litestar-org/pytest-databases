@@ -86,6 +86,7 @@ def azure_blob_service(
         yield AzureBlobService(
             host=service.host,
             port=service.port,
+            container=service.container,
             connection_string=connection_string,
             account_url=account_url,
             account_key=account_key,

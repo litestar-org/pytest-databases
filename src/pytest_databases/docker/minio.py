@@ -135,6 +135,7 @@ def minio_service(
         yield MinioService(
             host=service.host,
             port=service.port,
+            container=service.container,
             endpoint=f"{service.host}:{service.port}",
             access_key=minio_access_key,
             secret_key=minio_secret_key,

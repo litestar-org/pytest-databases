@@ -75,4 +75,9 @@ def valkey_service(
         name=name,
         transient=xdist_valkey_isolation_level == "server",
     ) as service:
-        yield ValkeyService(host=service.host, port=service.port, db=db)
+        yield ValkeyService(
+            host=service.host,
+            port=service.port,
+            container=service.container,
+            db=db,
+        )

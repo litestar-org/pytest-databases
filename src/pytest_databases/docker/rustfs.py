@@ -138,9 +138,9 @@ def rustfs_service(
             )
 
         yield RustfsService(
-
             host=service.host,
             port=service.port,
+            container=service.container,
             endpoint=f"{service.host}:{service.port}",
             access_key=rustfs_access_key,
             secret_key=rustfs_secret_key,

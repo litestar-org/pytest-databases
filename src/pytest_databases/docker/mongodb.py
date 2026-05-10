@@ -91,7 +91,12 @@ def _provide_mongodb_service(
         transient=isolation_level == "server",
     ) as service:
         yield MongoDBService(
-            host=service.host, port=service.port, username=username, password=password, database=database_name
+            host=service.host,
+            port=service.port,
+            container=service.container,
+            username=username,
+            password=password,
+            database=database_name,
         )
 
 

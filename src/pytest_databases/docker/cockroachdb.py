@@ -78,6 +78,7 @@ def cockroachdb_service(
         yield CockroachDBService(
             host=service.host,
             port=service.port,
+            container=service.container,
             database=db_name,
             driver_opts=cockroachdb_driver_opts,
         )

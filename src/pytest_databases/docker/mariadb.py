@@ -124,9 +124,10 @@ def _provide_mariadb_service(
             raise RuntimeError(msg)
 
         yield MariaDBService(
-            db=db_name,
             host=service.host,
             port=service.port,
+            container=service.container,
+            db=db_name,
             user=user,
             password=password,
         )

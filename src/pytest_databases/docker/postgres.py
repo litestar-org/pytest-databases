@@ -96,9 +96,10 @@ def _provide_postgres_service(
         transient=xdist_postgres_isolate == "server",
     ) as service:
         yield PostgresService(
-            database=db_name,
             host=service.host,
             port=service.port,
+            container=service.container,
+            database=db_name,
             user=user,
             password=password,
         )

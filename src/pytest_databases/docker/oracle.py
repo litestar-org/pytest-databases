@@ -87,6 +87,7 @@ def _provide_oracle_service(
         yield OracleService(
             host=service.host,
             port=service.port,
+            container=service.container,
             system_password=system_password,
             user=user,
             password=password,

@@ -94,6 +94,7 @@ def bigquery_service(
         yield BigQueryService(
             host=service.host,
             port=service.port,
+            container=service.container,
             project=project,
             dataset=dataset,
             credentials=AnonymousCredentials(),

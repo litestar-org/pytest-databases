@@ -50,6 +50,7 @@ def spanner_service(docker_service: DockerService, spanner_image: str) -> Genera
         yield SpannerService(
             host=service.host,
             port=service.port,
+            container=service.container,
             credentials=AnonymousCredentials(),
             project="emulator-test-project",
             instance_name="emulator-test-instance",

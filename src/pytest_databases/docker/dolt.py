@@ -107,9 +107,10 @@ def _provide_dolt_service(
                 time.sleep(1)
 
         yield DoltService(
-            db=db_name,
             host=service.host,
             port=service.port,
+            container=service.container,
+            db=db_name,
             user=user,
             password=password,
         )
