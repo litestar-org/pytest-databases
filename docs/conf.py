@@ -62,6 +62,9 @@ autodoc_default_options = {
     "undoc-members": True,
     "exclude-members": "__weakref__",
 }
+autodoc_type_aliases = {
+    "Container": "docker.models.containers.Container",
+}
 
 # Mock imports for modules not needed during doc generation
 autodoc_mock_imports = ["OpenSSL"]

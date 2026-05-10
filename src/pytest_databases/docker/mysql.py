@@ -3,9 +3,8 @@ from __future__ import annotations
 import contextlib
 import os
 import time
-import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -13,9 +12,15 @@ from pytest_databases._service import DockerService, ServiceContainer
 from pytest_databases.helpers import get_xdist_worker_num
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterator
 
     from pytest_databases.types import XdistIsolationLevel
+
+
+def _output_to_bytes(output: bytes | Iterator[bytes]) -> bytes:
+    if isinstance(output, bytes):
+        return output
+    return b"".join(output)
 
 
 @dataclass
@@ -35,6 +40,26 @@ def platform() -> str:
     return "linux/x86_64"
 
 
+@pytest.fixture(scope="session")
+def mysql_user() -> str:
+    return os.getenv("MYSQL_USER", "app")
+
+
+@pytest.fixture(scope="session")
+def mysql_password() -> str:
+    return os.getenv("MYSQL_PASSWORD", "super-secret")
+
+
+@pytest.fixture(scope="session")
+def mysql_root_password() -> str:
+    return os.getenv("MYSQL_ROOT_PASSWORD", "super-secret")
+
+
+@pytest.fixture(scope="session")
+def mysql_database() -> str:
+    return os.getenv("MYSQL_DATABASE", "db")
+
+
 @contextlib.contextmanager
 def _provide_mysql_service(
     docker_service: DockerService,
@@ -42,12 +67,11 @@ def _provide_mysql_service(
     name: str,
     isolation_level: XdistIsolationLevel,
     platform: str,
+    user: str,
+    password: str,
+    root_password: str,
+    database: str,
 ) -> Generator[MySQLService, None, None]:
-    user = os.getenv("MYSQL_USER", "app")
-    password = os.getenv("MYSQL_PASSWORD", "super-secret")
-    root_password = os.getenv("MYSQL_ROOT_PASSWORD", "super-secret")
-    database = os.getenv("MYSQL_DATABASE", "db")
-
     def check(_service: ServiceContainer) -> bool:
         container_name = f"pytest_databases_{name}"
         container = docker_service._get_container(container_name)
@@ -119,9 +143,9 @@ def _provide_mysql_service(
                 verify_res = container.exec_run(verify_cmd)
                 if verify_res.exit_code == 0:
                     break
-                last_err = verify_res.output
+                last_err = _output_to_bytes(verify_res.output)
             else:
-                last_err = setup_res.output
+                last_err = _output_to_bytes(setup_res.output)
             time.sleep(1 + attempt * 0.5)
         else:
             msg = (
@@ -150,6 +174,10 @@ def mysql_56_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
     platform: str,
+    mysql_user: str,
+    mysql_password: str,
+    mysql_root_password: str,
+    mysql_database: str,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:5.6",
@@ -157,6 +185,10 @@ def mysql_56_service(
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
         platform=platform,
+        user=mysql_user,
+        password=mysql_password,
+        root_password=mysql_root_password,
+        database=mysql_database,
     ) as service:
         yield service
 
@@ -166,6 +198,10 @@ def mysql_57_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
     platform: str,
+    mysql_user: str,
+    mysql_password: str,
+    mysql_root_password: str,
+    mysql_database: str,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:5.7",
@@ -173,6 +209,10 @@ def mysql_57_service(
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
         platform=platform,
+        user=mysql_user,
+        password=mysql_password,
+        root_password=mysql_root_password,
+        database=mysql_database,
     ) as service:
         yield service
 
@@ -182,6 +222,10 @@ def mysql_8_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
     platform: str,
+    mysql_user: str,
+    mysql_password: str,
+    mysql_root_password: str,
+    mysql_database: str,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:8",
@@ -189,6 +233,10 @@ def mysql_8_service(
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
         platform=platform,
+        user=mysql_user,
+        password=mysql_password,
+        root_password=mysql_root_password,
+        database=mysql_database,
     ) as service:
         yield service
 
@@ -198,6 +246,10 @@ def mysql_84_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
     platform: str,
+    mysql_user: str,
+    mysql_password: str,
+    mysql_root_password: str,
+    mysql_database: str,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:8.4",
@@ -205,6 +257,10 @@ def mysql_84_service(
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
         platform=platform,
+        user=mysql_user,
+        password=mysql_password,
+        root_password=mysql_root_password,
+        database=mysql_database,
     ) as service:
         yield service
 
@@ -214,6 +270,10 @@ def mysql_96_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
     platform: str,
+    mysql_user: str,
+    mysql_password: str,
+    mysql_root_password: str,
+    mysql_database: str,
 ) -> Generator[MySQLService, None, None]:
     with _provide_mysql_service(
         image="mysql:9.6",
@@ -221,160 +281,9 @@ def mysql_96_service(
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
         platform=platform,
+        user=mysql_user,
+        password=mysql_password,
+        root_password=mysql_root_password,
+        database=mysql_database,
     ) as service:
         yield service
-
-
-@pytest.fixture(scope="session")
-def mysql_56_connection(mysql_56_service: MySQLService) -> Generator[Any, None, None]:
-    warnings.warn(
-        "The 'mysql_56_connection' fixture is deprecated and will be removed in a future release. "
-        "To recreate this connection, you can use the following snippet:\n\n"
-        "import mysql.connector\n\n"
-        '@pytest.fixture(scope="session")\n'
-        "def my_mysql_connection(mysql_56_service):\n"
-        "    with mysql.connector.connect(\n"
-        "        host=mysql_56_service.host,\n"
-        "        port=mysql_56_service.port,\n"
-        "        user=mysql_56_service.user,\n"
-        "        database=mysql_56_service.db,\n"
-        "        password=mysql_56_service.password,\n"
-        "    ) as conn:\n"
-        "        yield conn",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import mysql.connector  # noqa: PLC0415
-    with mysql.connector.connect(
-        host=mysql_56_service.host,
-        port=mysql_56_service.port,
-        user=mysql_56_service.user,
-        database=mysql_56_service.db,
-        password=mysql_56_service.password,
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(scope="session")
-def mysql_57_connection(mysql_57_service: MySQLService) -> Generator[Any, None, None]:
-    warnings.warn(
-        "The 'mysql_57_connection' fixture is deprecated and will be removed in a future release. "
-        "To recreate this connection, you can use the following snippet:\n\n"
-        "import mysql.connector\n\n"
-        '@pytest.fixture(scope="session")\n'
-        "def my_mysql_connection(mysql_57_service):\n"
-        "    with mysql.connector.connect(\n"
-        "        host=mysql_57_service.host,\n"
-        "        port=mysql_57_service.port,\n"
-        "        user=mysql_57_service.user,\n"
-        "        database=mysql_57_service.db,\n"
-        "        password=mysql_57_service.password,\n"
-        "    ) as conn:\n"
-        "        yield conn",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import mysql.connector  # noqa: PLC0415
-    with mysql.connector.connect(
-        host=mysql_57_service.host,
-        port=mysql_57_service.port,
-        user=mysql_57_service.user,
-        database=mysql_57_service.db,
-        password=mysql_57_service.password,
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(scope="session")
-def mysql_connection(mysql_84_connection: Any) -> Any:
-    return mysql_84_connection
-
-
-@pytest.fixture(scope="session")
-def mysql_8_connection(mysql_8_service: MySQLService) -> Generator[Any, None, None]:
-    warnings.warn(
-        "The 'mysql_8_connection' fixture is deprecated and will be removed in a future release. "
-        "To recreate this connection, you can use the following snippet:\n\n"
-        "import mysql.connector\n\n"
-        '@pytest.fixture(scope="session")\n'
-        "def my_mysql_connection(mysql_8_service):\n"
-        "    with mysql.connector.connect(\n"
-        "        host=mysql_8_service.host,\n"
-        "        port=mysql_8_service.port,\n"
-        "        user=mysql_8_service.user,\n"
-        "        database=mysql_8_service.db,\n"
-        "        password=mysql_8_service.password,\n"
-        "    ) as conn:\n"
-        "        yield conn",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import mysql.connector  # noqa: PLC0415
-    with mysql.connector.connect(
-        host=mysql_8_service.host,
-        port=mysql_8_service.port,
-        user=mysql_8_service.user,
-        database=mysql_8_service.db,
-        password=mysql_8_service.password,
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(scope="session")
-def mysql_84_connection(mysql_84_service: MySQLService) -> Generator[Any, None, None]:
-    warnings.warn(
-        "The 'mysql_84_connection' fixture is deprecated and will be removed in a future release. "
-        "To recreate this connection, you can use the following snippet:\n\n"
-        "import mysql.connector\n\n"
-        '@pytest.fixture(scope="session")\n'
-        "def my_mysql_connection(mysql_84_service):\n"
-        "    with mysql.connector.connect(\n"
-        "        host=mysql_84_service.host,\n"
-        "        port=mysql_84_service.port,\n"
-        "        user=mysql_84_service.user,\n"
-        "        database=mysql_84_service.db,\n"
-        "        password=mysql_84_service.password,\n"
-        "    ) as conn:\n"
-        "        yield conn",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import mysql.connector  # noqa: PLC0415
-    with mysql.connector.connect(
-        host=mysql_84_service.host,
-        port=mysql_84_service.port,
-        user=mysql_84_service.user,
-        database=mysql_84_service.db,
-        password=mysql_84_service.password,
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(scope="session")
-def mysql_96_connection(mysql_96_service: MySQLService) -> Generator[Any, None, None]:
-    warnings.warn(
-        "The 'mysql_96_connection' fixture is deprecated and will be removed in a future release. "
-        "To recreate this connection, you can use the following snippet:\n\n"
-        "import mysql.connector\n\n"
-        '@pytest.fixture(scope="session")\n'
-        "def my_mysql_connection(mysql_96_service):\n"
-        "    with mysql.connector.connect(\n"
-        "        host=mysql_96_service.host,\n"
-        "        port=mysql_96_service.port,\n"
-        "        user=mysql_96_service.user,\n"
-        "        database=mysql_96_service.db,\n"
-        "        password=mysql_96_service.password,\n"
-        "    ) as conn:\n"
-        "        yield conn",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import mysql.connector  # noqa: PLC0415
-    with mysql.connector.connect(
-        host=mysql_96_service.host,
-        port=mysql_96_service.port,
-        user=mysql_96_service.user,
-        database=mysql_96_service.db,
-        password=mysql_96_service.password,
-    ) as conn:
-        yield conn
