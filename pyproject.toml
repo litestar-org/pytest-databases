@@ -76,7 +76,7 @@ postgres = ["psycopg>=3"]
 redis = ["redis"]
 spanner = ["google-cloud-spanner"]
 valkey = ["valkey"]
-yugabyte = ["psycopg2-yugabytedb"]
+yugabyte = []
 
 [dependency-groups]
 build = ["bump-my-version"]
@@ -104,7 +104,7 @@ doc = [
   "sphinx-autodoc-typehints",
   "sphinx-rtd-theme",
 ]
-extra = ["psycopg2-binary", "psycopg[binary,pool]", "psycopg2-yugabytedb-binary"]
+extra = ["psycopg2-binary", "psycopg[binary,pool]"]
 lint = [
   "mypy",
   "ruff",

@@ -3205,28 +3205,6 @@ wheels = [
 ]
 
 [[package]]
-name = "psycopg2-yugabytedb"
-version = "2.9.3.5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/78/26/c5cc4810c5100e7bd95d6c0799c0a92d9898554d0ca5dfa42c4cef1773fc/psycopg2_yugabytedb-2.9.3.5.tar.gz", hash = "sha256:af41d31a910435377483b0034eba6e0da1f2f8b2b5171e78e9439f8fdd66fdbc", size = 398980, upload-time = "2025-01-31T11:12:26.974Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/f2/7d8d5c3f792c45c37bf2d67e410d43e34f4794a69b284fdf720c2de1be9a/psycopg2_yugabytedb-2.9.3.5-cp311-cp311-macosx_13_0_arm64.whl", hash = "sha256:dcfb49c2d94608b365bcd917f8b072f8ee3ca1407e90dc2fee440920ffa672e2", size = 152677, upload-time = "2025-01-31T11:12:22.882Z" },
-    { url = "https://files.pythonhosted.org/packages/d8/65/3d68a705bdd2b3b25f4f5b8ca015d8635e5b4e0d8539b55d57d24e355910/psycopg2_yugabytedb-2.9.3.5-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:f2a590fb536e68af8aee9f5f79f2b342dbe0ed4f8155982b0b666b824db48282", size = 155224, upload-time = "2025-01-31T11:12:25.15Z" },
-]
-
-[[package]]
-name = "psycopg2-yugabytedb-binary"
-version = "2.9.3.5"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/60/f7/f21478badfd15ee66a4d463d9c9c333d139243f4b9b34315492648b3e6a1/psycopg2_yugabytedb_binary-2.9.3.5-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8ca4e48fd7661e61828ab1e9a45d2bd10a07eec06ace07f6fca7a199d74fe764", size = 2998390, upload-time = "2025-02-03T12:33:06.053Z" },
-    { url = "https://files.pythonhosted.org/packages/db/33/e263ece61819b8b65d06bbb9aa744e6105ef039dc1e48badefc33851ddd8/psycopg2_yugabytedb_binary-2.9.3.5-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6356f7556135a72890f81857cfd2cb6ccb4733551914ba40d6f07bf587fe78cf", size = 2998388, upload-time = "2025-02-03T12:33:30.048Z" },
-    { url = "https://files.pythonhosted.org/packages/30/ed/7347689e3ddd9e878af3aa66b8805f6ad56020f43bd04f7f5769466ff361/psycopg2_yugabytedb_binary-2.9.3.5-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1f4a293fab721a46dc9ffbf95afddd4cd77367df1cfc511ad3b5c39f0d6dff9a", size = 2999640, upload-time = "2025-02-03T12:33:53.365Z" },
-    { url = "https://files.pythonhosted.org/packages/55/2a/417c7f661943ae93640c783075c59e7e405f912824d6d5a1c82dd3492198/psycopg2_yugabytedb_binary-2.9.3.5-cp312-cp312-win_amd64.whl", hash = "sha256:9e63c5521e7d7226f0b582ff7afbd6760490239174327ea36df29705b5b338b7", size = 1721101, upload-time = "2025-01-31T11:59:12.538Z" },
-    { url = "https://files.pythonhosted.org/packages/68/6d/5cb9dc723a5db1998201d2b9accdaf296b6d173f6c6994856a3084346b97/psycopg2_yugabytedb_binary-2.9.3.5-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:71c6aca809599949d8ec5ff5a605c53de0cce720ec5fb9dcd79795530f361272", size = 2998392, upload-time = "2025-02-03T12:34:12.374Z" },
-]
-
-[[package]]
 name = "pyarrow"
 version = "21.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3923,9 +3901,6 @@ spanner = [
 valkey = [
     { name = "valkey" },
 ]
-yugabyte = [
-    { name = "psycopg2-yugabytedb" },
-]
 
 [package.dev-dependencies]
 build = [
@@ -3946,7 +3921,6 @@ dev = [
     { name = "psycopg", version = "3.2.13", source = { registry = "https://pypi.org/simple" }, extra = ["binary", "pool"], marker = "python_full_version < '3.10'" },
     { name = "psycopg", version = "3.3.3", source = { registry = "https://pypi.org/simple" }, extra = ["binary", "pool"], marker = "python_full_version >= '3.10'" },
     { name = "psycopg2-binary" },
-    { name = "psycopg2-yugabytedb-binary" },
     { name = "pyright" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -4028,7 +4002,6 @@ extra = [
     { name = "psycopg", version = "3.2.13", source = { registry = "https://pypi.org/simple" }, extra = ["binary", "pool"], marker = "python_full_version < '3.10'" },
     { name = "psycopg", version = "3.3.3", source = { registry = "https://pypi.org/simple" }, extra = ["binary", "pool"], marker = "python_full_version >= '3.10'" },
     { name = "psycopg2-binary" },
-    { name = "psycopg2-yugabytedb-binary" },
 ]
 lint = [
     { name = "mypy", version = "1.19.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -4078,7 +4051,6 @@ requires-dist = [
     { name = "oracledb", marker = "extra == 'oracle'" },
     { name = "psycopg", marker = "extra == 'cockroachdb'" },
     { name = "psycopg", marker = "extra == 'postgres'", specifier = ">=3" },
-    { name = "psycopg2-yugabytedb", marker = "extra == 'yugabyte'" },
     { name = "pyarrow", marker = "extra == 'gizmosql'" },
     { name = "pymongo", marker = "extra == 'mongodb'" },
     { name = "pymssql", marker = "extra == 'mssql'" },
@@ -4101,7 +4073,6 @@ dev = [
     { name = "pre-commit" },
     { name = "psycopg", extras = ["binary", "pool"] },
     { name = "psycopg2-binary" },
-    { name = "psycopg2-yugabytedb-binary" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-cdist", specifier = ">=0.2" },
@@ -4153,7 +4124,6 @@ doc = [
 extra = [
     { name = "psycopg", extras = ["binary", "pool"] },
     { name = "psycopg2-binary" },
-    { name = "psycopg2-yugabytedb-binary" },
 ]
 lint = [
     { name = "mypy" },
