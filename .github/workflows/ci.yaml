@@ -28,9 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install additional dependencies
-        run: sudo apt-get update && sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev && sudo apt-get autoremove -y  && sudo apt-get clean -y
-
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
@@ -74,8 +71,6 @@ jobs:
             "gcr.io/cloud-spanner-emulator/emulator:latest"
             "ghcr.io/goccy/bigquery-emulator:latest"
             "gizmodata/gizmosql:latest"
-            "elasticsearch:7.17.19"
-            "elasticsearch:8.13.0"
           )
           printf '%s\n' "${images[@]}" | xargs -n1 -P6 -I{} bash -c '
             image="$1"
@@ -113,9 +108,6 @@ jobs:
   test_elasticsearch:
     runs-on: ubuntu-latest
     steps:
-      - name: Install additional dependencies
-        run: sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev
-
       - uses: actions/checkout@v6
 
       - name: Set up Python
