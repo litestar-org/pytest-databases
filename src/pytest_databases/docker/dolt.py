@@ -34,6 +34,26 @@ def platform() -> str:
     return "linux/x86_64"
 
 
+@pytest.fixture(scope="session")
+def dolt_user() -> str:
+    return os.getenv("DOLT_USER", "app")
+
+
+@pytest.fixture(scope="session")
+def dolt_password() -> str:
+    return os.getenv("DOLT_PASSWORD", "super-secret")
+
+
+@pytest.fixture(scope="session")
+def dolt_root_password() -> str:
+    return os.getenv("DOLT_ROOT_PASSWORD", "super-secret")
+
+
+@pytest.fixture(scope="session")
+def dolt_database() -> str:
+    return os.getenv("DOLT_DATABASE", "db")
+
+
 @contextlib.contextmanager
 def _provide_dolt_service(
     docker_service: DockerService,
@@ -41,12 +61,11 @@ def _provide_dolt_service(
     name: str,
     isolation_level: XdistIsolationLevel,
     platform: str,
+    user: str,
+    password: str,
+    root_password: str,
+    database: str,
 ) -> Generator[DoltService, None, None]:
-    user = os.getenv("DOLT_USER", "app")
-    password = os.getenv("DOLT_PASSWORD", "super-secret")
-    root_password = os.getenv("DOLT_ROOT_PASSWORD", "super-secret")
-    database = os.getenv("DOLT_DATABASE", "db")
-
     def check(_service: ServiceContainer) -> bool:
         container_name = f"pytest_databases_{name}"
         container = docker_service._get_container(container_name)
@@ -121,6 +140,10 @@ def dolt_service(
     docker_service: DockerService,
     xdist_dolt_isolation_level: XdistIsolationLevel,
     platform: str,
+    dolt_user: str,
+    dolt_password: str,
+    dolt_root_password: str,
+    dolt_database: str,
 ) -> Generator[DoltService, None, None]:
     with _provide_dolt_service(
         image="dolthub/dolt-sql-server:latest",
@@ -128,5 +151,9 @@ def dolt_service(
         docker_service=docker_service,
         isolation_level=xdist_dolt_isolation_level,
         platform=platform,
+        user=dolt_user,
+        password=dolt_password,
+        root_password=dolt_root_password,
+        database=dolt_database,
     ) as service:
         yield service

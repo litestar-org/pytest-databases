@@ -22,9 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install additional dependencies
-        run: sudo apt-get update && sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 libmariadb-dev && sudo apt-get autoremove -y  && sudo apt-get clean -y
-
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
