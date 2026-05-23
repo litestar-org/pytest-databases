@@ -148,7 +148,11 @@ class DockerService(AbstractContextManager):
         mem_limit: str | None = None,
         platform: str | None = None,
         protocol: str = "tcp",
+        host_port: int | None = None,
     ) -> Generator[ServiceContainer, None, None]:
+        # ``host_port`` is honored only when a new container is created; if an
+        # existing container is reused via ``_get_container(name)`` the request
+        # is ignored and the existing port mapping wins (gh-131).
         if check is None and wait_for_log is None:
             msg = "Must set at least check or wait_for_log"
             raise ValueError(msg)
@@ -182,7 +186,7 @@ class DockerService(AbstractContextManager):
                     command,
                     detach=True,
                     remove=True,
-                    ports={container_port: None},  # pyright: ignore[reportArgumentType]
+                    ports={container_port: host_port},  # pyright: ignore[reportArgumentType]
                     labels=["pytest_databases"],
                     name=name,
                     environment=env,
