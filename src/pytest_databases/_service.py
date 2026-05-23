@@ -55,6 +55,18 @@ def get_docker_client() -> DockerClient:
     return DockerClient.from_env(environment=env)
 
 
+def _dispose_container(container: Container) -> None:
+    if container.status == "running":
+        container.kill()
+    elif container.status in {"stopped", "dead"}:
+        container.remove()
+    elif container.status == "removing":
+        return
+    else:
+        msg = f"Cannot handle container in state {container.status}"
+        raise RuntimeError(msg)
+
+
 def _stop_all_containers(client: DockerClient) -> None:
     containers: list[Container] = client.containers.list(
         all=True,
@@ -67,15 +79,7 @@ def _stop_all_containers(client: DockerClient) -> None:
         # transient teardown can race with this loop. Treat 404 (already gone)
         # and 409 (removal already in progress) as success.
         try:
-            if container.status == "running":
-                container.kill()
-            elif container.status in {"stopped", "dead"}:
-                container.remove()
-            elif container.status == "removing":
-                continue
-            else:
-                msg = f"Cannot handle container in state {container.status}"
-                raise RuntimeError(msg)
+            _dispose_container(container)
         except APIError as exc:
             if exc.status_code not in {404, 409}:
                 raise
@@ -255,18 +259,19 @@ class DockerService(AbstractContextManager):
         if exec_after_start:
             container.exec_run(exec_after_start)
 
-        yield service
-
-        if transient:
-            try:
-                container.stop()
-                container.remove(force=True)
-            except APIError as exc:  # pyright: ignore[reportAttributeAccessIssue]
-                # '409 - Conflict' means removal is already in progress. this is the
-                # safest way of delaying with it, since the API is a bit borked when it
-                # comes to concurrent requests
-                if exc.status_code not in {409, 404}:
-                    raise
+        try:
+            yield service
+        finally:
+            if transient:
+                try:
+                    container.stop()
+                    container.remove(force=True)
+                except APIError as exc:  # pyright: ignore[reportAttributeAccessIssue]
+                    # '409 - Conflict' means removal is already in progress. this is the
+                    # safest way of delaying with it, since the API is a bit borked when it
+                    # comes to concurrent requests
+                    if exc.status_code not in {409, 404}:
+                        raise
 
 
 @pytest.fixture(scope="session")
