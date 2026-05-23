@@ -11,17 +11,31 @@ def _pick_free_port() -> int:
         return sock.getsockname()[1]
 
 
-def test_postgres_port_pinning_via_env(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("service_fixture", "env_var"),
+    [
+        ("postgres_15_service", "POSTGRES_15_PORT"),
+        ("pgvector_18_service", "PGVECTOR_18_PORT"),
+        ("paradedb_18_service", "PARADEDB_18_PORT"),
+        ("alloydb_omni_17_service", "ALLOYDB_OMNI_17_PORT"),
+    ],
+)
+def test_port_pinning_via_env(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    service_fixture: str,
+    env_var: str,
+) -> None:
     free_port = _pick_free_port()
     pytester.makepyfile(f"""
     import pytest
 
     pytest_plugins = ["pytest_databases.docker.postgres"]
 
-    def test_pinned(postgres_15_service) -> None:
-        assert postgres_15_service.port == {free_port}
+    def test_pinned({service_fixture}) -> None:
+        assert {service_fixture}.port == {free_port}
     """)
-    monkeypatch.setenv("POSTGRES_15_PORT", str(free_port))
+    monkeypatch.setenv(env_var, str(free_port))
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
@@ -38,8 +52,21 @@ def test_postgres_port_pinning_via_env(pytester: pytest.Pytester, monkeypatch: p
         "postgres_17_service",
         "postgres_18_service",
         "alloydb_omni_service",
+        "alloydb_omni_15_service",
+        "alloydb_omni_16_service",
+        "alloydb_omni_17_service",
         "pgvector_service",
+        "pgvector_13_service",
+        "pgvector_14_service",
+        "pgvector_15_service",
+        "pgvector_16_service",
+        "pgvector_17_service",
+        "pgvector_18_service",
         "paradedb_service",
+        "paradedb_15_service",
+        "paradedb_16_service",
+        "paradedb_17_service",
+        "paradedb_18_service",
     ],
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
@@ -84,8 +111,21 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
         "postgres_17_connection",
         "postgres_18_connection",
         "alloydb_omni_connection",
+        "alloydb_omni_15_connection",
+        "alloydb_omni_16_connection",
+        "alloydb_omni_17_connection",
         "pgvector_connection",
+        "pgvector_13_connection",
+        "pgvector_14_connection",
+        "pgvector_15_connection",
+        "pgvector_16_connection",
+        "pgvector_17_connection",
+        "pgvector_18_connection",
         "paradedb_connection",
+        "paradedb_15_connection",
+        "paradedb_16_connection",
+        "paradedb_17_connection",
+        "paradedb_18_connection",
     ],
 )
 def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
