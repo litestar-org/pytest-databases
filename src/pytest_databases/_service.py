@@ -70,7 +70,7 @@ def _stop_all_containers(client: DockerClient) -> None:
         try:
             if container.status == "running":
                 container.kill()
-            elif container.status in {"stopped", "dead"}:
+            elif container.status in {"created", "stopped", "dead"}:
                 container.remove()
             elif container.status == "removing":
                 continue
