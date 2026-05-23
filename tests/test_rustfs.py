@@ -1,5 +1,16 @@
 import pytest
 
+from pytest_databases.docker.rustfs import rustfs_access_key, rustfs_secret_key
+
+
+def test_default_credentials_are_non_default() -> None:
+    access_key = rustfs_access_key.__wrapped__()  # type: ignore[attr-defined]
+    secret_key = rustfs_secret_key.__wrapped__()  # type: ignore[attr-defined]
+    assert access_key != "rustfsadmin"
+    assert secret_key != "rustfsadmin"
+    assert "pytest-databases" in access_key
+    assert "pytest-databases" in secret_key
+
 
 def test_default_no_xdist(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""

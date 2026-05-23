@@ -48,6 +48,60 @@ def postgres_user() -> str:
     return "postgres"
 
 
+@pytest.fixture(autouse=False, scope="session")
+def postgres_port() -> int | None:
+    value = os.environ.get("POSTGRES_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_11_port() -> int | None:
+    value = os.environ.get("POSTGRES_11_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_12_port() -> int | None:
+    value = os.environ.get("POSTGRES_12_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_13_port() -> int | None:
+    value = os.environ.get("POSTGRES_13_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_14_port() -> int | None:
+    value = os.environ.get("POSTGRES_14_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_15_port() -> int | None:
+    value = os.environ.get("POSTGRES_15_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_16_port() -> int | None:
+    value = os.environ.get("POSTGRES_16_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_17_port() -> int | None:
+    value = os.environ.get("POSTGRES_17_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_18_port() -> int | None:
+    value = os.environ.get("POSTGRES_18_PORT")
+    return int(value) if value else None
+
+
 @contextmanager
 def _provide_postgres_service(
     docker_service: DockerService,
@@ -57,6 +111,7 @@ def _provide_postgres_service(
     user: str,
     password: str,
     xdist_postgres_isolate: XdistIsolationLevel,
+    host_port: int | None = None,
 ) -> Generator[PostgresService, None, None]:
     def check(_service: ServiceContainer) -> bool:
         try:
@@ -94,6 +149,7 @@ def _provide_postgres_service(
         },
         exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
         transient=xdist_postgres_isolate == "server",
+        host_port=host_port,
     ) as service:
         yield PostgresService(
             host=service.host,
@@ -112,6 +168,7 @@ def postgres_11_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_11_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -121,6 +178,7 @@ def postgres_11_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_11_port,
     ) as service:
         yield service
 
@@ -132,6 +190,7 @@ def postgres_12_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_12_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -141,6 +200,7 @@ def postgres_12_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_12_port,
     ) as service:
         yield service
 
@@ -152,6 +212,7 @@ def postgres_13_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_13_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -161,6 +222,7 @@ def postgres_13_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_13_port,
     ) as service:
         yield service
 
@@ -172,6 +234,7 @@ def postgres_14_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_14_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -181,6 +244,7 @@ def postgres_14_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_14_port,
     ) as service:
         yield service
 
@@ -192,6 +256,7 @@ def postgres_15_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_15_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -201,6 +266,7 @@ def postgres_15_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_15_port,
     ) as service:
         yield service
 
@@ -212,6 +278,7 @@ def postgres_16_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_16_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -221,6 +288,7 @@ def postgres_16_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_16_port,
     ) as service:
         yield service
 
@@ -232,6 +300,7 @@ def postgres_17_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_17_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -241,6 +310,7 @@ def postgres_17_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_17_port,
     ) as service:
         yield service
 
@@ -252,6 +322,7 @@ def postgres_18_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_18_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -261,6 +332,7 @@ def postgres_18_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_18_port,
     ) as service:
         yield service
 
@@ -406,6 +478,7 @@ def postgres_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -415,6 +488,7 @@ def postgres_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_port,
     ) as service:
         yield service
 
@@ -437,7 +511,49 @@ def postgres_connection(
 
 @pytest.fixture(autouse=False, scope="session")
 def pgvector_image() -> str:
-    return "pgvector/pgvector:pg15"
+    return "pgvector/pgvector:pg18"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_port() -> int | None:
+    value = os.environ.get("PGVECTOR_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_13_port() -> int | None:
+    value = os.environ.get("PGVECTOR_13_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_14_port() -> int | None:
+    value = os.environ.get("PGVECTOR_14_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_15_port() -> int | None:
+    value = os.environ.get("PGVECTOR_15_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_16_port() -> int | None:
+    value = os.environ.get("PGVECTOR_16_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_17_port() -> int | None:
+    value = os.environ.get("PGVECTOR_17_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_18_port() -> int | None:
+    value = os.environ.get("PGVECTOR_18_PORT")
+    return int(value) if value else None
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -448,6 +564,7 @@ def pgvector_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    pgvector_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -457,6 +574,139 @@ def pgvector_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=pgvector_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_13_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    pgvector_13_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="pgvector/pgvector:pg13",
+        name="pgvector-13",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=pgvector_13_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_14_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    pgvector_14_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="pgvector/pgvector:pg14",
+        name="pgvector-14",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=pgvector_14_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_15_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    pgvector_15_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="pgvector/pgvector:pg15",
+        name="pgvector-15",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=pgvector_15_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_16_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    pgvector_16_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="pgvector/pgvector:pg16",
+        name="pgvector-16",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=pgvector_16_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_17_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    pgvector_17_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="pgvector/pgvector:pg17",
+        name="pgvector-17",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=pgvector_17_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_18_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    pgvector_18_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="pgvector/pgvector:pg18",
+        name="pgvector-18",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=pgvector_18_port,
     ) as service:
         yield service
 
@@ -478,8 +728,134 @@ def pgvector_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
+def pgvector_13_connection(
+    pgvector_13_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=pgvector_13_service.host,
+            port=pgvector_13_service.port,
+            user=pgvector_13_service.user,
+            password=pgvector_13_service.password,
+            database=pgvector_13_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_14_connection(
+    pgvector_14_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=pgvector_14_service.host,
+            port=pgvector_14_service.port,
+            user=pgvector_14_service.user,
+            password=pgvector_14_service.password,
+            database=pgvector_14_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_15_connection(
+    pgvector_15_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=pgvector_15_service.host,
+            port=pgvector_15_service.port,
+            user=pgvector_15_service.user,
+            password=pgvector_15_service.password,
+            database=pgvector_15_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_16_connection(
+    pgvector_16_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=pgvector_16_service.host,
+            port=pgvector_16_service.port,
+            user=pgvector_16_service.user,
+            password=pgvector_16_service.password,
+            database=pgvector_16_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_17_connection(
+    pgvector_17_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=pgvector_17_service.host,
+            port=pgvector_17_service.port,
+            user=pgvector_17_service.user,
+            password=pgvector_17_service.password,
+            database=pgvector_17_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def pgvector_18_connection(
+    pgvector_18_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=pgvector_18_service.host,
+            port=pgvector_18_service.port,
+            user=pgvector_18_service.user,
+            password=pgvector_18_service.password,
+            database=pgvector_18_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
 def paradedb_image() -> str:
-    return "paradedb/paradedb:0.21.5-pg16"
+    return "paradedb/paradedb:latest-pg18"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_port() -> int | None:
+    value = os.environ.get("PARADEDB_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_15_port() -> int | None:
+    value = os.environ.get("PARADEDB_15_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_16_port() -> int | None:
+    value = os.environ.get("PARADEDB_16_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_17_port() -> int | None:
+    value = os.environ.get("PARADEDB_17_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_18_port() -> int | None:
+    value = os.environ.get("PARADEDB_18_PORT")
+    return int(value) if value else None
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -490,6 +866,7 @@ def paradedb_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    paradedb_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -499,6 +876,95 @@ def paradedb_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=paradedb_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_15_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    paradedb_15_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="paradedb/paradedb:latest-pg15",
+        name="paradedb-15",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=paradedb_15_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_16_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    paradedb_16_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="paradedb/paradedb:latest-pg16",
+        name="paradedb-16",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=paradedb_16_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_17_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    paradedb_17_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="paradedb/paradedb:latest-pg17",
+        name="paradedb-17",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=paradedb_17_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_18_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    paradedb_18_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="paradedb/paradedb:latest-pg18",
+        name="paradedb-18",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=paradedb_18_port,
     ) as service:
         yield service
 
@@ -520,42 +986,246 @@ def paradedb_connection(
 
 
 @pytest.fixture(autouse=False, scope="session")
+def paradedb_15_connection(
+    paradedb_15_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=paradedb_15_service.host,
+            port=paradedb_15_service.port,
+            user=paradedb_15_service.user,
+            password=paradedb_15_service.password,
+            database=paradedb_15_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_16_connection(
+    paradedb_16_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=paradedb_16_service.host,
+            port=paradedb_16_service.port,
+            user=paradedb_16_service.user,
+            password=paradedb_16_service.password,
+            database=paradedb_16_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_17_connection(
+    paradedb_17_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=paradedb_17_service.host,
+            port=paradedb_17_service.port,
+            user=paradedb_17_service.user,
+            password=paradedb_17_service.password,
+            database=paradedb_17_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def paradedb_18_connection(
+    paradedb_18_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=paradedb_18_service.host,
+            port=paradedb_18_service.port,
+            user=paradedb_18_service.user,
+            password=paradedb_18_service.password,
+            database=paradedb_18_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_image() -> str:
-    return "google/alloydbomni:16"
+    return "google/alloydbomni:17"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_port() -> int | None:
+    value = os.environ.get("ALLOYDB_OMNI_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_15_port() -> int | None:
+    value = os.environ.get("ALLOYDB_OMNI_15_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_16_port() -> int | None:
+    value = os.environ.get("ALLOYDB_OMNI_16_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_17_port() -> int | None:
+    value = os.environ.get("ALLOYDB_OMNI_17_PORT")
+    return int(value) if value else None
 
 
 @pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_service(
     docker_service: DockerService,
-    pgvector_image: str,
+    alloydb_omni_image: str,
     xdist_postgres_isolation_level: XdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    alloydb_omni_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
-        image=pgvector_image,
+        image=alloydb_omni_image,
         name="alloydb-omni",
         xdist_postgres_isolate=xdist_postgres_isolation_level,
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=alloydb_omni_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_15_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    alloydb_omni_15_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="google/alloydbomni:15",
+        name="alloydb-omni-15",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=alloydb_omni_15_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_16_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    alloydb_omni_16_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="google/alloydbomni:16",
+        name="alloydb-omni-16",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=alloydb_omni_16_port,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_17_service(
+    docker_service: DockerService,
+    xdist_postgres_isolation_level: XdistIsolationLevel,
+    postgres_host: str,
+    postgres_user: str,
+    postgres_password: str,
+    alloydb_omni_17_port: int | None,
+) -> Generator[PostgresService, None, None]:
+    with _provide_postgres_service(
+        docker_service,
+        image="google/alloydbomni:17",
+        name="alloydb-omni-17",
+        xdist_postgres_isolate=xdist_postgres_isolation_level,
+        host=postgres_host,
+        user=postgres_user,
+        password=postgres_password,
+        host_port=alloydb_omni_17_port,
     ) as service:
         yield service
 
 
 @pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_connection(
-    pgvector_service: PostgresService,
+    alloydb_omni_service: PostgresService,
 ) -> Generator[psycopg.Connection, None, None]:
     with psycopg.connect(
         _make_connection_string(
-            host=pgvector_service.host,
-            port=pgvector_service.port,
-            user=pgvector_service.user,
-            password=pgvector_service.password,
-            database=pgvector_service.database,
+            host=alloydb_omni_service.host,
+            port=alloydb_omni_service.port,
+            user=alloydb_omni_service.user,
+            password=alloydb_omni_service.password,
+            database=alloydb_omni_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_15_connection(
+    alloydb_omni_15_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=alloydb_omni_15_service.host,
+            port=alloydb_omni_15_service.port,
+            user=alloydb_omni_15_service.user,
+            password=alloydb_omni_15_service.password,
+            database=alloydb_omni_15_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_16_connection(
+    alloydb_omni_16_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=alloydb_omni_16_service.host,
+            port=alloydb_omni_16_service.port,
+            user=alloydb_omni_16_service.user,
+            password=alloydb_omni_16_service.password,
+            database=alloydb_omni_16_service.database,
+        ),
+    ) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def alloydb_omni_17_connection(
+    alloydb_omni_17_service: PostgresService,
+) -> Generator[psycopg.Connection, None, None]:
+    with psycopg.connect(
+        _make_connection_string(
+            host=alloydb_omni_17_service.host,
+            port=alloydb_omni_17_service.port,
+            user=alloydb_omni_17_service.user,
+            password=alloydb_omni_17_service.password,
+            database=alloydb_omni_17_service.database,
         ),
     ) as conn:
         yield conn

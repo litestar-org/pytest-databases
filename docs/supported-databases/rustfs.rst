@@ -22,10 +22,17 @@ Docker Image
 Configuration
 -------------
 
-* ``RUSTFS_ACCESS_KEY``: Access key for RustFS (default: "rustfsadmin")
-* ``RUSTFS_SECRET_KEY``: Secret key for RustFS (default: "rustfsadmin")
+* ``RUSTFS_ACCESS_KEY``: Access key for RustFS (default: "pytest-databases-rustfs")
+* ``RUSTFS_SECRET_KEY``: Secret key for RustFS (default: "pytest-databases-rustfs-secret")
 * ``RUSTFS_SECURE``: Whether to use HTTPS (default: "false")
 * ``RUSTFS_DEFAULT_BUCKET_NAME``: The default bucket to create (default: "pytest-databases")
+
+.. note::
+
+   Current ``rustfs/rustfs:latest`` images refuse to start when the root
+   credentials look like documented defaults (e.g. ``rustfsadmin`` /
+   ``rustfsadmin``). The shipped defaults use non-default-looking values
+   so the fixture starts cleanly out of the box. See GitHub issue #132.
 
 Usage Example
 -------------
@@ -61,8 +68,8 @@ Using ``boto3``:
 Available Fixtures
 ------------------
 
-* ``rustfs_access_key``: The access key for RustFS (default: "rustfsadmin").
-* ``rustfs_secret_key``: The secret key for RustFS (default: "rustfsadmin").
+* ``rustfs_access_key``: The access key for RustFS (default: "pytest-databases-rustfs").
+* ``rustfs_secret_key``: The secret key for RustFS (default: "pytest-databases-rustfs-secret").
 * ``rustfs_secure``: Whether to use HTTPS for RustFS (default: "false").
 * ``rustfs_service``: A fixture that provides a RustFS service.
 * ``rustfs_default_bucket_name``: A fixture that provides the default bucket name (automatically created).

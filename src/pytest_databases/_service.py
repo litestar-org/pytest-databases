@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# ruff: noqa: PLW0717
 import contextlib
 import json
 import os
@@ -148,7 +149,11 @@ class DockerService(AbstractContextManager):
         mem_limit: str | None = None,
         platform: str | None = None,
         protocol: str = "tcp",
+        host_port: int | None = None,
     ) -> Generator[ServiceContainer, None, None]:
+        # ``host_port`` is honored only when a new container is created; if an
+        # existing container is reused via ``_get_container(name)`` the request
+        # is ignored and the existing port mapping wins (gh-131).
         if check is None and wait_for_log is None:
             msg = "Must set at least check or wait_for_log"
             raise ValueError(msg)
@@ -182,7 +187,7 @@ class DockerService(AbstractContextManager):
                     command,
                     detach=True,
                     remove=True,
-                    ports={container_port: None},  # pyright: ignore[reportArgumentType]
+                    ports={container_port: host_port},  # pyright: ignore[reportArgumentType]
                     labels=["pytest_databases"],
                     name=name,
                     environment=env,
@@ -251,18 +256,19 @@ class DockerService(AbstractContextManager):
         if exec_after_start:
             container.exec_run(exec_after_start)
 
-        yield service
-
-        if transient:
-            try:
-                container.stop()
-                container.remove(force=True)
-            except APIError as exc:  # pyright: ignore[reportAttributeAccessIssue]
-                # '409 - Conflict' means removal is already in progress. this is the
-                # safest way of delaying with it, since the API is a bit borked when it
-                # comes to concurrent requests
-                if exc.status_code not in {409, 404}:
-                    raise
+        try:
+            yield service
+        finally:
+            if transient:
+                try:
+                    container.stop()
+                    container.remove(force=True)
+                except APIError as exc:  # pyright: ignore[reportAttributeAccessIssue]
+                    # '409 - Conflict' means removal is already in progress. this is the
+                    # safest way of delaying with it, since the API is a bit borked when it
+                    # comes to concurrent requests
+                    if exc.status_code not in {409, 404}:
+                        raise
 
 
 @pytest.fixture(scope="session")

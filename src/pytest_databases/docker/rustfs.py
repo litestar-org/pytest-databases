@@ -30,12 +30,12 @@ class RustfsService(ServiceContainer):
 
 @pytest.fixture(scope="session")
 def rustfs_access_key() -> str:
-    return os.getenv("RUSTFS_ACCESS_KEY", "rustfsadmin")
+    return os.getenv("RUSTFS_ACCESS_KEY", "pytest-databases-rustfs")
 
 
 @pytest.fixture(scope="session")
 def rustfs_secret_key() -> str:
-    return os.getenv("RUSTFS_SECRET_KEY", "rustfsadmin")
+    return os.getenv("RUSTFS_SECRET_KEY", "pytest-databases-rustfs-secret")
 
 
 @pytest.fixture(scope="session")
