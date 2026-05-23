@@ -48,6 +48,60 @@ def postgres_user() -> str:
     return "postgres"
 
 
+@pytest.fixture(autouse=False, scope="session")
+def postgres_port() -> int | None:
+    value = os.environ.get("POSTGRES_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_11_port() -> int | None:
+    value = os.environ.get("POSTGRES_11_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_12_port() -> int | None:
+    value = os.environ.get("POSTGRES_12_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_13_port() -> int | None:
+    value = os.environ.get("POSTGRES_13_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_14_port() -> int | None:
+    value = os.environ.get("POSTGRES_14_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_15_port() -> int | None:
+    value = os.environ.get("POSTGRES_15_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_16_port() -> int | None:
+    value = os.environ.get("POSTGRES_16_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_17_port() -> int | None:
+    value = os.environ.get("POSTGRES_17_PORT")
+    return int(value) if value else None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_18_port() -> int | None:
+    value = os.environ.get("POSTGRES_18_PORT")
+    return int(value) if value else None
+
+
 @contextmanager
 def _provide_postgres_service(
     docker_service: DockerService,
@@ -57,6 +111,7 @@ def _provide_postgres_service(
     user: str,
     password: str,
     xdist_postgres_isolate: XdistIsolationLevel,
+    host_port: int | None = None,
 ) -> Generator[PostgresService, None, None]:
     def check(_service: ServiceContainer) -> bool:
         try:
@@ -94,6 +149,7 @@ def _provide_postgres_service(
         },
         exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
         transient=xdist_postgres_isolate == "server",
+        host_port=host_port,
     ) as service:
         yield PostgresService(
             host=service.host,
@@ -112,6 +168,7 @@ def postgres_11_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_11_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -121,6 +178,7 @@ def postgres_11_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_11_port,
     ) as service:
         yield service
 
@@ -132,6 +190,7 @@ def postgres_12_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_12_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -141,6 +200,7 @@ def postgres_12_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_12_port,
     ) as service:
         yield service
 
@@ -152,6 +212,7 @@ def postgres_13_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_13_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -161,6 +222,7 @@ def postgres_13_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_13_port,
     ) as service:
         yield service
 
@@ -172,6 +234,7 @@ def postgres_14_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_14_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -181,6 +244,7 @@ def postgres_14_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_14_port,
     ) as service:
         yield service
 
@@ -192,6 +256,7 @@ def postgres_15_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_15_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -201,6 +266,7 @@ def postgres_15_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_15_port,
     ) as service:
         yield service
 
@@ -212,6 +278,7 @@ def postgres_16_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_16_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -221,6 +288,7 @@ def postgres_16_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_16_port,
     ) as service:
         yield service
 
@@ -232,6 +300,7 @@ def postgres_17_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_17_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -241,6 +310,7 @@ def postgres_17_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_17_port,
     ) as service:
         yield service
 
@@ -252,6 +322,7 @@ def postgres_18_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_18_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -261,6 +332,7 @@ def postgres_18_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_18_port,
     ) as service:
         yield service
 
@@ -406,6 +478,7 @@ def postgres_service(
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
+    postgres_port: int | None,
 ) -> Generator[PostgresService, None, None]:
     with _provide_postgres_service(
         docker_service,
@@ -415,6 +488,7 @@ def postgres_service(
         host=postgres_host,
         user=postgres_user,
         password=postgres_password,
+        host_port=postgres_port,
     ) as service:
         yield service
 

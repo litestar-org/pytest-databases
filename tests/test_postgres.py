@@ -1,6 +1,29 @@
 from __future__ import annotations
 
+import socket
+
 import pytest
+
+
+def _pick_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def test_postgres_port_pinning_via_env(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    free_port = _pick_free_port()
+    pytester.makepyfile(f"""
+    import pytest
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+    def test_pinned(postgres_15_service) -> None:
+        assert postgres_15_service.port == {free_port}
+    """)
+    monkeypatch.setenv("POSTGRES_15_PORT", str(free_port))
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
+    result.assert_outcomes(passed=1)
 
 
 @pytest.mark.parametrize(
