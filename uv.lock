@@ -4015,10 +4015,6 @@ mongodb = [
 oracle = [
     { name = "oracledb" },
 ]
-postgres = [
-    { name = "psycopg", version = "3.2.13", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "psycopg", version = "3.3.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-]
 redis = [
     { name = "redis", version = "7.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "redis", version = "7.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -4176,7 +4172,6 @@ requires-dist = [
     { name = "google-cloud-spanner", marker = "extra == 'spanner'" },
     { name = "oracledb", marker = "extra == 'oracle'" },
     { name = "psycopg", marker = "extra == 'cockroachdb'" },
-    { name = "psycopg", marker = "extra == 'postgres'", specifier = ">=3" },
     { name = "pyarrow", marker = "extra == 'gizmosql'" },
     { name = "pymongo", marker = "extra == 'mongodb'" },
     { name = "pytest" },
