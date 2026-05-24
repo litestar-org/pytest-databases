@@ -24,6 +24,7 @@ YUGABYTE_USER = "yugabyte"
 YUGABYTE_PASSWORD = "yugabyte"
 YUGABYTE_DB = "yugabyte"
 YUGABYTE_DATABASE = "pytest_databases"
+YUGABYTE_TSERVER_FLAGS = "reject_writes_min_disk_space_mb=128"
 
 
 def _output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
@@ -270,7 +271,7 @@ def yugabyte_service(
         container_port=5433,  # YugabyteDB YSQL port
         check=yugabyte_responsive,
         name=container_name,
-        command="bin/yugabyted start --background=false",
+        command=f"bin/yugabyted start --background=false --tserver_flags={YUGABYTE_TSERVER_FLAGS}",
         transient=xdist_yugabyte_isolation_level == "server",
         timeout=120,
         pause=1.0,
