@@ -2,23 +2,93 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-import psycopg
 import pytest
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterator
+
+    from docker.models.containers import Container
 
     from pytest_databases._service import DockerService
 
 
 def _make_connection_string(host: str, port: int, user: str, password: str, database: str) -> str:
     return f"dbname={database} user={user} host={host} port={port} password={password}"
+
+
+def _output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
+    if isinstance(output, bytes):
+        return output
+    if isinstance(output, str):
+        return output.encode()
+    return b"".join(output)
+
+
+def _exec_psql(
+    container: Container,
+    *,
+    user: str,
+    password: str,
+    database: str,
+    sql: str,
+    tuples_only: bool = False,
+) -> tuple[int, bytes]:
+    cmd = ["psql", "-v", "ON_ERROR_STOP=1", "-U", user, "-d", database]
+    if tuples_only:
+        cmd.extend(["-tAc", sql])
+    else:
+        cmd.extend(["-c", sql])
+    result = container.exec_run(cmd, environment={"PGPASSWORD": password})
+    return result.exit_code if result.exit_code is not None else -1, _output_to_bytes(result.output)
+
+
+def _create_worker_database(
+    container: Container,
+    *,
+    user: str,
+    password: str,
+    db_name: str,
+) -> None:
+    last_output = b""
+    for _ in range(10):
+        exit_code, output = _exec_psql(
+            container,
+            user=user,
+            password=password,
+            database="postgres",
+            sql=f"CREATE DATABASE {db_name};",
+        )
+        if exit_code == 0 or b"already exists" in output:
+            break
+        last_output = output
+        time.sleep(0.5)
+    else:
+        message = (
+            f"CREATE DATABASE {db_name!r} failed after 10 attempts: "
+            f"{last_output.decode(errors='replace').strip()}"
+        )
+        raise RuntimeError(message)
+    exit_code, output = _exec_psql(
+        container,
+        user=user,
+        password=password,
+        database=db_name,
+        sql="SELECT 1",
+        tuples_only=True,
+    )
+    if exit_code != 0 or output.strip() != b"1":
+        message = (
+            f"Verification SELECT against {db_name!r} failed: "
+            f"{output.decode(errors='replace').strip()}"
+        )
+        raise RuntimeError(message)
 
 
 @pytest.fixture(scope="session")
@@ -114,20 +184,15 @@ def _provide_postgres_service(
     host_port: int | None = None,
 ) -> Generator[PostgresService, None, None]:
     def check(_service: ServiceContainer) -> bool:
-        try:
-            with psycopg.connect(
-                _make_connection_string(
-                    host=_service.host,
-                    port=_service.port,
-                    user=user,
-                    password=password,
-                    database="postgres",
-                )
-            ) as conn:
-                db_open = conn.execute("SELECT 1").fetchone()
-                return bool(db_open is not None and db_open[0] == 1)
-        except Exception:  # noqa: BLE001
-            return False
+        exit_code, output = _exec_psql(
+            _service.container,
+            user=user,
+            password=password,
+            database="postgres",
+            sql="SELECT 1",
+            tuples_only=True,
+        )
+        return exit_code == 0 and output.strip() == b"1"
 
     worker_num = get_xdist_worker_num()
     db_name = "pytest_databases"
@@ -147,10 +212,15 @@ def _provide_postgres_service(
         env={
             "POSTGRES_PASSWORD": password,
         },
-        exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
         transient=xdist_postgres_isolate == "server",
         host_port=host_port,
     ) as service:
+        _create_worker_database(
+            service.container,
+            user=user,
+            password=password,
+            db_name=db_name,
+        )
         yield PostgresService(
             host=service.host,
             port=service.port,
@@ -338,134 +408,6 @@ def postgres_18_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def postgres_11_connection(
-    postgres_11_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_11_service.host,
-            port=postgres_11_service.port,
-            user=postgres_11_service.user,
-            password=postgres_11_service.password,
-            database=postgres_11_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_12_connection(
-    postgres_12_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_12_service.host,
-            port=postgres_12_service.port,
-            user=postgres_12_service.user,
-            password=postgres_12_service.password,
-            database=postgres_12_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_13_connection(
-    postgres_13_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_13_service.host,
-            port=postgres_13_service.port,
-            user=postgres_13_service.user,
-            password=postgres_13_service.password,
-            database=postgres_13_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_14_connection(
-    postgres_14_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_14_service.host,
-            port=postgres_14_service.port,
-            user=postgres_14_service.user,
-            password=postgres_14_service.password,
-            database=postgres_14_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_15_connection(
-    postgres_15_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_15_service.host,
-            port=postgres_15_service.port,
-            user=postgres_15_service.user,
-            password=postgres_15_service.password,
-            database=postgres_15_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_16_connection(
-    postgres_16_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_16_service.host,
-            port=postgres_16_service.port,
-            user=postgres_16_service.user,
-            password=postgres_16_service.password,
-            database=postgres_16_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_17_connection(
-    postgres_17_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_17_service.host,
-            port=postgres_17_service.port,
-            user=postgres_17_service.user,
-            password=postgres_17_service.password,
-            database=postgres_17_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_18_connection(
-    postgres_18_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_18_service.host,
-            port=postgres_18_service.port,
-            user=postgres_18_service.user,
-            password=postgres_18_service.password,
-            database=postgres_18_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
 def postgres_image() -> str:
     return "postgres:18"
 
@@ -491,22 +433,6 @@ def postgres_service(
         host_port=postgres_port,
     ) as service:
         yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_connection(
-    postgres_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=postgres_service.host,
-            port=postgres_service.port,
-            user=postgres_service.user,
-            password=postgres_service.password,
-            database=postgres_service.database,
-        ),
-    ) as conn:
-        yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -712,118 +638,6 @@ def pgvector_18_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def pgvector_connection(
-    pgvector_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=pgvector_service.host,
-            port=pgvector_service.port,
-            user=pgvector_service.user,
-            password=pgvector_service.password,
-            database=pgvector_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_13_connection(
-    pgvector_13_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=pgvector_13_service.host,
-            port=pgvector_13_service.port,
-            user=pgvector_13_service.user,
-            password=pgvector_13_service.password,
-            database=pgvector_13_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_14_connection(
-    pgvector_14_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=pgvector_14_service.host,
-            port=pgvector_14_service.port,
-            user=pgvector_14_service.user,
-            password=pgvector_14_service.password,
-            database=pgvector_14_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_15_connection(
-    pgvector_15_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=pgvector_15_service.host,
-            port=pgvector_15_service.port,
-            user=pgvector_15_service.user,
-            password=pgvector_15_service.password,
-            database=pgvector_15_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_16_connection(
-    pgvector_16_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=pgvector_16_service.host,
-            port=pgvector_16_service.port,
-            user=pgvector_16_service.user,
-            password=pgvector_16_service.password,
-            database=pgvector_16_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_17_connection(
-    pgvector_17_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=pgvector_17_service.host,
-            port=pgvector_17_service.port,
-            user=pgvector_17_service.user,
-            password=pgvector_17_service.password,
-            database=pgvector_17_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_18_connection(
-    pgvector_18_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=pgvector_18_service.host,
-            port=pgvector_18_service.port,
-            user=pgvector_18_service.user,
-            password=pgvector_18_service.password,
-            database=pgvector_18_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
 def paradedb_image() -> str:
     return "paradedb/paradedb:latest-pg18"
 
@@ -970,86 +784,6 @@ def paradedb_18_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def paradedb_connection(
-    paradedb_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=paradedb_service.host,
-            port=paradedb_service.port,
-            user=paradedb_service.user,
-            password=paradedb_service.password,
-            database=paradedb_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_15_connection(
-    paradedb_15_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=paradedb_15_service.host,
-            port=paradedb_15_service.port,
-            user=paradedb_15_service.user,
-            password=paradedb_15_service.password,
-            database=paradedb_15_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_16_connection(
-    paradedb_16_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=paradedb_16_service.host,
-            port=paradedb_16_service.port,
-            user=paradedb_16_service.user,
-            password=paradedb_16_service.password,
-            database=paradedb_16_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_17_connection(
-    paradedb_17_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=paradedb_17_service.host,
-            port=paradedb_17_service.port,
-            user=paradedb_17_service.user,
-            password=paradedb_17_service.password,
-            database=paradedb_17_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_18_connection(
-    paradedb_18_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=paradedb_18_service.host,
-            port=paradedb_18_service.port,
-            user=paradedb_18_service.user,
-            password=paradedb_18_service.password,
-            database=paradedb_18_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_image() -> str:
     return "google/alloydbomni:17"
 
@@ -1165,67 +899,3 @@ def alloydb_omni_17_service(
         host_port=alloydb_omni_17_port,
     ) as service:
         yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_connection(
-    alloydb_omni_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=alloydb_omni_service.host,
-            port=alloydb_omni_service.port,
-            user=alloydb_omni_service.user,
-            password=alloydb_omni_service.password,
-            database=alloydb_omni_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_15_connection(
-    alloydb_omni_15_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=alloydb_omni_15_service.host,
-            port=alloydb_omni_15_service.port,
-            user=alloydb_omni_15_service.user,
-            password=alloydb_omni_15_service.password,
-            database=alloydb_omni_15_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_16_connection(
-    alloydb_omni_16_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=alloydb_omni_16_service.host,
-            port=alloydb_omni_16_service.port,
-            user=alloydb_omni_16_service.user,
-            password=alloydb_omni_16_service.password,
-            database=alloydb_omni_16_service.database,
-        ),
-    ) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_17_connection(
-    alloydb_omni_17_service: PostgresService,
-) -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(
-        _make_connection_string(
-            host=alloydb_omni_17_service.host,
-            port=alloydb_omni_17_service.port,
-            user=alloydb_omni_17_service.user,
-            password=alloydb_omni_17_service.password,
-            database=alloydb_omni_17_service.database,
-        ),
-    ) as conn:
-        yield conn

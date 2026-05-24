@@ -11,6 +11,46 @@ def _pick_free_port() -> int:
         return sock.getsockname()[1]
 
 
+def test_plugin_imports_without_psycopg(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+import builtins
+
+def test_import() -> None:
+    original_import = builtins.__import__
+
+    def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "psycopg" or name.startswith("psycopg."):
+            raise ModuleNotFoundError(name)
+        return original_import(name, globals, locals, fromlist, level)
+
+    builtins.__import__ = blocked_import
+    try:
+        import pytest_databases.docker.postgres
+    finally:
+        builtins.__import__ = original_import
+""")
+
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
+    result.assert_outcomes(passed=1)
+
+
+POSTGRES_TEST_HELPERS = """
+def run_psql(service, sql, *, database=None, tuples_only=False):
+    cmd = ["psql", "-v", "ON_ERROR_STOP=1", "-U", service.user, "-d", database or service.database]
+    cmd.extend(["-tAc", sql] if tuples_only else ["-c", sql])
+    result = service.container.exec_run(cmd, environment={"PGPASSWORD": service.password})
+    output = result.output
+    if isinstance(output, bytes):
+        decoded = output.decode(errors="replace")
+    elif isinstance(output, str):
+        decoded = output
+    else:
+        decoded = b"".join(output).decode(errors="replace")
+    assert result.exit_code == 0, decoded
+    return decoded.strip()
+"""
+
+
 @pytest.mark.parametrize(
     ("service_fixture", "env_var"),
     [
@@ -28,13 +68,11 @@ def test_port_pinning_via_env(
 ) -> None:
     free_port = _pick_free_port()
     pytester.makepyfile(f"""
-    import pytest
+pytest_plugins = ["pytest_databases.docker.postgres"]
 
-    pytest_plugins = ["pytest_databases.docker.postgres"]
-
-    def test_pinned({service_fixture}) -> None:
-        assert {service_fixture}.port == {free_port}
-    """)
+def test_pinned({service_fixture}) -> None:
+    assert {service_fixture}.port == {free_port}
+""")
     monkeypatch.setenv(env_var, str(free_port))
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
@@ -71,144 +109,85 @@ def test_port_pinning_via_env(
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
     pytester.makepyfile(f"""
-    import pytest
-    import psycopg
-    from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
+from pytest_databases.docker.postgres import PostgresService
 
+pytest_plugins = ["pytest_databases.docker.postgres"]
 
-    pytest_plugins = [
-        "pytest_databases.docker.postgres",
-    ]
+{POSTGRES_TEST_HELPERS}
 
-    def test({service_fixture}) -> None:
-        with psycopg.connect(
-            _make_connection_string(
-                host={service_fixture}.host,
-                port={service_fixture}.port,
-                user={service_fixture}.user,
-                password={service_fixture}.password,
-                database={service_fixture}.database,
-            )
-        ) as conn:
-            db_open = conn.execute("SELECT 1").fetchone()
-            assert db_open is not None and db_open[0] == 1
-    """)
+def test({service_fixture}: PostgresService) -> None:
+    assert run_psql({service_fixture}, "SELECT 1", tuples_only=True) == "1"
+""")
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
 @pytest.mark.parametrize(
-    "connection_fixture",
+    "service_fixture",
     [
-        "postgres_connection",
-        "postgres_11_connection",
-        "postgres_12_connection",
-        "postgres_13_connection",
-        "postgres_14_connection",
-        "postgres_15_connection",
-        "postgres_16_connection",
-        "postgres_17_connection",
-        "postgres_18_connection",
-        "alloydb_omni_connection",
-        "alloydb_omni_15_connection",
-        "alloydb_omni_16_connection",
-        "alloydb_omni_17_connection",
-        "pgvector_connection",
-        "pgvector_13_connection",
-        "pgvector_14_connection",
-        "pgvector_15_connection",
-        "pgvector_16_connection",
-        "pgvector_17_connection",
-        "pgvector_18_connection",
-        "paradedb_connection",
-        "paradedb_15_connection",
-        "paradedb_16_connection",
-        "paradedb_17_connection",
-        "paradedb_18_connection",
+        "postgres_service",
+        "postgres_18_service",
+        "alloydb_omni_service",
+        "pgvector_service",
+        "paradedb_service",
     ],
 )
-def test_startup_connection_fixture(pytester: pytest.Pytester, connection_fixture: str) -> None:
+def test_startup_table_roundtrip(pytester: pytest.Pytester, service_fixture: str) -> None:
     pytester.makepyfile(f"""
-    import pytest
-    import psycopg
-    from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
+from pytest_databases.docker.postgres import PostgresService
 
+pytest_plugins = ["pytest_databases.docker.postgres"]
 
-    pytest_plugins = [
-        "pytest_databases.docker.postgres",
-    ]
+{POSTGRES_TEST_HELPERS}
 
-    def test({connection_fixture}) -> None:
-        {connection_fixture}.execute("CREATE TABLE if not exists simple_table as SELECT 1")
-        result = {connection_fixture}.execute("select * from simple_table").fetchone()
-        assert result is not None and result[0] == 1
-    """)
+def test({service_fixture}: PostgresService) -> None:
+    run_psql({service_fixture}, "CREATE TABLE IF NOT EXISTS simple_table AS SELECT 1 AS x")
+    assert run_psql({service_fixture}, "SELECT x FROM simple_table", tuples_only=True) == "1"
+""")
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
     result.assert_outcomes(passed=1)
 
 
 def test_xdist_isolate_db(pytester: pytest.Pytester) -> None:
-    pytester.makepyfile("""
-    import pytest
-    import psycopg
-    from pytest_databases.docker.postgres import _make_connection_string  # noqa: PLC2701
+    pytester.makepyfile(f"""
+from pytest_databases.docker.postgres import PostgresService
 
+pytest_plugins = ["pytest_databases.docker.postgres"]
 
-    pytest_plugins = ["pytest_databases.docker.postgres"]
+{POSTGRES_TEST_HELPERS}
 
-    def test_two(postgres_connection) -> None:
-        postgres_connection.execute("CREATE TABLE foo AS SELECT 1")
+def test_one(postgres_service: PostgresService) -> None:
+    run_psql(postgres_service, "CREATE TABLE foo AS SELECT 1")
 
-    def test_two(postgres_connection) -> None:
-        postgres_connection.execute("CREATE TABLE foo AS SELECT 1")
-    """)
+def test_two(postgres_service: PostgresService) -> None:
+    run_psql(postgres_service, "CREATE TABLE foo AS SELECT 1")
+""")
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
-    result.assert_outcomes(passed=1)
+    result.assert_outcomes(passed=2)
 
 
 def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
-    pytester.makepyfile("""
-    import pytest
-    import psycopg
-    from pytest_databases.docker.postgres import _make_connection_string
+    pytester.makepyfile(f"""
+import pytest
+from pytest_databases.docker.postgres import PostgresService
 
-    pytest_plugins = [
-        "pytest_databases.docker.postgres",
-    ]
+pytest_plugins = ["pytest_databases.docker.postgres"]
 
-    @pytest.fixture(scope="session")
-    def xdist_postgres_isolation_level():
-        return "server"
+@pytest.fixture(scope="session")
+def xdist_postgres_isolation_level():
+    return "server"
 
-    def test_one(postgres_service) -> None:
-        with psycopg.connect(
-            _make_connection_string(
-                host=postgres_service.host,
-                port=postgres_service.port,
-                user=postgres_service.user,
-                password=postgres_service.password,
-                database=postgres_service.database,
-            ),
-            autocommit=True,
-        ) as conn:
-            conn.execute("CREATE DATABASE foo")
+{POSTGRES_TEST_HELPERS}
 
-    def test_two(postgres_service) -> None:
-        with psycopg.connect(
-            _make_connection_string(
-                host=postgres_service.host,
-                port=postgres_service.port,
-                user=postgres_service.user,
-                password=postgres_service.password,
-                database=postgres_service.database,
-            ),
-            autocommit=True,
-        ) as conn:
-            conn.execute("CREATE DATABASE foo")
-    """)
+def test_one(postgres_service: PostgresService) -> None:
+    run_psql(postgres_service, "CREATE DATABASE foo", database="postgres")
+
+def test_two(postgres_service: PostgresService) -> None:
+    run_psql(postgres_service, "CREATE DATABASE foo", database="postgres")
+""")
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
