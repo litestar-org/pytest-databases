@@ -29,14 +29,13 @@ Usage Example
             azure_blob_service.connection_string,
             container_name=azure_blob_default_container_name,
         ) as container:
-            container.create_container()
             assert container.exists()
 
 Available Fixtures
 ------------------
 
 * ``azurite_in_memory``: Whether to use in-memory storage for Azurite (default: ``True``).
-* ``azure_blob_service``: A fixture that provides an Azure Blob Storage service.
+* ``azure_blob_service``: A fixture that provides an Azure Blob Storage service with the default container pre-created.
 * ``azure_blob_default_container_name``: The default container name for Azure Blob Storage (default: ``pytest-databases``).
 * ``azure_blob_xdist_isolation_level``: Xdist isolation level for the service (default: ``database``).
 

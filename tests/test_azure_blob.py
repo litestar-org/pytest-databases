@@ -67,7 +67,7 @@ def test_one(
     azure_blob_service: AzureBlobService,
     azure_blob_default_container_name: str,
 ) -> None:
-    run_az(docker_service, azure_blob_service, "container", "create", "--name", azure_blob_default_container_name)
+    assert az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
 
 
 def test_two(
@@ -105,8 +105,7 @@ def test_one(
     azure_blob_service: AzureBlobService,
     azure_blob_default_container_name: str,
 ) -> None:
-    assert not az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
-    run_az(docker_service, azure_blob_service, "container", "create", "--name", azure_blob_default_container_name)
+    assert az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
 
 
 def test_two(
@@ -114,8 +113,7 @@ def test_two(
     azure_blob_service: AzureBlobService,
     azure_blob_default_container_name: str,
 ) -> None:
-    assert not az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
-    run_az(docker_service, azure_blob_service, "container", "create", "--name", azure_blob_default_container_name)
+    assert az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
@@ -140,8 +138,6 @@ def test_one(
     azure_blob_service: AzureBlobService,
     azure_blob_default_container_name: str,
 ) -> None:
-    assert not az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
-    run_az(docker_service, azure_blob_service, "container", "create", "--name", azure_blob_default_container_name)
     assert az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
     assert azure_blob_service.account_name == f"test_account_{{get_xdist_worker_num()}}"
 
@@ -151,8 +147,6 @@ def test_two(
     azure_blob_service: AzureBlobService,
     azure_blob_default_container_name: str,
 ) -> None:
-    assert not az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
-    run_az(docker_service, azure_blob_service, "container", "create", "--name", azure_blob_default_container_name)
     assert az_container_exists(docker_service, azure_blob_service, azure_blob_default_container_name)
     assert azure_blob_service.account_name == f"test_account_{{get_xdist_worker_num()}}"
 """)
