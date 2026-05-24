@@ -384,7 +384,9 @@ line-length = 120
 
 [tool.pytest.ini_options]
 addopts = "--doctest-glob='*.md' --dist=loadgroup"
-cdist-group-steal = "3:10"
+# Keep the middle shard non-empty when file justification moves a large test file
+# across cdist chunk boundaries.
+cdist-group-steal = "2:10,3:10"
 cdist-justify-items = "file"
 filterwarnings = [
   "ignore::DeprecationWarning:pkg_resources",
