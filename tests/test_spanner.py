@@ -32,8 +32,6 @@ def test_plugin_imports_without_google_cloud_spanner(pytester: pytest.Pytester) 
 
 def test_service_fixture(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
-    import contextlib
-
     from google.api_core.client_options import ClientOptions
     from google.auth.credentials import AnonymousCredentials
     from google.cloud import spanner
@@ -49,12 +47,7 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
             client_options=ClientOptions(api_endpoint=spanner_service.endpoint),
         )
         instance = spanner_client.instance(spanner_service.instance_name)
-        with contextlib.suppress(Exception):
-            instance.create()
-
         database = instance.database(spanner_service.database_name)
-        with contextlib.suppress(Exception):
-            database.create()
 
         with database.snapshot() as snapshot:
             resp = next(iter(snapshot.execute_sql("SELECT 1")))
