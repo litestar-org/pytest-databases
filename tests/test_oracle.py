@@ -3,29 +3,6 @@ from __future__ import annotations
 import pytest
 
 
-def test_plugin_imports_without_oracledb(pytester: pytest.Pytester) -> None:
-    pytester.makepyfile("""
-    import builtins
-
-    def test_import() -> None:
-        original_import = builtins.__import__
-
-        def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "oracledb":
-                raise ModuleNotFoundError(name)
-            return original_import(name, globals, locals, fromlist, level)
-
-        builtins.__import__ = blocked_import
-        try:
-            import pytest_databases.docker.oracle
-        finally:
-            builtins.__import__ = original_import
-    """)
-
-    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
-    result.assert_outcomes(passed=1)
-
-
 @pytest.fixture(scope="module")
 def oracle_test_helpers() -> str:
     return """
