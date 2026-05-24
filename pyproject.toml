@@ -74,7 +74,7 @@ mysql = []
 oracle = ["oracledb"]
 postgres = ["psycopg>=3"]
 redis = ["redis"]
-spanner = ["google-cloud-spanner"]
+spanner = []
 valkey = ["valkey"]
 yugabyte = []
 
@@ -121,6 +121,7 @@ lint = [
 ]
 test = [
   "coverage[toml]>=6.2",
+  "google-cloud-spanner",
   "pytest",
   "pytest-cov",
   "pytest-cdist>=0.2",
@@ -190,10 +191,6 @@ pretty = true
 show_column_numbers = true
 warn_no_return = false
 warn_unused_ignores = true
-
-[[tool.mypy.overrides]]
-disable_error_code = "attr-defined"
-module = "pytest_databases.docker.spanner"
 
 [[tool.mypy.overrides]]
 disable_error_code = "attr-defined"
