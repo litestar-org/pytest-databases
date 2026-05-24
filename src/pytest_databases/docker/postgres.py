@@ -40,7 +40,7 @@ def _exec_psql(
     sql: str,
     tuples_only: bool = False,
 ) -> tuple[int, bytes]:
-    cmd = ["psql", "-v", "ON_ERROR_STOP=1", "-U", user, "-d", database]
+    cmd = ["psql", "-v", "ON_ERROR_STOP=1", "-h", "localhost", "-p", "5432", "-U", user, "-d", database]
     if tuples_only:
         cmd.extend(["-tAc", sql])
     else:

@@ -36,7 +36,7 @@ def test_import() -> None:
 
 POSTGRES_TEST_HELPERS = """
 def run_psql(service, sql, *, database=None, tuples_only=False):
-    cmd = ["psql", "-v", "ON_ERROR_STOP=1", "-U", service.user, "-d", database or service.database]
+    cmd = ["psql", "-v", "ON_ERROR_STOP=1", "-h", "localhost", "-p", "5432", "-U", service.user, "-d", database or service.database]
     cmd.extend(["-tAc", sql] if tuples_only else ["-c", sql])
     result = service.container.exec_run(cmd, environment={"PGPASSWORD": service.password})
     output = result.output
