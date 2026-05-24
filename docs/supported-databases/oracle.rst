@@ -10,6 +10,14 @@ Installation
 
    pip install pytest-databases[oracle]
 
+The ``oracle`` extra is retained as a compatibility install target and does not
+install an Oracle Python client. If your tests need a Python client, install
+your preferred client directly, for example:
+
+.. code-block:: bash
+
+   pip install oracledb
+
 Usage Example
 -------------
 
@@ -22,6 +30,8 @@ Usage Example
     pytest_plugins = ["pytest_databases.docker.oracle"]
 
     def test(oracle_service: OracleService) -> None:
+        # ``oracledb`` is user-owned application code; pytest-databases only
+        # starts the service and provides connection metadata.
         conn = oracledb.connect(
             user=oracle_service.user,
             password=oracle_service.password,
@@ -34,24 +44,18 @@ Usage Example
             res = cur.fetchone()[0]
             assert res == 1
 
-    def test(oracle_startup_connection: oracledb.Connection) -> None:
-        with oracle_startup_connection.cursor() as cursor:
-            cursor.execute("CREATE or replace view simple_table as SELECT 1 as the_value from dual")
-            cursor.execute("select * from simple_table")
-            result = cursor.fetchall()
-            assert result is not None and result[0][0] == 1
-
 Available Fixtures
 ------------------
 
-* ``oracle_image``: The Docker image to use for Oracle.
-* ``oracle_service``: A fixture that provides an Oracle service.
-* ``oracle_startup_connection``: A fixture that provides an Oracle connection.
+* ``oracle_user``: The application username created in the Oracle container.
+* ``oracle_password``: The application user password.
+* ``oracle_system_password``: The Oracle system password.
+* ``oracle_service``: Alias for the latest supported Oracle service.
 
 The following version-specific fixtures are also available:
 
-* ``oracle_18c_image``, ``oracle_18c_service_name``, ``oracle_18c_service``, ``oracle_18c_connection``: Oracle 18c
-* ``oracle_23ai_image``, ``oracle_23ai_service_name``, ``oracle_23ai_service``, ``oracle_23ai_connection``: Oracle 23ai
+* ``oracle_18c_image``, ``oracle_18c_service_name``, ``oracle_18c_service``: Oracle 18c
+* ``oracle_23ai_image``, ``oracle_23ai_service_name``, ``oracle_23ai_service``: Oracle 23ai
 
 Service API
 -----------
