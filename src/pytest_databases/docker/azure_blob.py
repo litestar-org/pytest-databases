@@ -4,14 +4,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
-from azure.storage.blob import ContainerClient
-from azure.storage.blob.aio import ContainerClient as AsyncContainerClient
 
 from pytest_databases.helpers import get_xdist_worker_count, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Generator
+    from collections.abc import Generator
 
     from pytest_databases._service import DockerService
 
@@ -97,27 +95,3 @@ def azure_blob_service(
 @pytest.fixture(scope="session")
 def azure_blob_default_container_name() -> str:
     return "pytest-databases"
-
-
-@pytest.fixture(scope="session")
-def azure_blob_container_client(
-    azure_blob_service: AzureBlobService,
-    azure_blob_default_container_name: str,
-) -> Generator[ContainerClient, None, None]:
-    with ContainerClient.from_connection_string(
-        azure_blob_service.connection_string,
-        container_name=azure_blob_default_container_name,
-    ) as container_client:
-        yield container_client
-
-
-@pytest.fixture(scope="session")
-async def azure_blob_async_container_client(
-    azure_blob_service: AzureBlobService,
-    azure_blob_default_container_name: str,
-) -> AsyncGenerator[AsyncContainerClient, None]:
-    async with AsyncContainerClient.from_connection_string(
-        azure_blob_service.connection_string,
-        container_name=azure_blob_default_container_name,
-    ) as container_client:
-        yield container_client
