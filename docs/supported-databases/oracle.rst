@@ -10,14 +10,6 @@ Installation
 
    pip install pytest-databases[oracle]
 
-The ``oracle`` extra is retained as a compatibility install target and does not
-install an Oracle Python client. If your tests need a Python client, install
-your preferred client directly, for example:
-
-.. code-block:: bash
-
-   pip install oracledb
-
 Usage Example
 -------------
 
