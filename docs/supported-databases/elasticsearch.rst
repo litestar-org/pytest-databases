@@ -19,8 +19,7 @@ For Elasticsearch 8.x:
 
    pip install pytest-databases[elasticsearch8]
 
-The ``elasticsearch7`` and ``elasticsearch8`` extras are kept as compatibility groups. The fixtures provide a running
-Elasticsearch service and validate readiness with stdlib ``urllib.request`` against ``/_cluster/health``. Install the
+The ``elasticsearch7`` and ``elasticsearch8`` extras are kept as compatibility groups. Install the
 Elasticsearch client that your application already uses.
 
 Usage Example
