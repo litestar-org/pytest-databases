@@ -16,6 +16,30 @@ if TYPE_CHECKING:
 
 DEFAULT_ACCOUNT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
 DEFAULT_ACCOUNT_NAME = "devstoreaccount1"
+AZURE_CLI_IMAGE = "mcr.microsoft.com/azure-cli:latest"
+
+
+def _bootstrap_azure_blob_container(
+    docker_service: DockerService,
+    *,
+    connection_string: str,
+    container_name: str,
+) -> None:
+    docker_service._client.containers.run(
+        AZURE_CLI_IMAGE,
+        [
+            "az",
+            "storage",
+            "container",
+            "create",
+            "--name",
+            container_name,
+            "--connection-string",
+            connection_string,
+        ],
+        network_mode="host",
+        remove=True,
+    )
 
 
 @dataclass
@@ -45,6 +69,7 @@ def azure_blob_service(
     docker_service: DockerService,
     azurite_in_memory: bool,
     azure_blob_xdist_isolation_level: XdistIsolationLevel,
+    azure_blob_default_container_name: str,
 ) -> Generator[ServiceContainer, None, None]:
     command = "azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck"
     if azurite_in_memory:
@@ -79,6 +104,12 @@ def azure_blob_service(
             f"AccountName={account_name};"
             f"AccountKey={account_key};"
             f"BlobEndpoint={account_url};"
+        )
+
+        _bootstrap_azure_blob_container(
+            docker_service,
+            connection_string=connection_string,
+            container_name=azure_blob_default_container_name,
         )
 
         yield AzureBlobService(
