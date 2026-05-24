@@ -17,8 +17,6 @@ Usage Example
 
 .. code-block:: python
 
-    import contextlib
-
     from google.api_core.client_options import ClientOptions
     from google.auth.credentials import AnonymousCredentials
     from google.cloud import spanner
@@ -35,16 +33,13 @@ Usage Example
             client_options=ClientOptions(api_endpoint=spanner_service.endpoint),
         )
         instance = client.instance(spanner_service.instance_name)
-        with contextlib.suppress(Exception):
-            instance.create()
-
         database = instance.database(spanner_service.database_name)
-        with contextlib.suppress(Exception):
-            database.create()
 
         with database.snapshot() as snapshot:
             row = next(iter(snapshot.execute_sql("SELECT 1")))
         assert row[0] == 1
+
+The default instance and database are created automatically and ready to use.
 
 Available Fixtures
 ------------------
