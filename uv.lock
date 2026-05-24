@@ -1299,53 +1299,11 @@ wheels = [
 ]
 
 [[package]]
-name = "elastic-transport"
-version = "8.17.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "certifi" },
-    { name = "urllib3", version = "1.26.20", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "urllib3", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6a/54/d498a766ac8fa475f931da85a154666cc81a70f8eb4a780bc8e4e934e9ac/elastic_transport-8.17.1.tar.gz", hash = "sha256:5edef32ac864dca8e2f0a613ef63491ee8d6b8cfb52881fa7313ba9290cac6d2", size = 73425, upload-time = "2025-03-13T07:28:30.776Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/cd/b71d5bc74cde7fc6fd9b2ff9389890f45d9762cbbbf81dc5e51fd7588c4a/elastic_transport-8.17.1-py3-none-any.whl", hash = "sha256:192718f498f1d10c5e9aa8b9cf32aed405e469a7f0e9d6a8923431dbb2c59fb8", size = 64969, upload-time = "2025-03-13T07:28:29.031Z" },
-]
-
-[[package]]
-name = "elasticsearch7"
-version = "7.17.13"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "certifi" },
-    { name = "urllib3", version = "1.26.20", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "urllib3", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/93/5351f7bc0d2792e1dd20679025500010ad183efb9461ee5b1b37ebdca3c1/elasticsearch7-7.17.13.tar.gz", hash = "sha256:54e7fa8f9e6e14b83e14083b6df5893d32e7c0c92ef49b1c2e814cea299f2faf", size = 248529, upload-time = "2026-01-12T18:12:32.121Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/4c/69e911438d0ab15b3023603bf9b69d82d73a57137af0134d58075b99d749/elasticsearch7-7.17.13-py2.py3-none-any.whl", hash = "sha256:92c7f6c225d8d8055b60529214c001076e47754ad696ce266223e6271c15ac9c", size = 386566, upload-time = "2026-01-12T18:12:29.165Z" },
-]
-
-[[package]]
-name = "elasticsearch8"
-version = "8.19.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "elastic-transport" },
-    { name = "python-dateutil" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/53/6a/1a7d54c1aee0a96870aa54375da4b4a6d5390dd767c917de58242d3d49b8/elasticsearch8-8.19.3.tar.gz", hash = "sha256:7effe95b360241b6d56ef68219037a90ad0f56723614db54bbe57d33058402f4", size = 800428, upload-time = "2025-12-23T12:56:01.961Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/90/ff/1033bf0048d8492c1bcfcf058511dff119895ba50888c7a6e364aa3b168f/elasticsearch8-8.19.3-py3-none-any.whl", hash = "sha256:4b52e59e68aea6f59bf37c28f6f4512333302dd8a52e26c17d0f10c076d833a1", size = 953171, upload-time = "2025-12-23T12:55:58.781Z" },
-]
-
-[[package]]
 name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -3993,12 +3951,6 @@ dragonfly = [
     { name = "redis", version = "7.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "redis", version = "7.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
-elasticsearch7 = [
-    { name = "elasticsearch7" },
-]
-elasticsearch8 = [
-    { name = "elasticsearch8" },
-]
 gizmosql = [
     { name = "adbc-driver-flightsql", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "adbc-driver-flightsql", version = "1.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -4169,8 +4121,6 @@ requires-dist = [
     { name = "adbc-driver-flightsql", marker = "extra == 'gizmosql'" },
     { name = "azure-storage-blob", marker = "extra == 'azure-storage'" },
     { name = "docker" },
-    { name = "elasticsearch7", marker = "extra == 'elasticsearch7'" },
-    { name = "elasticsearch8", marker = "extra == 'elasticsearch8'" },
     { name = "filelock" },
     { name = "google-cloud-bigquery", marker = "extra == 'bigquery'" },
     { name = "google-cloud-spanner", marker = "extra == 'spanner'" },
