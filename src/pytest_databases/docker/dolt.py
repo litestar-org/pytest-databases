@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
+from docker.errors import APIError, NotFound
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
@@ -104,26 +105,40 @@ def _provide_dolt_service(
         transient=isolation_level == "server",
         platform=platform,
     ) as service:
-        # Final setup: ensure the worker-specific database exists and permissions are correct
+        # Ensure the worker-specific database exists and permissions are correct.
+        # Grant global privileges to the app user so tests can create databases
+        # if needed, matching the MySQL/MariaDB pattern.
         container_name = f"pytest_databases_{name}"
-        container = docker_service._get_container(container_name)
-        if container:
-            # Dolt SQL setup for database and user permissions
-            # We grant global privileges to the app user so they can create databases in tests if needed,
-            # matching the MySQL/MariaDB pattern.
-            setup_sql = (
-                f"CREATE DATABASE IF NOT EXISTS {db_name}; "
-                f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
-                "FLUSH PRIVILEGES;"
-            )
-            # Retry setup a few times if it fails
-            for _ in range(5):
-                res = container.exec_run(
-                    ["dolt", "sql", "-q", setup_sql],
-                )
-                if res.exit_code == 0:
-                    break
+        setup_sql = (
+            f"CREATE DATABASE IF NOT EXISTS {db_name}; GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; FLUSH PRIVILEGES;"
+        )
+        # Refetch the container on each attempt: with transient containers under
+        # parallel xdist, the post-readiness window can race with auto-remove and
+        # a handle cached above the loop would 404 on every retry.
+        last_error: str | None = None
+        for attempt in range(5):
+            container = docker_service._get_container(container_name)
+            if container is None:
+                last_error = "container not found"
+            else:
+                try:
+                    res = container.exec_run(["dolt", "sql", "-q", setup_sql])
+                except NotFound:
+                    last_error = "container removed mid-exec"
+                except APIError as exc:
+                    if exc.status_code not in {404, 409}:
+                        raise
+                    last_error = f"docker api {exc.status_code}"
+                else:
+                    if res.exit_code == 0:
+                        break
+                    raw = res.output if isinstance(res.output, bytes) else b""
+                    last_error = f"exit {res.exit_code}: {raw.decode(errors='replace').strip()}"
+            if attempt < 4:
                 time.sleep(1)
+        else:
+            msg = f"Dolt setup SQL failed after 5 attempts: {last_error}"
+            raise RuntimeError(msg)
 
         yield DoltService(
             host=service.host,
