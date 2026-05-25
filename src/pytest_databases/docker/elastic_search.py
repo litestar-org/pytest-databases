@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import traceback
+import json
+import urllib.error
+import urllib.request
 from typing import TYPE_CHECKING
 
 import pytest
-from elasticsearch7 import Elasticsearch as Elasticsearch7
-from elasticsearch7 import Elasticsearch as Elasticsearch8
 
 from pytest_databases.types import ServiceContainer
 
@@ -25,25 +25,19 @@ class ElasticsearchService(ServiceContainer):
     database: str
 
 
-def elasticsearch7_responsive(scheme: str, host: str, port: int, user: str, password: str, database: str) -> bool:
+def _check_cluster_health(host: str, port: int, *, timeout: float = 2.0) -> bool:
+    request = urllib.request.Request(
+        f"http://{host}:{port}/_cluster/health",
+        headers={"Accept": "application/json"},
+    )
     try:
-        with Elasticsearch7(
-            hosts=[{"host": host, "port": port, "scheme": scheme}], verify_certs=False, http_auth=(user, password)
-        ) as client:
-            return client.ping()
-    except Exception:  # noqa: BLE001
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+            if response.status != 200:
+                return False
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError):
         return False
-
-
-def elasticsearch8_responsive(scheme: str, host: str, port: int, user: str, password: str, database: str) -> bool:
-    try:
-        with Elasticsearch8(
-            hosts=[{"host": host, "port": port, "scheme": scheme}], verify_certs=False, basic_auth=(user, password)
-        ) as client:
-            return client.ping()
-    except Exception:  # noqa: BLE001
-        traceback.print_exc()
-        return False
+    return payload.get("status") in {"yellow", "green"}
 
 
 @pytest.fixture(scope="session")
@@ -56,7 +50,6 @@ def _provide_elasticsearch_service(
     docker_service: DockerService,
     image: str,
     name: str,
-    client_cls: type[Elasticsearch7 | Elasticsearch8],
     memory_limit: str,
 ) -> Generator[ElasticsearchService, None, None]:
     user = "elastic"
@@ -65,15 +58,7 @@ def _provide_elasticsearch_service(
     scheme = "http"
 
     def check(_service: ServiceContainer) -> bool:
-        try:
-            with client_cls(
-                hosts=[{"host": _service.host, "port": _service.port, "scheme": scheme}],
-                verify_certs=False,
-                http_auth=(user, password),
-            ) as client:
-                return client.ping()
-        except Exception:  # noqa: BLE001
-            return False
+        return _check_cluster_health(_service.host, _service.port)
 
     with docker_service.run(
         image=image,
@@ -82,6 +67,8 @@ def _provide_elasticsearch_service(
         env={
             "discovery.type": "single-node",
             "xpack.security.enabled": "false",
+            "ingest.geoip.downloader.enabled": "false",
+            "cluster.routing.allocation.disk.threshold_enabled": "false",
         },
         check=check,
         timeout=120,
@@ -109,7 +96,6 @@ def elasticsearch_7_service(
         docker_service=docker_service,
         image="elasticsearch:7.17.19",
         name="elasticsearch-7",
-        client_cls=Elasticsearch7,
         memory_limit=elasticsearch_service_memory_limit,
     ) as service:
         yield service
@@ -124,12 +110,11 @@ def elasticsearch_8_service(
         docker_service=docker_service,
         image="elasticsearch:8.13.0",
         name="elasticsearch-8",
-        client_cls=Elasticsearch8,
         memory_limit=elasticsearch_service_memory_limit,
     ) as service:
         yield service
 
 
 @pytest.fixture(autouse=False, scope="session")
-def elasticsearch_service(elasticsearch8_service: ElasticsearchService) -> ElasticsearchService:
-    return elasticsearch8_service
+def elasticsearch_service(elasticsearch_8_service: ElasticsearchService) -> ElasticsearchService:
+    return elasticsearch_8_service
