@@ -1,9 +1,8 @@
 BigQuery
 ========
 
-Integration with `Google BigQuery <https://cloud.google.com/bigquery>`_ using the `BigQuery Emulator <https://github.com/goccy/bigquery-emulator>`_
-
-This integration uses the official `Google Cloud BigQuery Python Client <https://cloud.google.com/python/docs/reference/bigquery/latest>`_ for testing against the BigQuery Emulator. The emulator is a third-party project that provides a local development environment that mimics the behavior of BigQuery, allowing you to test your application without connecting to the actual service.
+Integration with `Google BigQuery <https://cloud.google.com/bigquery>`_ using the
+`BigQuery Emulator <https://github.com/goccy/bigquery-emulator>`_.
 
 Installation
 ------------
@@ -12,37 +11,39 @@ Installation
 
    pip install pytest-databases[bigquery]
 
+The ``bigquery`` extra is kept as a compatibility group. Install the BigQuery client
+that your application already uses.
+
 Usage Example
 -------------
 
 .. code-block:: python
 
-    import pytest
+    from google.api_core.client_options import ClientOptions
+    from google.auth.credentials import AnonymousCredentials
     from google.cloud import bigquery
+
     from pytest_databases.docker.bigquery import BigQueryService
 
     pytest_plugins = ["pytest_databases.docker.bigquery"]
 
+
     def test(bigquery_service: BigQueryService) -> None:
         client = bigquery.Client(
             project=bigquery_service.project,
-            client_options=bigquery_service.client_options,
-            credentials=bigquery_service.credentials,
+            client_options=ClientOptions(api_endpoint=bigquery_service.endpoint),
+            credentials=AnonymousCredentials(),
         )
 
-        job = client.query(query="SELECT 1 as one")
-        resp = list(job.result())
-        assert resp[0].one == 1
-
-    def test(bigquery_client: bigquery.Client) -> None:
-        assert isinstance(bigquery_client, bigquery.Client)
+        job = client.query(query="SELECT 1 AS one")
+        rows = list(job.result())
+        assert rows[0].one == 1
 
 Available Fixtures
 ------------------
 
-* ``bigquery_image``: The Docker image to use for BigQuery.
-* ``bigquery_service``: A fixture that provides a BigQuery service.
-* ``bigquery_client``: A fixture that provides a BigQuery client.
+* ``bigquery_image``: The Docker image to use for the BigQuery emulator.
+* ``bigquery_service``: A fixture that provides a running BigQuery emulator service.
 
 Service API
 -----------

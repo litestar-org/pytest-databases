@@ -60,7 +60,7 @@ Source = "https://github.com/litestar-org/pytest-databases"
 
 [project.optional-dependencies]
 azure-storage = ["azure-storage-blob"]
-bigquery = ["google-cloud-bigquery"]
+bigquery = []
 cockroachdb = ["psycopg"]
 dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7"]
@@ -194,10 +194,6 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 disable_error_code = "attr-defined"
 module = "pytest_databases.docker.spanner"
-
-[[tool.mypy.overrides]]
-disable_error_code = "attr-defined"
-module = "pytest_databases.docker.bigquery"
 
 [[tool.mypy.overrides]]
 disable_error_code = "attr-defined"

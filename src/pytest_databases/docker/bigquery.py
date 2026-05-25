@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import json
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from google.api_core.client_options import ClientOptions
-from google.auth.credentials import AnonymousCredentials, Credentials
-from google.cloud import bigquery
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
@@ -36,15 +36,29 @@ def platform() -> str:
 class BigQueryService(ServiceContainer):
     project: str
     dataset: str
-    credentials: Credentials
 
     @property
     def endpoint(self) -> str:
         return f"http://{self.host}:{self.port}"
 
-    @property
-    def client_options(self) -> ClientOptions:
-        return ClientOptions(api_endpoint=self.endpoint)
+
+def _query_bigquery_emulator(
+    host: str,
+    port: int,
+    project: str,
+    sql: str,
+    *,
+    timeout: float = 2.0,
+) -> dict[str, Any]:
+    body = json.dumps({"query": sql, "useLegacySql": False}).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://{host}:{port}/bigquery/v2/projects/{project}/queries",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        return json.loads(response.read().decode("utf-8"))
 
 
 @pytest.fixture(scope="session")
@@ -64,17 +78,19 @@ def bigquery_service(
 
     def check(_service: ServiceContainer) -> bool:
         try:
-            client = bigquery.Client(
-                project=project,
-                client_options=ClientOptions(api_endpoint=f"http://{_service.host}:{_service.port}"),
-                credentials=AnonymousCredentials(),
+            payload = _query_bigquery_emulator(
+                _service.host,
+                _service.port,
+                project,
+                "SELECT 1 as one",
             )
-
-            job = client.query(query="SELECT 1 as one")
-
-            resp = list(job.result())
-            return resp[0].one == 1
-        except Exception:  # noqa: BLE001
+        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+            return False
+        if payload.get("jobComplete") is not True:
+            return False
+        try:
+            return payload["rows"][0]["f"][0]["v"] == "1"
+        except (KeyError, IndexError, TypeError):
             return False
 
     with docker_service.run(
@@ -97,14 +113,4 @@ def bigquery_service(
             container=service.container,
             project=project,
             dataset=dataset,
-            credentials=AnonymousCredentials(),
         )
-
-
-@pytest.fixture(scope="session")
-def bigquery_client(bigquery_service: BigQueryService) -> Generator[bigquery.Client, None, None]:
-    yield bigquery.Client(
-        project=bigquery_service.project,
-        client_options=bigquery_service.client_options,
-        credentials=bigquery_service.credentials,
-    )
