@@ -6,7 +6,7 @@ Integration with `GizmoSQL <https://github.com/gizmodata/gizmosql>`_, a high-per
 .. note::
 
    GizmoSQL always runs with TLS enabled using auto-generated self-signed certificates.
-   The connection fixtures automatically skip certificate verification for testing purposes.
+   When you connect from your own client code, configure TLS to skip certificate verification.
 
 Installation
 ------------
@@ -18,51 +18,41 @@ Installation
 Usage Example
 -------------
 
-Using the service fixture:
+The plugin ships only the service fixture. Bring your own Flight SQL client (for example
+``adbc-driver-flightsql``) and connect using the ``uri``, ``username``, and ``password``
+fields on ``GizmoSQLService``:
 
 .. code-block:: python
 
-    import pytest
+    from adbc_driver_flightsql import DatabaseOptions
     from adbc_driver_flightsql import dbapi as flightsql
-    from pytest_databases.docker.gizmosql import GizmoSQLService, _make_connection_kwargs
+    from pytest_databases.docker.gizmosql import GizmoSQLService
 
     pytest_plugins = ["pytest_databases.docker.gizmosql"]
 
+
     def test(gizmosql_service: GizmoSQLService) -> None:
-        db_kwargs = _make_connection_kwargs(
-            gizmosql_service.username,
-            gizmosql_service.password,
-        )
+        db_kwargs = {
+            "username": gizmosql_service.username,
+            "password": gizmosql_service.password,
+            DatabaseOptions.TLS_SKIP_VERIFY.value: "true",
+        }
         with flightsql.connect(
             uri=gizmosql_service.uri,
             db_kwargs=db_kwargs,
             autocommit=True,
         ) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+                cur.execute("""
+                    CREATE TABLE test_table (id INTEGER, name VARCHAR);
+                    INSERT INTO test_table VALUES (1, 'test');
+                """)
+
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM test_table")
                 result = cur.fetchone()
-                assert result is not None and result[0] == 1
-
-Using the connection fixture:
-
-.. code-block:: python
-
-    import pytest
-
-    pytest_plugins = ["pytest_databases.docker.gizmosql"]
-
-    def test(gizmosql_connection) -> None:
-        with gizmosql_connection.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE test_table (id INTEGER, name VARCHAR);
-                INSERT INTO test_table VALUES (1, 'test');
-            """)
-
-        with gizmosql_connection.cursor() as cur:
-            cur.execute("SELECT * FROM test_table")
-            result = cur.fetchone()
-            assert result is not None
-            assert result[0] == 1
+                assert result is not None
+                assert result[0] == 1
 
 .. note::
 
@@ -76,7 +66,6 @@ Available Fixtures
 * ``gizmosql_username``: The username for authentication.
 * ``gizmosql_password``: The password for authentication.
 * ``gizmosql_service``: A fixture that provides a GizmoSQL service container.
-* ``gizmosql_connection``: A fixture that provides an ADBC Flight SQL connection.
 * ``xdist_gizmosql_isolation_level``: Xdist isolation level (default: ``server``).
 
 Parallel Testing (xdist)

@@ -65,7 +65,7 @@ cockroachdb = ["psycopg"]
 dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
-gizmosql = ["adbc-driver-flightsql", "pyarrow"]
+gizmosql = []
 keydb = ["redis"]
 mariadb = []
 mongodb = ["pymongo"]
@@ -385,7 +385,9 @@ line-length = 120
 
 [tool.pytest.ini_options]
 addopts = "--doctest-glob='*.md' --dist=loadgroup"
-cdist-group-steal = "3:10"
+# Keep the middle shard non-empty when file justification moves a large test file
+# across cdist chunk boundaries. pytest-cdist 0.3.x accepts only one steal entry.
+cdist-group-steal = "2:10"
 cdist-justify-items = "file"
 filterwarnings = [
   "ignore::DeprecationWarning:pkg_resources",
