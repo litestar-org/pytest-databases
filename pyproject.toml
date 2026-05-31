@@ -61,7 +61,7 @@ Source = "https://github.com/litestar-org/pytest-databases"
 [project.optional-dependencies]
 azure-storage = ["azure-storage-blob"]
 bigquery = ["google-cloud-bigquery"]
-cockroachdb = ["psycopg"]
+cockroachdb = []
 dragonfly = ["redis"]
 elasticsearch7 = ["elasticsearch7"]
 elasticsearch8 = ["elasticsearch8"]
