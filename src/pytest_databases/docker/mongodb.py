@@ -1,25 +1,59 @@
 from __future__ import annotations
 
 import contextlib
-import traceback
 from collections.abc import Generator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import pymongo
 import pytest
-from pymongo.errors import ConnectionFailure
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterator
 
-    from pymongo import MongoClient
-    from pymongo.database import Database
+    from docker.models.containers import Container
 
     from pytest_databases._service import DockerService
+
+
+def _output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
+    if isinstance(output, bytes):
+        return output
+    if isinstance(output, str):
+        return output.encode()
+    return b"".join(output)
+
+
+def _exec_mongosh(
+    container: Container,
+    eval_script: str,
+    *,
+    user: str,
+    password: str,
+    database: str | None = None,
+) -> tuple[int, bytes]:
+    cmd = [
+        "mongosh",
+        "--quiet",
+        "--host",
+        "localhost",
+        "--port",
+        "27017",
+        "-u",
+        user,
+        "-p",
+        password,
+        "--authenticationDatabase",
+        "admin",
+    ]
+    if database is not None:
+        cmd.append(database)
+    cmd.extend(["--eval", eval_script])
+    result = container.exec_run(cmd)
+    exit_code = result.exit_code if result.exit_code is not None else -1
+    return exit_code, _output_to_bytes(result.output)
 
 
 @dataclass
@@ -56,26 +90,13 @@ def _provide_mongodb_service(
             database_name += suffix
 
     def check(_service: ServiceContainer) -> bool:
-        client: MongoClient | None = None
-        try:
-            client = pymongo.MongoClient(
-                host=_service.host,
-                port=_service.port,
-                username=username,
-                password=password,
-                serverSelectionTimeoutMS=2000,  # Increased timeout for robust check
-                connectTimeoutMS=2000,
-                socketTimeoutMS=2000,
-            )
-            client.admin.command("ping")
-        except ConnectionFailure:
-            traceback.print_exc()
-            return False
-        else:
-            return True
-        finally:
-            if client:
-                client.close()
+        exit_code, output = _exec_mongosh(
+            _service.container,
+            "print(db.adminCommand('ping').ok)",
+            user=username,
+            password=password,
+        )
+        return exit_code == 0 and output.strip().endswith(b"1")
 
     with docker_service.run(
         image=image,
@@ -113,34 +134,3 @@ def mongodb_service(
 ) -> Generator[MongoDBService, None, None]:
     with _provide_mongodb_service(docker_service, mongodb_image, "mongodb", xdist_mongodb_isolation_level) as service:
         yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mongodb_connection(mongodb_service: MongoDBService) -> Generator[MongoClient, None, None]:
-    client: MongoClient | None = None
-    try:
-        client = pymongo.MongoClient(
-            host=mongodb_service.host,
-            port=mongodb_service.port,
-            username=mongodb_service.username,
-            password=mongodb_service.password,
-        )
-        yield client
-    finally:
-        if client:
-            client.close()
-
-
-@pytest.fixture(autouse=False, scope="function")
-def mongodb_database(
-    mongodb_connection: MongoClient, mongodb_service: MongoDBService
-) -> Generator[Database, None, None]:
-    """Provides a MongoDB database instance for testing.
-
-    Yields:
-        A MongoDB database instance.
-    """
-    yield mongodb_connection[mongodb_service.database]
-    # For a truly clean state per test, you might consider dropping the database here,
-    # but it depends on the desired test isolation and speed.
-    # e.g., mongodb_connection.drop_database(mongodb_service.database)
