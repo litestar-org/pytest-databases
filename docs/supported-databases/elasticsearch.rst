@@ -1,12 +1,8 @@
 Elasticsearch
 =============
 
-Integration with `Elasticsearch <https://www.elastic.co/elasticsearch/>`_
-
-The following Docker images are supported:
-
-* `Elasticsearch Docker Images <https://www.docker.elastic.co/>`_
-
+Integration with `Elasticsearch <https://www.elastic.co/elasticsearch/>`_ using the
+`Elasticsearch Docker Images <https://www.docker.elastic.co/>`_.
 
 Installation
 ------------
@@ -23,6 +19,8 @@ For Elasticsearch 8.x:
 
    pip install pytest-databases[elasticsearch8]
 
+The ``elasticsearch7`` and ``elasticsearch8`` extras are kept as compatibility groups. Install the
+Elasticsearch client that your application already uses.
 
 Usage Example
 -------------
@@ -31,13 +29,12 @@ For Elasticsearch 7.x:
 
 .. code-block:: python
 
-    import pytest
     from elasticsearch7 import Elasticsearch
     from pytest_databases.docker.elastic_search import ElasticsearchService
 
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
-    def test(elasticsearch_7_service: ElasticsearchService) -> None:
+    def test_elasticsearch_7(elasticsearch_7_service: ElasticsearchService) -> None:
         with Elasticsearch(
             hosts=[
                 {
@@ -56,13 +53,12 @@ For Elasticsearch 8.x:
 
 .. code-block:: python
 
-    import pytest
     from elasticsearch8 import Elasticsearch
     from pytest_databases.docker.elastic_search import ElasticsearchService
 
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
-    def test(elasticsearch_8_service: ElasticsearchService) -> None:
+    def test_elasticsearch_8(elasticsearch_8_service: ElasticsearchService) -> None:
         with Elasticsearch(
             hosts=[
                 {
@@ -81,7 +77,7 @@ Available Fixtures
 ------------------
 
 * ``elasticsearch_service_memory_limit``: The memory limit for the Elasticsearch service (default: ``500m``)
-* ``elasticsearch_service``: A fixture that provides an Elasticsearch service.
+* ``elasticsearch_service``: A fixture that provides an Elasticsearch service (aliases ``elasticsearch_8_service``).
 
 The following version-specific fixtures are also available:
 
