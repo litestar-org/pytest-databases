@@ -3794,9 +3794,6 @@ redis = [
     { name = "redis", version = "7.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "redis", version = "7.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
-spanner = [
-    { name = "google-cloud-spanner" },
-]
 
 [package.dev-dependencies]
 build = [
@@ -3807,6 +3804,7 @@ dev = [
     { name = "bump-my-version" },
     { name = "coverage", version = "7.10.7", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version < '3.10'" },
     { name = "coverage", version = "7.14.0", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version >= '3.10'" },
+    { name = "google-cloud-spanner" },
     { name = "mypy", version = "1.19.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "mypy", version = "2.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "myst-parser", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -3921,6 +3919,7 @@ lint = [
 test = [
     { name = "coverage", version = "7.10.7", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version < '3.10'" },
     { name = "coverage", version = "7.14.0", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version >= '3.10'" },
+    { name = "google-cloud-spanner" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest-cdist", version = "0.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -3939,7 +3938,6 @@ requires-dist = [
     { name = "docker" },
     { name = "filelock" },
     { name = "google-cloud-bigquery", marker = "extra == 'bigquery'" },
-    { name = "google-cloud-spanner", marker = "extra == 'spanner'" },
     { name = "psycopg", marker = "extra == 'postgres'", specifier = ">=3" },
     { name = "pyarrow", marker = "extra == 'gizmosql'" },
     { name = "pytest" },
@@ -3955,6 +3953,7 @@ dev = [
     { name = "auto-pytabs", extras = ["sphinx"], specifier = ">=0.5.0" },
     { name = "bump-my-version" },
     { name = "coverage", extras = ["toml"], specifier = ">=6.2" },
+    { name = "google-cloud-spanner" },
     { name = "mypy" },
     { name = "myst-parser" },
     { name = "pre-commit" },
@@ -4024,6 +4023,7 @@ lint = [
 ]
 test = [
     { name = "coverage", extras = ["toml"], specifier = ">=6.2" },
+    { name = "google-cloud-spanner" },
     { name = "pytest" },
     { name = "pytest-cdist", specifier = ">=0.2" },
     { name = "pytest-click" },
