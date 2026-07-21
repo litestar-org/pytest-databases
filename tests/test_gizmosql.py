@@ -76,6 +76,38 @@ def test(gizmosql_service: GizmoSQLService) -> None:
     result.assert_outcomes(passed=1)
 
 
+def test_backend_specific_service_fixtures(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(f"""
+from pytest_databases.docker.gizmosql import GizmoSQLService
+
+pytest_plugins = ["pytest_databases.docker.gizmosql"]
+
+{GIZMOSQL_TEST_HELPERS}
+
+def configured_backend(service: GizmoSQLService) -> str:
+    prefix = "DATABASE_BACKEND="
+    return next(value.removeprefix(prefix) for value in service.container.attrs["Config"]["Env"] if value.startswith(prefix))
+
+
+def test(
+    gizmosql_service: GizmoSQLService,
+    gizmosql_duckdb_service: GizmoSQLService,
+    gizmosql_sqlite_service: GizmoSQLService,
+) -> None:
+    assert gizmosql_service is gizmosql_duckdb_service
+    assert gizmosql_duckdb_service.container.id != gizmosql_sqlite_service.container.id
+    assert gizmosql_duckdb_service.container.name.endswith("gizmosql-duckdb")
+    assert gizmosql_sqlite_service.container.name.endswith("gizmosql-sqlite")
+    assert configured_backend(gizmosql_duckdb_service) == "duckdb"
+    assert configured_backend(gizmosql_sqlite_service) == "sqlite"
+    assert "1" in run_gizmosql(gizmosql_duckdb_service, "SELECT 1")
+    assert "1" in run_gizmosql(gizmosql_sqlite_service, "SELECT 1")
+""")
+
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
+    result.assert_outcomes(passed=1)
+
+
 def test_service_ddl_dml(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(f"""
 from pytest_databases.docker.gizmosql import GizmoSQLService
@@ -119,23 +151,31 @@ def xdist_gizmosql_isolation_level():
 
 {GIZMOSQL_TEST_HELPERS}
 
-def test_one(gizmosql_service: GizmoSQLService) -> None:
-    run_gizmosql(
-        gizmosql_service,
-        "CREATE TABLE worker_test (id INTEGER); INSERT INTO worker_test VALUES (1);",
-    )
-    output = run_gizmosql(gizmosql_service, "SELECT id FROM worker_test")
-    assert "1" in output
+def test_one(
+    gizmosql_duckdb_service: GizmoSQLService,
+    gizmosql_sqlite_service: GizmoSQLService,
+) -> None:
+    for service in (gizmosql_duckdb_service, gizmosql_sqlite_service):
+        run_gizmosql(
+            service,
+            "CREATE TABLE worker_test (id INTEGER); INSERT INTO worker_test VALUES (1);",
+        )
+        output = run_gizmosql(service, "SELECT id FROM worker_test")
+        assert "1" in output
 
 
-def test_two(gizmosql_service: GizmoSQLService) -> None:
-    # Would fail if sharing the same container since worker_test already exists
-    run_gizmosql(
-        gizmosql_service,
-        "CREATE TABLE worker_test (id INTEGER); INSERT INTO worker_test VALUES (2);",
-    )
-    output = run_gizmosql(gizmosql_service, "SELECT id FROM worker_test")
-    assert "2" in output
+def test_two(
+    gizmosql_duckdb_service: GizmoSQLService,
+    gizmosql_sqlite_service: GizmoSQLService,
+) -> None:
+    for service in (gizmosql_duckdb_service, gizmosql_sqlite_service):
+        # Would fail if sharing the same backend container across workers.
+        run_gizmosql(
+            service,
+            "CREATE TABLE worker_test (id INTEGER); INSERT INTO worker_test VALUES (2);",
+        )
+        output = run_gizmosql(service, "SELECT id FROM worker_test")
+        assert "2" in output
 """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")

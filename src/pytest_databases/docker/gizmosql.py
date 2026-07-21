@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
@@ -94,47 +95,103 @@ def gizmosql_password() -> str:
     return "gizmosql_password"
 
 
-@pytest.fixture(autouse=False, scope="session")
-def gizmosql_service(
+@contextlib.contextmanager
+def _provide_gizmosql_service(
     docker_service: DockerService,
-    xdist_gizmosql_isolation_level: XdistIsolationLevel,
-    gizmosql_image: str,
-    gizmosql_username: str,
-    gizmosql_password: str,
+    isolation_level: XdistIsolationLevel,
+    image: str,
+    username: str,
+    password: str,
+    backend: Literal["duckdb", "sqlite"],
 ) -> Generator[GizmoSQLService, None, None]:
     def check(_service: ServiceContainer) -> bool:
         exit_code, output = _exec_gizmosql(
             _service.container,
             "SELECT 1",
-            user=gizmosql_username,
-            password=gizmosql_password,
+            user=username,
+            password=password,
         )
         return exit_code == 0 and b"1" in output
 
     worker_num = get_xdist_worker_num()
-    name = "gizmosql"
+    name = f"gizmosql-{backend}"
     if worker_num is not None:
         name += f"_{worker_num}"
 
     env: dict[str, str] = {
-        "GIZMOSQL_PASSWORD": gizmosql_password,
-        "GIZMOSQL_USERNAME": gizmosql_username,
+        "DATABASE_BACKEND": backend,
+        "GIZMOSQL_PASSWORD": password,
+        "GIZMOSQL_USERNAME": username,
     }
 
     with docker_service.run(
-        image=gizmosql_image,
+        image=image,
         check=check,
         container_port=31337,
         name=name,
         env=env,
         timeout=90,
         pause=1.0,
-        transient=xdist_gizmosql_isolation_level == "server",
+        transient=isolation_level == "server",
     ) as service:
         yield GizmoSQLService(
             host=service.host,
             port=service.port,
             container=service.container,
-            username=gizmosql_username,
-            password=gizmosql_password,
+            username=username,
+            password=password,
         )
+
+
+@pytest.fixture(autouse=False, scope="session")
+def gizmosql_duckdb_service(
+    docker_service: DockerService,
+    xdist_gizmosql_isolation_level: XdistIsolationLevel,
+    gizmosql_image: str,
+    gizmosql_username: str,
+    gizmosql_password: str,
+) -> Generator[GizmoSQLService, None, None]:
+    """Provide a GizmoSQL service configured with the DuckDB backend.
+
+    Yields:
+        A DuckDB-backed GizmoSQL service.
+    """
+    with _provide_gizmosql_service(
+        docker_service=docker_service,
+        isolation_level=xdist_gizmosql_isolation_level,
+        image=gizmosql_image,
+        username=gizmosql_username,
+        password=gizmosql_password,
+        backend="duckdb",
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def gizmosql_sqlite_service(
+    docker_service: DockerService,
+    xdist_gizmosql_isolation_level: XdistIsolationLevel,
+    gizmosql_image: str,
+    gizmosql_username: str,
+    gizmosql_password: str,
+) -> Generator[GizmoSQLService, None, None]:
+    """Provide a GizmoSQL service configured with the SQLite backend.
+
+    Yields:
+        A SQLite-backed GizmoSQL service.
+    """
+    with _provide_gizmosql_service(
+        docker_service=docker_service,
+        isolation_level=xdist_gizmosql_isolation_level,
+        image=gizmosql_image,
+        username=gizmosql_username,
+        password=gizmosql_password,
+        backend="sqlite",
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def gizmosql_service(gizmosql_duckdb_service: GizmoSQLService) -> GizmoSQLService:
+    """Provide the default DuckDB-backed GizmoSQL service."""
+    return gizmosql_duckdb_service

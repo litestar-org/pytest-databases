@@ -18,9 +18,9 @@ Installation
 Usage Example
 -------------
 
-The plugin ships only the service fixture. Bring your own Flight SQL client (for example
-``adbc-driver-flightsql``) and connect using the ``uri``, ``username``, and ``password``
-fields on ``GizmoSQLService``:
+The plugin ships service fixtures without a Python Flight SQL client dependency. Bring your
+own client (for example ``adbc-driver-flightsql``) and connect using the ``uri``, ``username``,
+and ``password`` fields on ``GizmoSQLService``. ``gizmosql_service`` uses DuckDB by default:
 
 .. code-block:: python
 
@@ -65,16 +65,31 @@ Available Fixtures
 * ``gizmosql_image``: The Docker image to use for GizmoSQL (default: ``gizmodata/gizmosql:latest``).
 * ``gizmosql_username``: The username for authentication.
 * ``gizmosql_password``: The password for authentication.
-* ``gizmosql_service``: A fixture that provides a GizmoSQL service container.
+* ``gizmosql_duckdb_service``: A GizmoSQL service explicitly configured with the DuckDB backend.
+* ``gizmosql_sqlite_service``: A GizmoSQL service explicitly configured with the SQLite backend.
+* ``gizmosql_service``: The backward-compatible default, which returns ``gizmosql_duckdb_service``.
 * ``xdist_gizmosql_isolation_level``: Xdist isolation level (default: ``server``).
+
+Both backend-specific fixtures can be requested in the same test session. They use distinct
+containers and share the image, username, password, TLS, readiness, and teardown configuration:
+
+.. code-block:: python
+
+    from pytest_databases.docker.gizmosql import GizmoSQLService
+
+
+    def test_backends(
+        gizmosql_duckdb_service: GizmoSQLService,
+        gizmosql_sqlite_service: GizmoSQLService,
+    ) -> None:
+        assert gizmosql_duckdb_service.uri != gizmosql_sqlite_service.uri
 
 Parallel Testing (xdist)
 ------------------------
 
-GizmoSQL only supports ``server`` isolation level for pytest-xdist parallel testing.
-This means each xdist worker gets its own dedicated container. Database-level isolation
-is not supported because DuckDB (the default backend) doesn't support multiple databases
-per instance.
+GizmoSQL only supports ``server`` isolation level for pytest-xdist parallel testing. Each
+xdist worker gets a dedicated container for every requested backend. Database-level isolation
+is not supported because the embedded backends do not provide independent server databases.
 
 .. code-block:: python
 
