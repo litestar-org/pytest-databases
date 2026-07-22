@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -230,7 +230,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: litestar-org/pytest-databases
           files: coverage.xml
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   ci-required:
     name: CI required
