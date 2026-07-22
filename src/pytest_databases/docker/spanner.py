@@ -40,8 +40,9 @@ def _bootstrap_spanner_emulator(
     instance_name: str,
     database_name: str,
 ) -> None:
-    docker_service._client.containers.run(
+    docker_service.run_container(
         SPANNER_GCLOUD_CLI_IMAGE,
+        service_name="spanner-bootstrap",
         entrypoint=["bash", "-c", _SPANNER_BOOTSTRAP_SCRIPT],
         environment={"PROJECT": project, "INSTANCE": instance_name, "DATABASE": database_name},
         network_mode=f"container:{emulator_container.id}",

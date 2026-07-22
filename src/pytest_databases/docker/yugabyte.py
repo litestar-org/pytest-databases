@@ -107,11 +107,14 @@ def _exec_ysqlsh(
     password: str | None = None,
 ) -> tuple[int, bytes]:
     environment = {"PGPASSWORD": password} if password is not None else None
-    result = container.exec_run([
-        "sh",
-        "-c",
-        _make_ysqlsh_command(sql, database=database, user=user),
-    ], environment=environment)
+    result = container.exec_run(
+        [
+            "sh",
+            "-c",
+            _make_ysqlsh_command(sql, database=database, user=user),
+        ],
+        environment=environment,
+    )
     return result.exit_code if result.exit_code is not None else -1, _output_to_bytes(result.output)
 
 
@@ -192,9 +195,13 @@ def _prepare_yugabyte_database(
     last_output = b""
     for attempt in range(15):
         role_ready, role_output = _ensure_yugabyte_role(container, user, password)
-        database_ready, database_output = _ensure_yugabyte_database(container, database, user) if role_ready else (False, role_output)
+        database_ready, database_output = (
+            _ensure_yugabyte_database(container, database, user) if role_ready else (False, role_output)
+        )
         access_ready, access_output = (
-            _verify_yugabyte_database_access(container, database, user, password) if database_ready else (False, database_output)
+            _verify_yugabyte_database_access(container, database, user, password)
+            if database_ready
+            else (False, database_output)
         )
         if access_ready:
             return
@@ -218,8 +225,9 @@ def _validate_mapped_endpoint(
     password: str,
 ) -> tuple[int, bytes]:
     try:
-        output = docker_service._client.containers.run(
+        output = docker_service.run_container(
             image=image,
+            service_name="yugabyte-validation",
             command=[
                 "sh",
                 "-c",

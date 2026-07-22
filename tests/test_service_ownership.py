@@ -2,6 +2,9 @@ from __future__ import annotations
 
 # ruff: noqa: PLC2701
 import stat
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
@@ -36,6 +39,23 @@ class FakeContainers:
 class FakeClient:
     def __init__(self, containers: FakeContainers | None = None) -> None:
         self.containers = containers or FakeContainers()
+
+
+class ConcurrentContainers(FakeContainers):
+    def __init__(self) -> None:
+        super().__init__()
+        self.active = 0
+        self.maximum_active = 0
+        self.guard = threading.Lock()
+
+    def run(self, *args: Any, **kwargs: Any) -> object:
+        with self.guard:
+            self.active += 1
+            self.maximum_active = max(self.maximum_active, self.active)
+        time.sleep(0.03)
+        with self.guard:
+            self.active -= 1
+        return super().run(*args, **kwargs)
 
 
 def make_service(tmp_path: Path, *, owner_id: str = "a" * 32, client: FakeClient | None = None) -> ContainerService:
@@ -114,6 +134,35 @@ def test_creation_lock_is_stable_per_runtime_and_user(tmp_path: Path) -> None:
     assert _creation_lock_path(runtime, temp_directory=tmp_path, uid=1000) != _creation_lock_path(
         runtime, temp_directory=tmp_path, uid=1001
     )
+
+
+def test_creation_lock_serializes_different_services_on_one_daemon(tmp_path: Path) -> None:
+    containers = ConcurrentContainers()
+    runtime = ResolvedRuntime(RuntimeType.DOCKER, "unix:///issue-152-test.sock", "test")
+    first = ContainerService(
+        client=FakeClient(containers),  # type: ignore[arg-type]
+        tmp_path=tmp_path,
+        session=Mock(),
+        owner_id="a" * 32,
+        runtime=runtime,
+    )
+    second = ContainerService(
+        client=FakeClient(containers),  # type: ignore[arg-type]
+        tmp_path=tmp_path,
+        session=Mock(),
+        owner_id="b" * 32,
+        runtime=runtime,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(first.run_container, "busybox", service_name="postgres"),
+            executor.submit(second.run_container, "busybox", service_name="mssql"),
+        ]
+        for future in futures:
+            future.result()
+
+    assert containers.maximum_active == 1
 
 
 def test_session_state_is_shared_and_written_private(tmp_path: Path) -> None:
