@@ -44,6 +44,7 @@ class RuntimeCandidate:
     expected_kind: RuntimeType | None
     context_name: str | None = None
     environment: tuple[tuple[str, str], ...] = ()
+    authoritative: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,12 @@ class ResolvedRuntime:
             context = ContextAPI.get_context(self.context_name)
             if context is None or context.Host is None:
                 message = f"Docker context {self.context_name!r} is unavailable"
+                raise RuntimeResolutionError(message)
+            if str(context.Host) != self.endpoint:
+                message = (
+                    f"Docker context {self.context_name!r} changed from {self.endpoint!r} "
+                    f"to {str(context.Host)!r} after runtime selection"
+                )
                 raise RuntimeResolutionError(message)
             return DockerClient(base_url=context.Host, tls=context.TLSConfig, timeout=self.timeout)
         if self.environment:
@@ -114,10 +121,27 @@ def parse_runtime_type(value: RuntimeType | str) -> RuntimeType:
 
 def classify_runtime(info: Mapping[str, object], version: Mapping[str, object]) -> RuntimeType:
     """Classify a reachable compatibility API from its server payloads."""
-    identity = json.dumps({"info": info, "version": version}, sort_keys=True, default=str).lower()
-    if "podman" in identity or "libpod" in identity:
+    del info
+    markers: list[str] = []
+    platform = version.get("Platform")
+    if isinstance(platform, Mapping) and isinstance(platform.get("Name"), str):
+        markers.append(platform["Name"])
+    components = version.get("Components")
+    if isinstance(components, list):
+        markers.extend(
+            component["Name"]
+            for component in components
+            if isinstance(component, Mapping) and isinstance(component.get("Name"), str)
+        )
+    identity = " ".join(markers).lower()
+    is_podman = "podman" in identity or "libpod" in identity
+    is_docker = "docker" in identity or "moby" in identity
+    if is_podman and is_docker:
+        message = "container API returned conflicting Docker and Podman identity fields"
+        raise RuntimeResolutionError(message)
+    if is_podman:
         return RuntimeType.PODMAN
-    if "docker" in identity or "moby" in identity:
+    if is_docker:
         return RuntimeType.DOCKER
     message = "reachable container API could not identify itself as Docker or Podman"
     raise RuntimeResolutionError(message)
@@ -156,28 +180,46 @@ def discover_runtime_candidates(
 ) -> list[RuntimeCandidate]:
     """Discover endpoints without invoking Docker, systemctl, sudo, or machine startup."""
     environment = dict(os.environ if environ is None else environ)
-    for variable in ("CONTAINER_HOST", "DOCKER_HOST"):
-        if endpoint := environment.get(variable, "").strip():
-            transport_environment = tuple(
-                sorted(
-                    ("DOCKER_HOST" if key == "CONTAINER_HOST" else key, value)
-                    for key, value in environment.items()
-                    if key in {"CONTAINER_HOST", "DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
-                )
+    selected_variable = next(
+        (variable for variable in ("CONTAINER_HOST", "DOCKER_HOST") if environment.get(variable, "").strip()),
+        None,
+    )
+    if selected_variable is not None:
+        endpoint = environment[selected_variable].strip()
+        transport_environment = {"DOCKER_HOST": endpoint}
+        transport_environment.update(
+            (key, environment[key]) for key in ("DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH") if key in environment
+        )
+        return [
+            RuntimeCandidate(
+                endpoint,
+                selected_variable,
+                None,
+                environment=tuple(sorted(transport_environment.items())),
+                authoritative=True,
             )
-            return [RuntimeCandidate(endpoint, variable, None, environment=transport_environment)]
+        ]
 
     candidates: list[RuntimeCandidate] = []
     if docker_context is _DEFAULT_CONTEXT:
         try:
-            docker_context = ContextAPI.get_current_context()
+            context_name = environment.get("DOCKER_CONTEXT", "").strip()
+            docker_context = ContextAPI.get_context(context_name) if context_name else ContextAPI.get_current_context()
         except (DockerException, KeyError, OSError, ValueError):
             docker_context = None
     if docker_context is not None:
         context_endpoint = getattr(docker_context, "Host", None)
         name = getattr(docker_context, "Name", None)
         if context_endpoint:
-            candidates.append(RuntimeCandidate(str(context_endpoint), f"Docker context {name}", None, str(name)))
+            candidates.append(
+                RuntimeCandidate(
+                    str(context_endpoint),
+                    f"Docker context {name}",
+                    None,
+                    str(name) if name is not None else None,
+                    authoritative=bool(environment.get("DOCKER_CONTEXT", "").strip()),
+                )
+            )
 
     candidates.append(RuntimeCandidate("unix:///var/run/docker.sock", "default Docker socket", RuntimeType.DOCKER))
     resolved_home = Path.home() if home is None else home
@@ -208,20 +250,22 @@ def _sanitize_endpoint(endpoint: str) -> str:
     return _CREDENTIAL_PATTERN.sub("***@", endpoint)
 
 
-def _default_probe(candidate: RuntimeCandidate) -> RuntimeType | None:
+def _default_probe(candidate: RuntimeCandidate) -> RuntimeType:
     descriptor = ResolvedRuntime(
         kind=candidate.expected_kind or RuntimeType.DOCKER,
         endpoint=candidate.endpoint,
         source=candidate.source,
         context_name=candidate.context_name,
         environment=candidate.environment,
+        timeout=5,
     )
     client: DockerClient | None = None
     try:
         client = descriptor.create_client()
         return classify_runtime(client.info(), client.version())
-    except (DockerException, ImportError, OSError, RuntimeResolutionError):
-        return None
+    except (DockerException, ImportError, OSError, RuntimeResolutionError) as error:
+        message = f"{type(error).__name__} while probing endpoint"
+        raise RuntimeResolutionError(message) from error
     finally:
         if client is not None:
             client.close()
@@ -236,30 +280,44 @@ def resolve_container_runtime(
     """Resolve a reachable runtime with Docker-first auto semantics."""
     runtime_type = parse_runtime_type(requested)
     available = list(discover_runtime_candidates() if candidates is None else candidates)
-    if runtime_type is RuntimeType.AUTO:
-        available.sort(
-            key=lambda candidate: (
-                0
-                if candidate.expected_kind is RuntimeType.DOCKER
-                else 2
-                if candidate.expected_kind is RuntimeType.PODMAN
-                else 1
-            )
-        )
     attempted: list[str] = []
+    podman_fallback: tuple[RuntimeCandidate, RuntimeType] | None = None
     for candidate in available:
         if runtime_type is not RuntimeType.AUTO and candidate.expected_kind not in {None, runtime_type}:
             continue
-        actual_kind = probe(candidate)
-        attempted.append(f"{candidate.source} ({_sanitize_endpoint(candidate.endpoint)})")
+        if runtime_type is RuntimeType.AUTO and podman_fallback is not None and candidate.expected_kind is RuntimeType.PODMAN:
+            continue
+        attempted_endpoint = f"{candidate.source} ({_sanitize_endpoint(candidate.endpoint)})"
+        try:
+            actual_kind = probe(candidate)
+        except RuntimeResolutionError as error:
+            attempted.append(f"{attempted_endpoint}: {error}")
+            continue
         if actual_kind is None:
+            attempted.append(f"{attempted_endpoint}: unavailable")
+            continue
+        attempted.append(f"{attempted_endpoint}: reported {actual_kind.value}")
+        if runtime_type is RuntimeType.AUTO and actual_kind is RuntimeType.PODMAN:
+            if podman_fallback is None:
+                podman_fallback = (candidate, actual_kind)
             continue
         if runtime_type is not RuntimeType.AUTO and actual_kind is not runtime_type:
-            message = (
-                f"requested {runtime_type.value} from {candidate.source}, but endpoint "
-                f"{_sanitize_endpoint(candidate.endpoint)} reported {actual_kind.value}"
-            )
-            raise RuntimeResolutionError(message)
+            if candidate.authoritative:
+                message = (
+                    f"requested {runtime_type.value} from {candidate.source}, but endpoint "
+                    f"{_sanitize_endpoint(candidate.endpoint)} reported {actual_kind.value}"
+                )
+                raise RuntimeResolutionError(message)
+            continue
+        return ResolvedRuntime(
+            actual_kind,
+            candidate.endpoint,
+            candidate.source,
+            candidate.context_name,
+            candidate.environment,
+        )
+    if podman_fallback is not None:
+        candidate, actual_kind = podman_fallback
         return ResolvedRuntime(
             actual_kind,
             candidate.endpoint,

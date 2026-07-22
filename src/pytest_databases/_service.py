@@ -90,10 +90,17 @@ def _stop_owned_containers(client: DockerClient, owner_id: str) -> None:
     _stop_filtered_containers(client, f"{OWNER_LABEL}={owner_id}")
 
 
-def cleanup_stale_containers(client: DockerClient | None = None) -> None:
+def cleanup_stale_containers(
+    client: DockerClient | None = None,
+    runtime: RuntimeType | str | ResolvedRuntime = RuntimeType.AUTO,
+) -> None:
     """Explicitly remove all managed leftovers after an interrupted test process."""
     owned_client = client is None
-    resolved_client = get_docker_client() if client is None else client
+    if client is None:
+        descriptor = runtime if isinstance(runtime, ResolvedRuntime) else resolve_container_runtime(runtime)
+        resolved_client = descriptor.create_client()
+    else:
+        resolved_client = client
     try:
         _stop_filtered_containers(resolved_client, f"{MANAGED_LABEL}=true")
     finally:
@@ -232,7 +239,9 @@ class ContainerService(AbstractContextManager):
         **kwargs: Any,
     ) -> Any:
         """Create a managed container inside the daemon-wide port-allocation lock."""
-        kwargs["labels"] = self.container_labels(service_name)
+        labels = dict(kwargs.pop("labels", {}))
+        labels.update(self.container_labels(service_name))
+        kwargs["labels"] = labels
         if "name" in kwargs:
             kwargs["name"] = self.container_name(service_name)
         with self._creation_lock:

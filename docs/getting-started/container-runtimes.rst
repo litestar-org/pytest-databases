@@ -88,6 +88,12 @@ explicitly:
 
    cleanup_stale_containers()
 
+When both engines are running, select which daemon to clean explicitly:
+
+.. code-block:: python
+
+   cleanup_stale_containers(runtime="podman")
+
 Troubleshooting
 ---------------
 

@@ -48,6 +48,16 @@ def test_classify_runtime_rejects_unknown_compatibility_api() -> None:
         classify_runtime({"Name": "unknown"}, {"Platform": {"Name": "OCI Engine"}})
 
 
+def test_classify_runtime_ignores_unrelated_host_metadata() -> None:
+    assert (
+        classify_runtime(
+            {"Name": "podman-build-runner"},
+            {"Platform": {"Name": "Docker Engine - Community"}},
+        )
+        is RuntimeType.DOCKER
+    )
+
+
 def test_environment_host_is_authoritative(tmp_path: Path) -> None:
     candidates = discover_runtime_candidates(
         environ={"DOCKER_HOST": "unix:///custom/podman.sock"},
@@ -61,6 +71,7 @@ def test_environment_host_is_authoritative(tmp_path: Path) -> None:
             source="DOCKER_HOST",
             expected_kind=None,
             environment=(("DOCKER_HOST", "unix:///custom/podman.sock"),),
+            authoritative=True,
         )
     ]
 
@@ -72,6 +83,20 @@ def test_container_host_is_forwarded_to_docker_sdk_environment(tmp_path: Path) -
         uid=1000,
     )
 
+    assert candidates[0].environment == (("DOCKER_HOST", "unix:///custom/podman.sock"),)
+
+
+def test_container_host_takes_precedence_without_leaking_docker_host(tmp_path: Path) -> None:
+    candidates = discover_runtime_candidates(
+        environ={
+            "CONTAINER_HOST": "unix:///custom/podman.sock",
+            "DOCKER_HOST": "unix:///custom/docker.sock",
+        },
+        home=tmp_path,
+        uid=1000,
+    )
+
+    assert candidates[0].endpoint == "unix:///custom/podman.sock"
     assert candidates[0].environment == (("DOCKER_HOST", "unix:///custom/podman.sock"),)
 
 
@@ -102,8 +127,8 @@ def test_auto_prefers_reachable_docker_over_podman() -> None:
     assert resolved == ResolvedRuntime(RuntimeType.DOCKER, docker.endpoint, docker.source)
 
 
-def test_explicit_runtime_never_falls_back_to_other_engine() -> None:
-    candidate = RuntimeCandidate("unix:///docker.sock", "DOCKER_HOST", None)
+def test_explicit_authoritative_runtime_never_falls_back_to_other_engine() -> None:
+    candidate = RuntimeCandidate("unix:///docker.sock", "DOCKER_HOST", None, authoritative=True)
 
     with pytest.raises(RuntimeResolutionError, match=r"requested podman.*reported docker"):
         resolve_container_runtime(
@@ -111,6 +136,20 @@ def test_explicit_runtime_never_falls_back_to_other_engine() -> None:
             candidates=[candidate],
             probe=lambda _: RuntimeType.DOCKER,
         )
+
+
+def test_explicit_podman_skips_non_authoritative_docker_context() -> None:
+    docker_context = RuntimeCandidate("unix:///docker.sock", "Docker context desktop", None)
+    podman_socket = RuntimeCandidate("unix:///podman.sock", "rootless Podman socket", RuntimeType.PODMAN)
+
+    resolved = resolve_container_runtime(
+        RuntimeType.PODMAN,
+        candidates=[docker_context, podman_socket],
+        probe=lambda candidate: RuntimeType.DOCKER if candidate is docker_context else RuntimeType.PODMAN,
+    )
+
+    assert resolved.kind is RuntimeType.PODMAN
+    assert resolved.endpoint == podman_socket.endpoint
 
 
 def test_resolution_sanitizes_endpoint_credentials() -> None:
