@@ -128,6 +128,23 @@ def _deduplicate(values: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def build_matrix(manifest: Mapping[str, Any], provider_ids: Sequence[str], *, full: bool) -> dict[str, Any]:
+    """Build selective or full provider/Python matrix cells."""
+    providers = manifest["providers"]
+    python_versions = manifest["supported_python_versions"] if full else ["3.12"]
+    return {
+        "include": [
+            {
+                "provider": provider_id,
+                "python-version": python_version,
+                "test_paths": providers[provider_id]["test_paths"],
+            }
+            for provider_id in provider_ids
+            for python_version in python_versions
+        ]
+    }
+
+
 def select_providers(
     manifest: Mapping[str, Any],
     changed_paths: Sequence[str],
@@ -185,26 +202,21 @@ def select_providers(
             reason = f"selected providers owning changed paths: {', '.join(selected_ids)}"
 
     images = sorted({image for provider_id in selected_ids for image in providers[provider_id]["images"]})
-    python_versions = manifest["supported_python_versions"] if full else ["3.12"]
-    matrix = {
-        "include": [
-            {
-                "provider": provider_id,
-                "python-version": python_version,
-                "test_paths": providers[provider_id]["test_paths"],
-            }
-            for provider_id in selected_ids
-            for python_version in python_versions
-        ]
-    }
+    test_paths = sorted({path for provider_id in selected_ids for path in providers[provider_id]["test_paths"]})
+    matrix = build_matrix(manifest, selected_ids, full=full)
     run_docs = full or any(_matches(path, manifest["docs_only_globs"]) for path in paths)
+    provider_job_count = len(matrix["include"])
+    image_pull_count = sum(len(providers[cell["provider"]]["images"]) for cell in matrix["include"])
     return {
         "mode": mode,
         "reason": reason,
         "changed_paths": paths,
         "providers": selected_ids,
         "images": images,
+        "test_paths": test_paths,
         "provider_matrix": matrix,
+        "provider_job_count": provider_job_count,
+        "image_pull_count": image_pull_count,
         "compatibility_test_paths": manifest["compatibility_test_paths"],
         "run_compatibility": bool(selected_ids),
         "run_docs": run_docs,
@@ -275,13 +287,39 @@ def write_github_outputs(path: Path, selection: Mapping[str, Any]) -> None:
 def render_summary(selection: Mapping[str, Any]) -> str:
     """Render a concise selection audit for the workflow summary."""
     providers = ", ".join(selection["providers"]) or "none"
+    changed_paths = "\n".join(f"- `{path}`" for path in selection["changed_paths"]) or "- none"
+    test_paths = "\n".join(f"- `{path}`" for path in selection["test_paths"]) or "- none"
+    images = "\n".join(f"- `{image}`" for image in selection["images"]) or "- none"
     return "\n".join([
         "## Provider-aware CI selection",
         "",
         f"- Mode: `{selection['mode']}`",
         f"- Providers: {providers}",
-        f"- Images: {len(selection['images'])}",
+        f"- Provider jobs: {selection['provider_job_count']}",
+        f"- Image pulls: {selection['image_pull_count']}",
         f"- Reason: {selection['reason']}",
+        "",
+        "### Changed paths",
+        "",
+        changed_paths,
+        "",
+        "### Selected tests",
+        "",
+        test_paths,
+        "",
+        "### Required images",
+        "",
+        images,
+        "",
+        "### Cost budgets",
+        "",
+        "| Scenario | Provider jobs | Image pulls |",
+        "| --- | ---: | ---: |",
+        "| Legacy eager PR baseline | 19 | about 540 |",
+        "| Docs-only target | 0 | 0 |",
+        "| Single-provider target | 1 | provider-owned only |",
+        "| Shared runtime target | 19 | 53 |",
+        "| Nightly/manual full target | 114 | 318 |",
     ])
 
 

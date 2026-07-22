@@ -128,6 +128,8 @@ def test_select_providers_full_mode(manifest: dict[str, Any]) -> None:
     assert set(result["providers"]) == EXPECTED_PROVIDERS
     assert result["reason"] == "ci:full label"
     assert len(result["provider_matrix"]["include"]) == len(EXPECTED_PROVIDERS) * 6
+    assert result["provider_job_count"] == 114
+    assert result["image_pull_count"] == 318
     assert {cell["python-version"] for cell in result["provider_matrix"]["include"]} == {
         "3.9",
         "3.10",
@@ -148,6 +150,8 @@ def test_selective_provider_matrix_uses_python_312(manifest: dict[str, Any]) -> 
             "test_paths": ["tests/test_bigquery.py"],
         }
     ]
+    assert result["provider_job_count"] == 1
+    assert result["image_pull_count"] == 1
 
 
 def test_docs_only_selection_skips_code_jobs_and_requests_docs(manifest: dict[str, Any]) -> None:
@@ -156,6 +160,8 @@ def test_docs_only_selection_skips_code_jobs_and_requests_docs(manifest: dict[st
     assert result["run_docs"] is True
     assert result["run_quality"] is False
     assert result["run_compatibility"] is False
+    assert result["provider_job_count"] == 0
+    assert result["image_pull_count"] == 0
 
 
 def test_parse_name_status_retains_deleted_and_both_renamed_paths() -> None:
