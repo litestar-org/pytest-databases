@@ -145,6 +145,27 @@ def test_managed_run_injects_owner_labels_and_namespaced_name(tmp_path: Path) ->
     }
 
 
+def test_service_run_forwards_custom_entrypoint(tmp_path: Path) -> None:
+    client = Mock()
+    client.containers.list.return_value = []
+    client.images.get.return_value = object()
+    container = Mock()
+    container.ports = {"1234/tcp": [{"HostPort": "4321"}]}
+    client.containers.run.return_value = container
+    service = make_service(tmp_path, client=client)
+
+    with service.run(
+        "example:latest",
+        container_port=1234,
+        name="entrypoint",
+        entrypoint=["/bin/example"],
+        check=lambda _service: True,
+    ):
+        pass
+
+    assert client.containers.run.call_args.kwargs["entrypoint"] == ["/bin/example"]
+
+
 def test_cleanup_filters_one_owner_and_leaves_other_sessions_unlisted() -> None:
     running = Mock(status="running")
     client = FakeClient(FakeContainers([running]))

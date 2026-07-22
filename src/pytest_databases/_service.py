@@ -268,6 +268,7 @@ class ContainerService(AbstractContextManager):
         platform: str | None = None,
         protocol: str = "tcp",
         host_port: int | None = None,
+        entrypoint: str | list[str] | None = None,
     ) -> Generator[ServiceContainer, None, None]:
         # ``host_port`` is honored only when a new container is created; if an
         # existing container is reused via ``_get_container(name)`` the request
@@ -310,6 +311,7 @@ class ContainerService(AbstractContextManager):
                     ports={container_port: host_port},  # pyright: ignore[reportArgumentType]
                     name=container_name,
                     environment=env,
+                    entrypoint=entrypoint,
                     ulimits=ulimits,
                     mem_limit=mem_limit,
                     shm_size=shm_size,
