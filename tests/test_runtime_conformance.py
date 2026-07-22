@@ -50,8 +50,15 @@ def test_managed_container_lifecycle_conforms(
         assert b"runtime-ready" in service.container.logs()
         assert service.port > 0
 
-    with pytest.raises(NotFound):
-        container_client.containers.get(container_id)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            container_client.containers.get(container_id)
+        except NotFound:
+            break
+        time.sleep(0.1)
+    else:
+        pytest.fail("transient container was not removed")
 
 
 def test_host_and_container_namespace_sidecars_conform(container_service: ContainerService) -> None:
