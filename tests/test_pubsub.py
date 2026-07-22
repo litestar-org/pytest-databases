@@ -22,6 +22,11 @@ def _clear_google_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(variable, raising=False)
 
 
+def _clear_xdist_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable in ("PYTEST_XDIST_TESTRUNUID", "PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT"):
+        monkeypatch.delenv(variable, raising=False)
+
+
 def test_pubsub_service_metadata() -> None:
     service = PubSubService(
         container=MagicMock(),
@@ -36,7 +41,8 @@ def test_pubsub_service_metadata() -> None:
     assert service.emulator_host == f"{service.host}:{service.port}"
 
 
-def test_pubsub_contract_fixtures(pytester) -> None:
+def test_pubsub_contract_fixtures(pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_xdist_environment(monkeypatch)
     pytester.makepyfile(f"""
     pytest_plugins = ["pytest_databases.docker.pubsub"]
 
@@ -51,6 +57,7 @@ def test_pubsub_contract_fixtures(pytester) -> None:
 
 
 def test_pubsub_project_is_worker_scoped(pytester, monkeypatch) -> None:
+    _clear_xdist_environment(monkeypatch)
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw2")
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.pubsub"]
@@ -88,34 +95,38 @@ def test_pubsub_readiness_requires_tcp(mocker) -> None:
     assert pubsub._is_pubsub_responsive(service) is False
 
 
-def test_pubsub_smoke_uses_ephemeral_gcloud_sidecar() -> None:
-    container_service = MagicMock()
-    emulator_container = MagicMock(id="pubsub-container")
+def test_pubsub_smoke_uses_bundled_gcloud() -> None:
+    emulator_container = MagicMock()
+    emulator_container.exec_run.return_value = MagicMock(exit_code=0, output=b"")
 
     pubsub._smoke_pubsub_emulator(
-        container_service,
         emulator_container,
-        image=PUBSUB_IMAGE,
         project="pytest-databases-gw2",
     )
 
-    args, kwargs = container_service.run_container.call_args
-    assert args[0] == PUBSUB_IMAGE
-    assert args[1][:2] == ["bash", "-c"]
-    assert "gcloud pubsub topics create" in args[1][2]
-    assert "gcloud pubsub subscriptions create" in args[1][2]
-    assert "gcloud pubsub topics publish" in args[1][2]
-    assert "gcloud pubsub subscriptions pull" in args[1][2]
+    args, kwargs = emulator_container.exec_run.call_args
+    assert args[0][:2] == ["bash", "-c"]
+    assert "gcloud pubsub topics create" in args[0][2]
+    assert "gcloud pubsub subscriptions create" in args[0][2]
+    assert "gcloud pubsub topics publish" in args[0][2]
+    assert "gcloud pubsub subscriptions pull" in args[0][2]
     assert kwargs == {
-        "service_name": "pubsub-smoke",
         "environment": {
             "CLOUDSDK_API_ENDPOINT_OVERRIDES_PUBSUB": "http://localhost:8085/",
             "CLOUDSDK_AUTH_DISABLE_CREDENTIALS": "true",
             "CLOUDSDK_CORE_PROJECT": "pytest-databases-gw2",
         },
-        "network_mode": "container:pubsub-container",
-        "remove": True,
     }
+
+
+def test_pubsub_smoke_reports_bounded_failure() -> None:
+    emulator_container = MagicMock()
+    emulator_container.exec_run.return_value = MagicMock(exit_code=7, output=b"x" * 3000)
+
+    with pytest.raises(RuntimeError, match="exit code 7") as exc_info:
+        pubsub._smoke_pubsub_emulator(emulator_container, project="pytest-databases")
+
+    assert len(str(exc_info.value)) < 2100
 
 
 def test_plugin_imports_without_google_cloud_pubsub(pytester: pytest.Pytester) -> None:
@@ -143,6 +154,7 @@ def test_plugin_imports_without_google_cloud_pubsub(pytester: pytest.Pytester) -
 
 def test_pubsub_service_fixture(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_google_environment(monkeypatch)
+    _clear_xdist_environment(monkeypatch)
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.pubsub"]
 
@@ -160,6 +172,7 @@ def test_pubsub_service_fixture(pytester: pytest.Pytester, monkeypatch: pytest.M
     ("isolation_level", "expect_shared_container"),
     [("database", True), ("server", False)],
 )
+@pytest.mark.xdist_group(name="pubsub_nested_xdist")
 def test_pubsub_xdist_isolation(
     pytester: pytest.Pytester,
     monkeypatch: pytest.MonkeyPatch,
@@ -167,6 +180,7 @@ def test_pubsub_xdist_isolation(
     expect_shared_container: bool,
 ) -> None:
     _clear_google_environment(monkeypatch)
+    _clear_xdist_environment(monkeypatch)
     monkeypatch.setenv("PUBSUB_RECORD_DIR", str(pytester.path))
     pytester.makepyfile(f"""
     import json

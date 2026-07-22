@@ -47,8 +47,8 @@ under your control.
        # Call application code configured by pubsub_environment here.
 
 The service fixture waits for both the emulator's documented ``Server started`` log and the mapped TCP endpoint. Before
-yielding, an ephemeral sidecar from the same official image creates a topic and subscription, publishes a payload, pulls
-and acknowledges it, and removes the smoke resources. No host-side Google client or credentials are involved.
+yielding, the bundled ``gcloud`` CLI creates a topic and subscription inside the emulator container, publishes a payload,
+pulls and acknowledges it, and removes the smoke resources. No host-side Google client or credentials are involved.
 
 Available fixtures
 ------------------

@@ -166,7 +166,9 @@
     "pubsub": {
       "source_globs": ["src/pytest_databases/docker/pubsub.py"],
       "test_paths": ["tests/test_pubsub.py"],
-      "images": ["gcr.io/google.com/cloudsdktool/google-cloud-cli:577.0.0-emulators"],
+      "images": [
+        "gcr.io/google.com/cloudsdktool/google-cloud-cli:577.0.0-emulators"
+      ],
       "docs_globs": ["docs/supported-databases/pubsub.rst"]
     },
     "redis": {

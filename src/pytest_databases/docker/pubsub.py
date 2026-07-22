@@ -83,24 +83,22 @@ def _is_pubsub_responsive(service: ServiceContainer) -> bool:
 
 
 def _smoke_pubsub_emulator(
-    container_service: ContainerService,
     emulator_container: Container,
     *,
-    image: str,
     project: str,
 ) -> None:
-    container_service.run_container(
-        image,
+    result = emulator_container.exec_run(
         ["bash", "-c", _PUBSUB_SMOKE_SCRIPT],
-        service_name="pubsub-smoke",
         environment={
             "CLOUDSDK_API_ENDPOINT_OVERRIDES_PUBSUB": f"http://localhost:{PUBSUB_EMULATOR_PORT}/",
             "CLOUDSDK_AUTH_DISABLE_CREDENTIALS": "true",
             "CLOUDSDK_CORE_PROJECT": project,
         },
-        network_mode=f"container:{emulator_container.id}",
-        remove=True,
     )
+    if result.exit_code != 0:
+        output = result.output.decode(errors="replace") if isinstance(result.output, bytes) else str(result.output)
+        msg = f"Pub/Sub emulator smoke check failed with exit code {result.exit_code}: {output[-2000:]}"
+        raise RuntimeError(msg)
 
 
 @pytest.fixture(scope="session")
@@ -126,9 +124,7 @@ def pubsub_service(
         transient=xdist_pubsub_isolation_level == "server",
     ) as service:
         _smoke_pubsub_emulator(
-            container_service,
             service.container,
-            image=pubsub_image,
             project=pubsub_project,
         )
         yield PubSubService(
