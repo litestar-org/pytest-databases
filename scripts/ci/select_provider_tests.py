@@ -6,23 +6,114 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 import shutil
 import subprocess  # noqa: S404 - Git is invoked with a fixed executable and argv.
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Iterable, Sequence
 
 PROJECT_ROOT = Path(__file__).parents[2]
 DEFAULT_MANIFEST_PATH = PROJECT_ROOT / ".github" / "ci" / "provider-groups.json"
 GIT_EXECUTABLE = shutil.which("git")
+PROVIDER_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+class ManifestValidationError(ValueError):
+    """Raised when provider ownership does not match the repository."""
 
 
 def load_manifest(path: Path = DEFAULT_MANIFEST_PATH) -> dict[str, Any]:
     """Load the provider ownership manifest."""
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _validate_relative_path(path: str) -> None:
+    candidate = Path(path.split("::", maxsplit=1)[0])
+    if candidate.is_absolute() or ".." in candidate.parts:
+        message = f"unsafe path in provider manifest: {path}"
+        raise ManifestValidationError(message)
+
+
+def validate_manifest(manifest: Mapping[str, Any], *, project_root: Path = PROJECT_ROOT) -> None:
+    """Reject manifest schema, ownership, and repository inventory drift."""
+    if manifest.get("schema_version") != 1:
+        message = f"unsupported schema_version: {manifest.get('schema_version')!r}"
+        raise ManifestValidationError(message)
+    providers = manifest.get("providers")
+    if not isinstance(providers, Mapping) or not providers:
+        message = "providers must be a non-empty mapping"
+        raise ManifestValidationError(message)
+
+    owned_sources: list[str] = []
+    owned_tests: list[str] = []
+    for provider_id, provider in providers.items():
+        if not isinstance(provider_id, str) or PROVIDER_ID_PATTERN.fullmatch(provider_id) is None:
+            message = f"invalid provider ID: {provider_id!r}"
+            raise ManifestValidationError(message)
+        if not isinstance(provider, Mapping):
+            message = f"provider {provider_id} must be a mapping"
+            raise ManifestValidationError(message)
+        for key in ("source_globs", "test_paths", "images", "docs_globs"):
+            values = provider.get(key)
+            if not isinstance(values, list) or not values or not all(isinstance(value, str) for value in values):
+                if key == "images":
+                    message = f"provider {provider_id} must own at least one image"
+                else:
+                    message = f"provider {provider_id} must define non-empty {key}"
+                raise ManifestValidationError(message)
+            for value in values:
+                _validate_relative_path(value)
+        owned_sources.extend(provider["source_globs"])
+        owned_tests.extend(provider["test_paths"])
+
+    duplicate_sources = sorted(path for path in set(owned_sources) if owned_sources.count(path) > 1)
+    duplicate_tests = sorted(path for path in set(owned_tests) if owned_tests.count(path) > 1)
+    if duplicate_sources:
+        message = f"duplicate source ownership: {', '.join(duplicate_sources)}"
+        raise ManifestValidationError(message)
+    if duplicate_tests:
+        message = f"duplicate test ownership: {', '.join(duplicate_tests)}"
+        raise ManifestValidationError(message)
+
+    discovered_sources = {
+        path.relative_to(project_root).as_posix()
+        for path in (project_root / "src" / "pytest_databases" / "docker").glob("*.py")
+        if path.name != "__init__.py"
+    }
+    discovered_sources.add("src/pytest_databases/_service.py")
+    discovered_tests = {
+        path.relative_to(project_root).as_posix()
+        for path in (project_root / "tests").glob("test_*.py")
+        if not path.name.startswith("test_ci_")
+    }
+    missing_sources = sorted(discovered_sources - set(owned_sources))
+    extra_sources = sorted(set(owned_sources) - discovered_sources)
+    missing_tests = sorted(discovered_tests - set(owned_tests))
+    extra_tests = sorted(set(owned_tests) - discovered_tests)
+    if missing_sources:
+        message = f"unowned provider source: {', '.join(missing_sources)}"
+        raise ManifestValidationError(message)
+    if extra_sources:
+        message = f"missing provider source path: {', '.join(extra_sources)}"
+        raise ManifestValidationError(message)
+    if missing_tests:
+        message = f"unowned provider test: {', '.join(missing_tests)}"
+        raise ManifestValidationError(message)
+    if extra_tests:
+        message = f"missing provider test path: {', '.join(extra_tests)}"
+        raise ManifestValidationError(message)
+
+    for path in manifest.get("compatibility_test_paths", []):
+        _validate_relative_path(path)
+        file_path = path.split("::", maxsplit=1)[0]
+        if not (project_root / file_path).is_file():
+            message = f"missing compatibility test path: {file_path}"
+            raise ManifestValidationError(message)
 
 
 def _matches(path: str, patterns: Iterable[str]) -> bool:
@@ -188,13 +279,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--summary", type=Path)
     args = parser.parse_args(argv)
 
+    manifest = load_manifest(args.manifest)
+    validate_manifest(manifest, project_root=PROJECT_ROOT)
+
     changed_paths = args.changed_file
     if args.base_ref or args.head_ref:
         if not args.base_ref or not args.head_ref:
             parser.error("--base-ref and --head-ref must be provided together")
         changed_paths = changed_files_for_range(args.base_ref, args.head_ref)
 
-    selection = select_providers(load_manifest(args.manifest), changed_paths, full=args.full)
+    selection = select_providers(manifest, changed_paths, full=args.full)
     sys.stdout.write(f"{json.dumps(selection, indent=2, sort_keys=True)}\n")
     output_path = args.github_output or (Path(os.environ["GITHUB_OUTPUT"]) if "GITHUB_OUTPUT" in os.environ else None)
     if output_path is not None:

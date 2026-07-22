@@ -3,10 +3,22 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
-from scripts.ci.select_provider_tests import changed_files_for_range, parse_name_status, select_providers
+from scripts.ci.select_provider_tests import (
+    ManifestValidationError,
+    changed_files_for_range,
+    parse_name_status,
+    select_providers,
+    validate_manifest,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
 
 PROJECT_ROOT = Path(__file__).parents[1]
 MANIFEST_PATH = PROJECT_ROOT / ".github" / "ci" / "provider-groups.json"
@@ -70,7 +82,7 @@ def test_provider_manifest_owns_every_adapter_source_and_test_once() -> None:
 
 
 @pytest.fixture
-def manifest() -> dict[str, object]:
+def manifest() -> dict[str, Any]:
     return json.loads(MANIFEST_PATH.read_text())
 
 
@@ -89,7 +101,7 @@ def manifest() -> dict[str, object]:
     ],
 )
 def test_select_providers(
-    manifest: dict[str, object], changed_paths: list[str], expected_mode: str, expected_providers: set[str]
+    manifest: dict[str, Any], changed_paths: list[str], expected_mode: str, expected_providers: set[str]
 ) -> None:
     result = select_providers(manifest, changed_paths)
 
@@ -98,7 +110,7 @@ def test_select_providers(
     assert result["changed_paths"] == changed_paths
 
 
-def test_select_providers_deduplicates_paths_and_images(manifest: dict[str, object]) -> None:
+def test_select_providers_deduplicates_paths_and_images(manifest: dict[str, Any]) -> None:
     result = select_providers(
         manifest,
         ["tests/test_redis.py", "tests/test_redis.py", "src/pytest_databases/docker/valkey.py"],
@@ -109,7 +121,7 @@ def test_select_providers_deduplicates_paths_and_images(manifest: dict[str, obje
     assert len(result["images"]) == len(set(result["images"]))
 
 
-def test_select_providers_full_mode(manifest: dict[str, object]) -> None:
+def test_select_providers_full_mode(manifest: dict[str, Any]) -> None:
     result = select_providers(manifest, ["README.md"], full=True)
 
     assert result["mode"] == "full"
@@ -151,3 +163,34 @@ def test_changed_files_for_range_uses_the_requested_git_base(tmp_path: Path) -> 
         "tests/test_old.py",
         "tests/test_postgres.py",
     ]
+
+
+def test_validate_manifest_accepts_current_inventory(manifest: dict[str, Any]) -> None:
+    validate_manifest(manifest, project_root=PROJECT_ROOT)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda value: value.update(schema_version=2), "schema_version"),
+        (lambda value: value["providers"].pop("postgres"), "unowned provider source"),
+        (
+            lambda value: value["providers"]["valkey"]["test_paths"].append("tests/test_redis.py"),
+            "duplicate test ownership",
+        ),
+        (lambda value: value["providers"]["postgres"].update(images=[]), "must own at least one image"),
+        (
+            lambda value: value["providers"]["postgres"]["test_paths"].append("../outside.py"),
+            "unsafe path",
+        ),
+        (lambda value: value["providers"].update({"INVALID-ID": value["providers"].pop("dolt")}), "provider ID"),
+    ],
+)
+def test_validate_manifest_rejects_drift(
+    manifest: dict[str, Any], mutation: Callable[[dict[str, Any]], None], message: str
+) -> None:
+    invalid_manifest = deepcopy(manifest)
+    mutation(invalid_manifest)
+
+    with pytest.raises(ManifestValidationError, match=message):
+        validate_manifest(invalid_manifest, project_root=PROJECT_ROOT)
