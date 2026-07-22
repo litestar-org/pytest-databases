@@ -4,16 +4,15 @@
   "shared_all_provider_paths": [
     ".github/workflows/ci.yaml",
     "Makefile",
-    "pyproject.toml",
     "scripts/ci/**",
     "src/pytest_databases/__init__.py",
     "src/pytest_databases/_service.py",
     "src/pytest_databases/docker/__init__.py",
     "src/pytest_databases/helpers.py",
     "src/pytest_databases/types.py",
-    "tests/conftest.py",
-    "uv.lock"
+    "tests/conftest.py"
   ],
+  "provider_scoped_dependency_paths": ["pyproject.toml", "uv.lock"],
   "docs_only_globs": ["*.md", "*.rst", "docs/**"],
   "metadata_only_globs": [
     ".editorconfig",

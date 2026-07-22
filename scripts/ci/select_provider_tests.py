@@ -68,6 +68,14 @@ def validate_manifest(manifest: Mapping[str, Any], *, project_root: Path = PROJE
     if not isinstance(providers, Mapping) or not providers:
         message = "providers must be a non-empty mapping"
         raise ManifestValidationError(message)
+    if (
+        not isinstance(manifest.get("provider_scoped_dependency_paths"), list)
+        or not manifest["provider_scoped_dependency_paths"]
+    ):
+        message = "provider_scoped_dependency_paths must be a non-empty list"
+        raise ManifestValidationError(message)
+    for path in manifest["provider_scoped_dependency_paths"]:
+        _validate_relative_path(path)
 
     owned_sources: list[str] = []
     owned_tests: list[str] = []
@@ -171,6 +179,7 @@ def select_providers(
     paths = _deduplicate(normalized for path in changed_paths if (normalized := _normalize_changed_path(path)))
     providers = manifest["providers"]
     all_provider_ids = sorted(providers)
+    dependency_paths = {path for path in paths if _matches(path, manifest["provider_scoped_dependency_paths"])}
 
     if full:
         selected_ids = all_provider_ids
@@ -217,10 +226,17 @@ def select_providers(
             or _matches(path, manifest["metadata_only_globs"])
         }
         unknown_paths = sorted(set(paths) - known_paths)
+        unknown_paths = [
+            path for path in unknown_paths if not _matches(path, manifest["provider_scoped_dependency_paths"])
+        ]
         if unknown_paths:
             selected_ids = all_provider_ids
             mode = "fail-closed"
             reason = f"unknown runtime-impacting paths changed: {', '.join(unknown_paths)}"
+        elif dependency_paths and len(selected) != 1:
+            selected_ids = all_provider_ids
+            mode = "all-providers"
+            reason = "dependency metadata changed without exactly one provider owner"
         else:
             selected_ids = sorted(selected)
             mode = "selective"
