@@ -186,6 +186,7 @@ def select_providers(
             for provider_id in selected_ids
         ]
     }
+    run_docs = full or any(_matches(path, manifest["docs_only_globs"]) for path in paths)
     return {
         "mode": mode,
         "reason": reason,
@@ -194,6 +195,9 @@ def select_providers(
         "images": images,
         "provider_matrix": matrix,
         "compatibility_test_paths": manifest["compatibility_test_paths"],
+        "run_compatibility": bool(selected_ids),
+        "run_docs": run_docs,
+        "run_quality": bool(selected_ids),
     }
 
 
@@ -246,6 +250,9 @@ def write_github_outputs(path: Path, selection: Mapping[str, Any]) -> None:
         "matrix": json.dumps(selection["provider_matrix"], separators=(",", ":")),
         "providers": json.dumps(selection["providers"], separators=(",", ":")),
         "run_provider_tests": str(bool(selection["providers"])).lower(),
+        "run_compatibility": str(selection["run_compatibility"]).lower(),
+        "run_docs": str(selection["run_docs"]).lower(),
+        "run_quality": str(selection["run_quality"]).lower(),
         "mode": selection["mode"],
         "reason": selection["reason"],
     }

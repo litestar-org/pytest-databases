@@ -27,7 +27,10 @@ jobs:
       mode: ${{ steps.select.outputs.mode }}
       providers: ${{ steps.select.outputs.providers }}
       reason: ${{ steps.select.outputs.reason }}
+      run_compatibility: ${{ steps.select.outputs.run_compatibility }}
+      run_docs: ${{ steps.select.outputs.run_docs }}
       run_provider_tests: ${{ steps.select.outputs.run_provider_tests }}
+      run_quality: ${{ steps.select.outputs.run_quality }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,6 +61,8 @@ jobs:
 
   compatibility:
     name: Clientless compatibility / Python ${{ matrix.python-version }}
+    if: needs.select.outputs.run_compatibility == 'true'
+    needs: select
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -81,6 +86,52 @@ jobs:
 
       - name: Run clientless compatibility tests
         run: uv run python -m scripts.ci.run_tests --compatibility
+
+  quality:
+    name: Quality
+    if: needs.select.outputs.run_quality == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Run lint and type checks
+        run: make lint
+
+  docs:
+    name: Documentation
+    if: needs.select.outputs.run_docs == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Build documentation
+        run: make docs
 
   provider:
     name: Provider / ${{ matrix.provider }} / Python 3.12
@@ -111,3 +162,29 @@ jobs:
 
       - name: Run provider tests
         run: uv run python -m scripts.ci.run_tests --provider "${{ matrix.provider }}"
+
+  ci-required:
+    name: CI required
+    if: always()
+    needs: [select, quality, compatibility, docs, provider]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Validate required job results
+        run: >-
+          python -m scripts.ci.check_required_jobs
+          --select "${{ needs.select.result }}"
+          --quality "${{ needs.quality.result }}"
+          --compatibility "${{ needs.compatibility.result }}"
+          --docs "${{ needs.docs.result }}"
+          --provider "${{ needs.provider.result }}"
+          --expect-quality "${{ needs.select.outputs.run_quality }}"
+          --expect-compatibility "${{ needs.select.outputs.run_compatibility }}"
+          --expect-docs "${{ needs.select.outputs.run_docs }}"
+          --expect-provider "${{ needs.select.outputs.run_provider_tests }}"

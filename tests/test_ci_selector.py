@@ -128,6 +128,14 @@ def test_select_providers_full_mode(manifest: dict[str, Any]) -> None:
     assert set(result["providers"]) == EXPECTED_PROVIDERS
 
 
+def test_docs_only_selection_skips_code_jobs_and_requests_docs(manifest: dict[str, Any]) -> None:
+    result = select_providers(manifest, ["CONTRIBUTING.rst"])
+
+    assert result["run_docs"] is True
+    assert result["run_quality"] is False
+    assert result["run_compatibility"] is False
+
+
 def test_parse_name_status_retains_deleted_and_both_renamed_paths() -> None:
     output = (
         b"D\0tests/test_old.py\0R100\0src/pytest_databases/docker/old.py\0src/pytest_databases/docker/postgres.py\0"
