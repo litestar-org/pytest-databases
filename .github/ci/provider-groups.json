@@ -23,6 +23,7 @@
     "LICENSE"
   ],
   "compatibility_test_paths": [
+    "tests/test_azure_blob.py::test_plugin_imports_without_azure_storage_blob",
     "tests/test_cockroachdb.py::test_plugin_imports_without_psycopg",
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
     "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
@@ -34,7 +35,7 @@
     "azure_blob": {
       "source_globs": ["src/pytest_databases/docker/azure_blob.py"],
       "test_paths": ["tests/test_azure_blob.py"],
-      "images": ["mcr.microsoft.com/azure-storage/azurite"],
+      "images": ["mcr.microsoft.com/azure-cli:latest", "mcr.microsoft.com/azure-storage/azurite"],
       "docs_globs": ["docs/supported-databases/azure_blob_storage.rst"]
     },
     "bigquery": {
