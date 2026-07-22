@@ -95,6 +95,12 @@
       "images": ["gizmodata/gizmosql:latest"],
       "docs_globs": ["docs/supported-databases/gizmosql.rst"]
     },
+    "localstack": {
+      "source_globs": ["src/pytest_databases/docker/localstack.py"],
+      "test_paths": ["tests/test_localstack.py"],
+      "images": ["localstack/localstack:4.14.0"],
+      "docs_globs": ["docs/supported-databases/localstack.rst"]
+    },
     "mariadb": {
       "source_globs": ["src/pytest_databases/docker/mariadb.py"],
       "test_paths": ["tests/test_mariadb.py"],

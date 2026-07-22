@@ -7,6 +7,10 @@ First, install the base package using pip:
 
    pip install pytest-databases
 
+The base package includes LocalStack support. It uses the AWS CLI bundled in
+the LocalStack container, so it does not install ``boto3``, ``botocore``, or a
+host-side AWS CLI.
+
 Optional Database Support
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
