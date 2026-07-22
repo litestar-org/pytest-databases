@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
+from pytest_databases import ContainerService as PublicContainerService
+from pytest_databases import DockerService as PublicDockerService
 from pytest_databases._service import (
     ContainerService,
     DockerService,
@@ -19,6 +21,8 @@ from pytest_databases.runtime import ResolvedRuntime, RuntimeType
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 
 class FakeContainers:
@@ -70,6 +74,31 @@ def make_service(tmp_path: Path, *, owner_id: str = "a" * 32, client: FakeClient
 
 def test_docker_service_is_a_compatibility_alias() -> None:
     assert DockerService is ContainerService
+    assert PublicDockerService is PublicContainerService is ContainerService
+
+
+def test_compatibility_fixtures_alias_new_fixture_names(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("""
+import pytest
+
+
+@pytest.fixture(scope="session")
+def container_client():
+    return object()
+
+
+@pytest.fixture(scope="session")
+def container_service():
+    return object()
+
+
+def test_aliases(container_client, docker_client, container_service, docker_service):
+    assert docker_client is container_client
+    assert docker_service is container_service
+""")
+
+    result = pytester.runpytest_subprocess("-p", "pytest_databases")
+    result.assert_outcomes(passed=1)
 
 
 def test_container_lookup_uses_exact_owner_and_service_labels(tmp_path: Path) -> None:
