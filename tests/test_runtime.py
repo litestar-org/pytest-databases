@@ -65,6 +65,16 @@ def test_environment_host_is_authoritative(tmp_path: Path) -> None:
     ]
 
 
+def test_container_host_is_forwarded_to_docker_sdk_environment(tmp_path: Path) -> None:
+    candidates = discover_runtime_candidates(
+        environ={"CONTAINER_HOST": "unix:///custom/podman.sock"},
+        home=tmp_path,
+        uid=1000,
+    )
+
+    assert candidates[0].environment == (("DOCKER_HOST", "unix:///custom/podman.sock"),)
+
+
 def test_discovery_deduplicates_standard_sockets(tmp_path: Path) -> None:
     runtime_dir = tmp_path / "runtime"
     candidates = discover_runtime_candidates(

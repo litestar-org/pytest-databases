@@ -160,9 +160,9 @@ def discover_runtime_candidates(
         if endpoint := environment.get(variable, "").strip():
             transport_environment = tuple(
                 sorted(
-                    (key, value)
+                    ("DOCKER_HOST" if key == "CONTAINER_HOST" else key, value)
                     for key, value in environment.items()
-                    if key in {"DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
+                    if key in {"CONTAINER_HOST", "DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
                 )
             )
             return [RuntimeCandidate(endpoint, variable, None, environment=transport_environment)]
@@ -177,9 +177,7 @@ def discover_runtime_candidates(
         context_endpoint = getattr(docker_context, "Host", None)
         name = getattr(docker_context, "Name", None)
         if context_endpoint:
-            candidates.append(
-                RuntimeCandidate(str(context_endpoint), f"Docker context {name}", RuntimeType.DOCKER, str(name))
-            )
+            candidates.append(RuntimeCandidate(str(context_endpoint), f"Docker context {name}", None, str(name)))
 
     candidates.append(RuntimeCandidate("unix:///var/run/docker.sock", "default Docker socket", RuntimeType.DOCKER))
     resolved_home = Path.home() if home is None else home

@@ -19,7 +19,13 @@ from docker.errors import APIError, ImageNotFound
 from typing_extensions import Self
 
 from pytest_databases.helpers import get_xdist_worker_id
-from pytest_databases.runtime import ResolvedRuntime, RuntimeResolutionError, RuntimeType, resolve_container_runtime
+from pytest_databases.runtime import (
+    ResolvedRuntime,
+    RuntimeResolutionError,
+    RuntimeType,
+    parse_runtime_type,
+    resolve_container_runtime,
+)
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
@@ -118,7 +124,7 @@ def _load_or_create_session_state(
     with filelock.FileLock(path.with_suffix(".lock")):
         if path.exists():
             state = _load_session_state(path)
-            requested_type = RuntimeType(requested) if isinstance(requested, str) else requested
+            requested_type = parse_runtime_type(requested)
             if requested_type is not RuntimeType.AUTO and state.runtime.kind is not requested_type:
                 message = (
                     f"pytest session already selected {state.runtime.kind.value}, "
@@ -224,7 +230,7 @@ class ContainerService(AbstractContextManager):
         container_port: int,
         name: str,
         container_host: str = "127.0.0.1",
-        command: str | None = None,
+        command: str | list[str] | None = None,
         env: dict[str, Any] | None = None,
         exec_after_start: str | list[str] | None = None,
         check: Callable[[ServiceContainer], bool] | None = None,
