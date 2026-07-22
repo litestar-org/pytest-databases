@@ -3,6 +3,20 @@ Changelog
 
 All notable changes to this project will be documented in this file.
 
+Next
+----
+
+Added
+~~~~~
+
+* First-class Docker and Podman runtime selection through one Docker-compatible API transport. Closes
+  `gh-146 <https://github.com/litestar-org/pytest-databases/issues/146>`_.
+* Runtime-neutral ``container_client``, ``container_service``, and ``ContainerService`` names while retaining all
+  existing Docker-named aliases.
+* Session-owned container labels/names and a daemon-scoped creation lock that prevents cross-session cleanup/reuse and
+  rootless dynamic-port allocation races. Closes `gh-152 <https://github.com/litestar-org/pytest-databases/issues/152>`_.
+* Explicit ``cleanup_stale_containers()`` recovery for containers left by a hard-killed pytest process.
+
 0.19.0 (2026-05-23)
 -------------------
 

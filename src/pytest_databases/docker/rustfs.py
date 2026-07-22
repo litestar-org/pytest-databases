@@ -130,8 +130,9 @@ def rustfs_service(
         ]
 
         with contextlib.suppress(Exception):
-            client.containers.run(
+            docker_service.run_container(
                 image="rustfs/rc:latest",
+                service_name="rustfs-bootstrap",
                 command=command,
                 remove=True,
                 network_mode="host",  # Use host network to connect to the mapped port

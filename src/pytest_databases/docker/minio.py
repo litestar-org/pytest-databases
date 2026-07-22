@@ -125,8 +125,9 @@ def minio_service(
         ])
 
         with contextlib.suppress(Exception):
-            client.containers.run(
+            docker_service.run_container(
                 image="minio/mc:latest",
+                service_name="minio-bootstrap",
                 command=command,
                 remove=True,
                 network_mode="host",

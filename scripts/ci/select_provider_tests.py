@@ -51,6 +51,7 @@ def _discover_provider_files(project_root: Path) -> tuple[set[str], set[str]]:
         if path.name != "__init__.py"
     }
     sources.add("src/pytest_databases/_service.py")
+    sources.add("src/pytest_databases/runtime.py")
     tests = {path.relative_to(project_root).as_posix() for path in (project_root / "tests").glob("test_*.py")}
     return sources, tests
 
@@ -262,6 +263,8 @@ def select_providers(
         "run_compatibility": bool(selected_ids),
         "run_docs": run_docs,
         "run_quality": bool(selected_ids) or mode == "metadata-only",
+        "run_runtime_conformance": full
+        or any(_matches(path, manifest.get("runtime_conformance_paths", [])) for path in paths),
     }
 
 
@@ -364,6 +367,7 @@ def write_github_outputs(path: Path, selection: Mapping[str, Any]) -> None:
         "run_compatibility": str(selection["run_compatibility"]).lower(),
         "run_docs": str(selection["run_docs"]).lower(),
         "run_quality": str(selection["run_quality"]).lower(),
+        "run_runtime_conformance": str(selection["run_runtime_conformance"]).lower(),
         "mode": selection["mode"],
     }
     with path.open("a", encoding="utf-8") as output_file:

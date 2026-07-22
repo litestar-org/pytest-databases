@@ -33,6 +33,7 @@ jobs:
       run_docs: ${{ steps.select.outputs.run_docs }}
       run_provider_tests: ${{ steps.select.outputs.run_provider_tests }}
       run_quality: ${{ steps.select.outputs.run_quality }}
+      run_runtime_conformance: ${{ steps.select.outputs.run_runtime_conformance }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -231,10 +232,84 @@ jobs:
           files: coverage.xml
           fail_ci_if_error: false
 
+  runtime_conformance:
+    name: Runtime conformance / ${{ matrix.runtime }}
+    if: needs.select.outputs.run_runtime_conformance == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [docker, podman]
+    env:
+      PYTEST_DATABASES_CONFORMANCE: "1"
+      PYTEST_DATABASES_CONTAINER_RUNTIME: ${{ matrix.runtime }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install test dependencies
+        run: uv sync --frozen --no-dev --group test --group extra
+
+      - name: Start rootless Podman API
+        if: matrix.runtime == 'podman'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+          podman version
+          podman info --debug
+          socket="$RUNNER_TEMP/podman.sock"
+          podman system service --time=0 "unix://$socket" >"$RUNNER_TEMP/podman-service.log" 2>&1 &
+          echo "PODMAN_SERVICE_PID=$!" >> "$GITHUB_ENV"
+          for attempt in {1..30}; do
+            if curl --fail --silent --unix-socket "$socket" http://localhost/_ping >/dev/null; then
+              echo "CONTAINER_HOST=unix://$socket" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          ls -la "$socket" || true
+          cat "$RUNNER_TEMP/podman-service.log"
+          exit 1
+
+      - name: Run runtime and representative provider conformance
+        run: >-
+          uv run pytest
+          tests/test_runtime_conformance.py
+          tests/test_service_host_port.py
+          "tests/test_postgres.py::test_service_fixture[postgres_service]"
+          -q
+
+      - name: Report and stop Podman API
+        if: always() && matrix.runtime == 'podman'
+        run: |
+          cat "$RUNNER_TEMP/podman-service.log" || true
+          if [[ -n "${PODMAN_SERVICE_PID:-}" ]]; then
+            kill "$PODMAN_SERVICE_PID" || true
+          fi
+
   ci-required:
     name: CI required
     if: always()
-    needs: [select, quality, compatibility, docs, provider, coverage]
+    needs:
+      [
+        select,
+        quality,
+        compatibility,
+        docs,
+        provider,
+        coverage,
+        runtime_conformance,
+      ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -253,11 +328,13 @@ jobs:
           --docs "${{ needs.docs.result }}"
           --provider "${{ needs.provider.result }}"
           --coverage "${{ needs.coverage.result }}"
+          --runtime-conformance "${{ needs.runtime_conformance.result }}"
           --expect-quality "${{ needs.select.outputs.run_quality }}"
           --expect-compatibility "${{ needs.select.outputs.run_compatibility }}"
           --expect-docs "${{ needs.select.outputs.run_docs }}"
           --expect-provider "${{ needs.select.outputs.run_provider_tests }}"
           --expect-coverage "${{ needs.select.outputs.run_provider_tests }}"
+          --expect-runtime-conformance "${{ needs.select.outputs.run_runtime_conformance }}"
 
   # Temporary ruleset compatibility shim. The repository currently requires
   # this legacy context; remove it after the ruleset requires CI required.
