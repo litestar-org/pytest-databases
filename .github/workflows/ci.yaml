@@ -29,7 +29,6 @@ jobs:
       matrix: ${{ steps.select.outputs.matrix }}
       mode: ${{ steps.select.outputs.mode }}
       providers: ${{ steps.select.outputs.providers }}
-      reason: ${{ steps.select.outputs.reason }}
       run_compatibility: ${{ steps.select.outputs.run_compatibility }}
       run_docs: ${{ steps.select.outputs.run_docs }}
       run_provider_tests: ${{ steps.select.outputs.run_provider_tests }}
@@ -70,7 +69,7 @@ jobs:
           else
             args+=(--base-ref "$BASE_SHA" --head-ref "$HEAD_SHA")
           fi
-          uv run python -m scripts.ci.select_provider_tests "${args[@]}"
+          uv run --frozen python -m scripts.ci.select_provider_tests "${args[@]}"
 
   compatibility:
     name: Clientless compatibility / Python ${{ matrix.python-version }}
@@ -259,3 +258,16 @@ jobs:
           --expect-docs "${{ needs.select.outputs.run_docs }}"
           --expect-provider "${{ needs.select.outputs.run_provider_tests }}"
           --expect-coverage "${{ needs.select.outputs.run_provider_tests }}"
+
+  # Temporary ruleset compatibility shim. The repository currently requires
+  # this legacy context; remove it after the ruleset requires CI required.
+  test_elasticsearch:
+    name: test_elasticsearch
+    if: always()
+    needs: ci-required
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror stable gate result
+        env:
+          REQUIRED_RESULT: ${{ needs.ci-required.result }}
+        run: test "$REQUIRED_RESULT" = "success"

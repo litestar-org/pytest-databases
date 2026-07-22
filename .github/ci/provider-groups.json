@@ -19,7 +19,7 @@
   "metadata_only_globs": [
     ".editorconfig",
     ".git-blame-ignore-revs",
-    ".github/dependabot.yml",
+    ".github/dependabot.yaml",
     ".github/release.yml",
     ".pre-commit-config.yaml",
     "LICENSE"

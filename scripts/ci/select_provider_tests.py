@@ -39,6 +39,21 @@ def _validate_relative_path(path: str) -> None:
         raise ManifestValidationError(message)
 
 
+def _discover_provider_files(project_root: Path) -> tuple[set[str], set[str]]:
+    ci_tests = sorted(path.name for path in (project_root / "tests").glob("test_ci_*.py"))
+    if ci_tests:
+        message = f"CI helper tests are not part of the repository test suite: {', '.join(ci_tests)}"
+        raise ManifestValidationError(message)
+    sources = {
+        path.relative_to(project_root).as_posix()
+        for path in (project_root / "src" / "pytest_databases" / "docker").glob("*.py")
+        if path.name != "__init__.py"
+    }
+    sources.add("src/pytest_databases/_service.py")
+    tests = {path.relative_to(project_root).as_posix() for path in (project_root / "tests").glob("test_*.py")}
+    return sources, tests
+
+
 def validate_manifest(manifest: Mapping[str, Any], *, project_root: Path = PROJECT_ROOT) -> None:
     """Reject manifest schema, ownership, and repository inventory drift."""
     if manifest.get("schema_version") != 1:
@@ -84,17 +99,7 @@ def validate_manifest(manifest: Mapping[str, Any], *, project_root: Path = PROJE
         message = f"duplicate test ownership: {', '.join(duplicate_tests)}"
         raise ManifestValidationError(message)
 
-    discovered_sources = {
-        path.relative_to(project_root).as_posix()
-        for path in (project_root / "src" / "pytest_databases" / "docker").glob("*.py")
-        if path.name != "__init__.py"
-    }
-    discovered_sources.add("src/pytest_databases/_service.py")
-    discovered_tests = {
-        path.relative_to(project_root).as_posix()
-        for path in (project_root / "tests").glob("test_*.py")
-        if not path.name.startswith("test_ci_")
-    }
+    discovered_sources, discovered_tests = _discover_provider_files(project_root)
     missing_sources = sorted(discovered_sources - set(owned_sources))
     extra_sources = sorted(set(owned_sources) - discovered_sources)
     missing_tests = sorted(discovered_tests - set(owned_tests))
@@ -128,6 +133,14 @@ def _deduplicate(values: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _normalize_changed_path(path: str) -> str:
+    normalized = path.strip("/")
+    if any(ord(character) < 32 or ord(character) == 127 for character in normalized):
+        message = f"changed path contains control characters: {path!r}"
+        raise ValueError(message)
+    return normalized
+
+
 def build_matrix(manifest: Mapping[str, Any], provider_ids: Sequence[str], *, full: bool) -> dict[str, Any]:
     """Build selective or full provider/Python matrix cells."""
     providers = manifest["providers"]
@@ -153,7 +166,7 @@ def select_providers(
     full_reason: str | None = None,
 ) -> dict[str, Any]:
     """Map changed paths to provider groups, failing closed for unknown paths."""
-    paths = _deduplicate(path.strip("/") for path in changed_paths if path.strip("/"))
+    paths = _deduplicate(normalized for path in changed_paths if (normalized := _normalize_changed_path(path)))
     providers = manifest["providers"]
     all_provider_ids = sorted(providers)
 
@@ -169,8 +182,12 @@ def select_providers(
         _matches(path, manifest["docs_only_globs"]) or _matches(path, manifest["metadata_only_globs"]) for path in paths
     ):
         selected_ids = []
-        mode = "docs-only"
-        reason = "all changed paths are documentation or allowlisted metadata"
+        if any(_matches(path, manifest["metadata_only_globs"]) for path in paths):
+            mode = "metadata-only"
+            reason = "changed paths are allowlisted metadata and require quality checks only"
+        else:
+            mode = "docs-only"
+            reason = "all changed paths are documentation"
     elif any(_matches(path, manifest["shared_all_provider_paths"]) for path in paths):
         selected_ids = all_provider_ids
         mode = "all-providers"
@@ -202,25 +219,25 @@ def select_providers(
             reason = f"selected providers owning changed paths: {', '.join(selected_ids)}"
 
     images = sorted({image for provider_id in selected_ids for image in providers[provider_id]["images"]})
+    provider_images = {provider_id: providers[provider_id]["images"] for provider_id in selected_ids}
     test_paths = sorted({path for provider_id in selected_ids for path in providers[provider_id]["test_paths"]})
     matrix = build_matrix(manifest, selected_ids, full=full)
     run_docs = full or any(_matches(path, manifest["docs_only_globs"]) for path in paths)
-    provider_job_count = len(matrix["include"])
-    image_pull_count = sum(len(providers[cell["provider"]]["images"]) for cell in matrix["include"])
     return {
         "mode": mode,
         "reason": reason,
         "changed_paths": paths,
         "providers": selected_ids,
         "images": images,
+        "provider_images": provider_images,
         "test_paths": test_paths,
         "provider_matrix": matrix,
-        "provider_job_count": provider_job_count,
-        "image_pull_count": image_pull_count,
+        "provider_job_count": len(matrix["include"]),
+        "image_pull_count": sum(len(providers[cell["provider"]]["images"]) for cell in matrix["include"]),
         "compatibility_test_paths": manifest["compatibility_test_paths"],
         "run_compatibility": bool(selected_ids),
         "run_docs": run_docs,
-        "run_quality": bool(selected_ids),
+        "run_quality": bool(selected_ids) or mode == "metadata-only",
     }
 
 
@@ -277,7 +294,6 @@ def write_github_outputs(path: Path, selection: Mapping[str, Any]) -> None:
         "run_docs": str(selection["run_docs"]).lower(),
         "run_quality": str(selection["run_quality"]).lower(),
         "mode": selection["mode"],
-        "reason": selection["reason"],
     }
     with path.open("a", encoding="utf-8") as output_file:
         for key, value in outputs.items():
@@ -290,6 +306,13 @@ def render_summary(selection: Mapping[str, Any]) -> str:
     changed_paths = "\n".join(f"- `{path}`" for path in selection["changed_paths"]) or "- none"
     test_paths = "\n".join(f"- `{path}`" for path in selection["test_paths"]) or "- none"
     images = "\n".join(f"- `{image}`" for image in selection["images"]) or "- none"
+    provider_images = (
+        "\n".join(
+            f"- **{provider_id}**: {', '.join(f'`{image}`' for image in owned_images)}"
+            for provider_id, owned_images in selection["provider_images"].items()
+        )
+        or "- none"
+    )
     return "\n".join([
         "## Provider-aware CI selection",
         "",
@@ -298,6 +321,9 @@ def render_summary(selection: Mapping[str, Any]) -> str:
         f"- Provider jobs: {selection['provider_job_count']}",
         f"- Image pulls: {selection['image_pull_count']}",
         f"- Reason: {selection['reason']}",
+        f"- Event: `{selection.get('event_name', 'local')}`",
+        f"- Base: `{selection.get('base_ref') or 'not available'}`",
+        f"- Head: `{selection.get('head_ref') or 'not available'}`",
         "",
         "### Changed paths",
         "",
@@ -311,6 +337,10 @@ def render_summary(selection: Mapping[str, Any]) -> str:
         "",
         images,
         "",
+        "### Images by provider",
+        "",
+        provider_images,
+        "",
         "### Cost budgets",
         "",
         "| Scenario | Provider jobs | Image pulls |",
@@ -320,6 +350,8 @@ def render_summary(selection: Mapping[str, Any]) -> str:
         "| Single-provider target | 1 | provider-owned only |",
         "| Shared runtime target | 19 | 53 |",
         "| Nightly/manual full target | 114 | 318 |",
+        "",
+        "Add or remove the `ci:full` label to request or cancel a full pull-request matrix.",
     ])
 
 
@@ -346,6 +378,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         changed_paths = changed_files_for_range(args.base_ref, args.head_ref)
 
     selection = select_providers(manifest, changed_paths, full=args.full, full_reason=args.full_reason)
+    selection["event_name"] = os.environ.get("GITHUB_EVENT_NAME", "local")
+    selection["base_ref"] = args.base_ref
+    selection["head_ref"] = args.head_ref
     sys.stdout.write(f"{json.dumps(selection, indent=2, sort_keys=True)}\n")
     output_path = args.github_output or (Path(os.environ["GITHUB_OUTPUT"]) if "GITHUB_OUTPUT" in os.environ else None)
     if output_path is not None:

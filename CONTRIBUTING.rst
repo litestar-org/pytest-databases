@@ -58,6 +58,9 @@ Maintainers changing branch protection should use this order:
 3. Confirm a pull request cannot merge when an expected provider or compatibility job fails.
 4. Remove obsolete individual or matrix-generated check names only after the stable check is required.
 
+During this transition, the workflow keeps the legacy ``test_elasticsearch`` context as a thin mirror of
+``CI required``. Remove that compatibility job only after the repository ruleset requires the stable check.
+
 Guidelines for writing code
 ----------------------------
 
