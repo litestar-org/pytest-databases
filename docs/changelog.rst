@@ -9,6 +9,8 @@ Next
 Added
 ~~~~~
 
+* Clientless Google Pub/Sub emulator fixtures backed by the official Google Cloud CLI emulator image, with Docker and
+  Podman-compatible lifecycle management, project-scoped xdist isolation, and an in-container protocol smoke check.
 * First-class Docker and Podman runtime selection through one Docker-compatible API transport. Closes
   `gh-146 <https://github.com/litestar-org/pytest-databases/issues/146>`_.
 * Runtime-neutral ``container_client``, ``container_service``, and ``ContainerService`` names while retaining all

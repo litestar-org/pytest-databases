@@ -33,6 +33,7 @@ Ready-made database fixtures for your pytest tests.
 - **Google AlloyDB Omni**: Simplified Omni installation for easy testing.
 - **Google Spanner**: The latest cloud-emulator from Google is available
 - **Google BigQuery**: Unofficial BigQuery emulator
+- **Google Pub/Sub**: Official Google Cloud Pub/Sub emulator
 - **CockroachDB**: Version latest is available
 - **Redis**: Latest version
 - **Valkey**: Latest version

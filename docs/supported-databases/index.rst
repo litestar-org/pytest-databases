@@ -14,6 +14,7 @@ This section provides detailed information on the supported databases, including
    sqlserver
    spanner
    bigquery
+   pubsub
    cockroachdb
    yugabyte
    mongodb

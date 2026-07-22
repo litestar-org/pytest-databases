@@ -7,6 +7,9 @@ First, install the base package using pip:
 
    pip install pytest-databases
 
+Clientless service fixtures such as the Google Pub/Sub emulator are included in the base package. Install the client
+used by your application separately; ``pytest-databases`` does not add a Google Cloud Pub/Sub client dependency.
+
 Optional Database Support
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
