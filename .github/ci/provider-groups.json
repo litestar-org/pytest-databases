@@ -27,6 +27,7 @@
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
     "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
     "tests/test_mssql.py::test_plugin_imports_without_pymssql",
+    "tests/test_redis.py::test_plugin_imports_without_redis",
     "tests/test_spanner.py::test_plugin_imports_without_google_cloud_spanner",
     "tests/test_valkey.py::test_plugin_imports_without_valkey"
   ],
