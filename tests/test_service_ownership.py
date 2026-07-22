@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 from pytest_databases import ContainerService as PublicContainerService
 from pytest_databases import DockerService as PublicDockerService
+from pytest_databases import cleanup_stale_containers
 from pytest_databases._service import (
     ContainerService,
     DockerService,
@@ -151,6 +152,16 @@ def test_cleanup_filters_one_owner_and_leaves_other_sessions_unlisted() -> None:
     _stop_owned_containers(client, "session-a")  # type: ignore[arg-type]
 
     assert client.containers.list_calls[0]["filters"] == {"label": "pytest_databases.owner=session-a"}
+    running.kill.assert_called_once_with()
+
+
+def test_global_stale_cleanup_is_explicit() -> None:
+    running = Mock(status="running")
+    client = FakeClient(FakeContainers([running]))
+
+    cleanup_stale_containers(client)  # type: ignore[arg-type]
+
+    assert client.containers.list_calls[0]["filters"] == {"label": "pytest_databases=true"}
     running.kill.assert_called_once_with()
 
 

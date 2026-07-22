@@ -60,10 +60,10 @@ def get_docker_client() -> DockerClient:
     return resolve_container_runtime(RuntimeType.AUTO).create_client()
 
 
-def _stop_owned_containers(client: DockerClient, owner_id: str) -> None:
+def _stop_filtered_containers(client: DockerClient, label: str) -> None:
     containers: list[Container] = client.containers.list(
         all=True,
-        filters={"label": f"{OWNER_LABEL}={owner_id}"},
+        filters={"label": label},
         ignore_removed=True,
     )
     for container in containers:
@@ -84,6 +84,21 @@ def _stop_owned_containers(client: DockerClient, owner_id: str) -> None:
         except APIError as exc:
             if exc.status_code not in {404, 409}:
                 raise
+
+
+def _stop_owned_containers(client: DockerClient, owner_id: str) -> None:
+    _stop_filtered_containers(client, f"{OWNER_LABEL}={owner_id}")
+
+
+def cleanup_stale_containers(client: DockerClient | None = None) -> None:
+    """Explicitly remove all managed leftovers after an interrupted test process."""
+    owned_client = client is None
+    resolved_client = get_docker_client() if client is None else client
+    try:
+        _stop_filtered_containers(resolved_client, f"{MANAGED_LABEL}=true")
+    finally:
+        if owned_client:
+            resolved_client.close()
 
 
 def _creation_lock_path(
