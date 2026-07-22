@@ -398,6 +398,7 @@ markers = [
   "spanner: Google Cloud Spanner Tests",
   "duckdb: DuckDB Tests",
   "mssql: Microsoft SQL Server Tests",
+  "runtime_conformance: Docker-compatible runtime conformance tests",
   "elasticsearch: Elasticsearch Tests",
   "gizmosql: GizmoSQL Tests",
 ]

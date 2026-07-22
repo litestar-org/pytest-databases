@@ -51,6 +51,7 @@ def _discover_provider_files(project_root: Path) -> tuple[set[str], set[str]]:
         if path.name != "__init__.py"
     }
     sources.add("src/pytest_databases/_service.py")
+    sources.add("src/pytest_databases/runtime.py")
     tests = {path.relative_to(project_root).as_posix() for path in (project_root / "tests").glob("test_*.py")}
     return sources, tests
 

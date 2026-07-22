@@ -3,12 +3,14 @@
   "supported_python_versions": ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"],
   "shared_all_provider_paths": [
     ".github/workflows/ci.yaml",
+    ".github/workflows/runtime-conformance.yaml",
     "Makefile",
     "scripts/ci/**",
     "src/pytest_databases/__init__.py",
     "src/pytest_databases/_service.py",
     "src/pytest_databases/docker/__init__.py",
     "src/pytest_databases/helpers.py",
+    "src/pytest_databases/runtime.py",
     "src/pytest_databases/types.py",
     "tests/conftest.py"
   ],
@@ -23,6 +25,8 @@
     "LICENSE"
   ],
   "compatibility_test_paths": [
+    "tests/test_runtime.py",
+    "tests/test_service_ownership.py",
     "tests/test_cockroachdb.py::test_plugin_imports_without_psycopg",
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
     "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
@@ -50,8 +54,16 @@
       "docs_globs": ["docs/supported-databases/cockroachdb.rst"]
     },
     "runtime": {
-      "source_globs": ["src/pytest_databases/_service.py"],
-      "test_paths": ["tests/test_service_host_port.py"],
+      "source_globs": [
+        "src/pytest_databases/_service.py",
+        "src/pytest_databases/runtime.py"
+      ],
+      "test_paths": [
+        "tests/test_runtime.py",
+        "tests/test_runtime_conformance.py",
+        "tests/test_service_host_port.py",
+        "tests/test_service_ownership.py"
+      ],
       "images": ["busybox:latest"],
       "docs_globs": ["docs/getting-started/**"]
     },
