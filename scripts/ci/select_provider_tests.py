@@ -44,6 +44,10 @@ def validate_manifest(manifest: Mapping[str, Any], *, project_root: Path = PROJE
     if manifest.get("schema_version") != 1:
         message = f"unsupported schema_version: {manifest.get('schema_version')!r}"
         raise ManifestValidationError(message)
+    python_versions = manifest.get("supported_python_versions")
+    if python_versions != ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]:
+        message = "supported_python_versions must match the declared Python 3.9-3.14 compatibility range"
+        raise ManifestValidationError(message)
     providers = manifest.get("providers")
     if not isinstance(providers, Mapping) or not providers:
         message = "providers must be a non-empty mapping"
@@ -125,7 +129,11 @@ def _deduplicate(values: Iterable[str]) -> list[str]:
 
 
 def select_providers(
-    manifest: Mapping[str, Any], changed_paths: Sequence[str], *, full: bool = False
+    manifest: Mapping[str, Any],
+    changed_paths: Sequence[str],
+    *,
+    full: bool = False,
+    full_reason: str | None = None,
 ) -> dict[str, Any]:
     """Map changed paths to provider groups, failing closed for unknown paths."""
     paths = _deduplicate(path.strip("/") for path in changed_paths if path.strip("/"))
@@ -135,7 +143,7 @@ def select_providers(
     if full:
         selected_ids = all_provider_ids
         mode = "full"
-        reason = "full execution was explicitly requested"
+        reason = full_reason or "full execution was explicitly requested"
     elif not paths:
         selected_ids = all_provider_ids
         mode = "fail-closed"
@@ -177,13 +185,16 @@ def select_providers(
             reason = f"selected providers owning changed paths: {', '.join(selected_ids)}"
 
     images = sorted({image for provider_id in selected_ids for image in providers[provider_id]["images"]})
+    python_versions = manifest["supported_python_versions"] if full else ["3.12"]
     matrix = {
         "include": [
             {
                 "provider": provider_id,
+                "python-version": python_version,
                 "test_paths": providers[provider_id]["test_paths"],
             }
             for provider_id in selected_ids
+            for python_version in python_versions
         ]
     }
     run_docs = full or any(_matches(path, manifest["docs_only_globs"]) for path in paths)
@@ -282,6 +293,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--base-ref")
     parser.add_argument("--head-ref")
     parser.add_argument("--full", action="store_true")
+    parser.add_argument("--full-reason")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--summary", type=Path)
     args = parser.parse_args(argv)
@@ -295,7 +307,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("--base-ref and --head-ref must be provided together")
         changed_paths = changed_files_for_range(args.base_ref, args.head_ref)
 
-    selection = select_providers(manifest, changed_paths, full=args.full)
+    selection = select_providers(manifest, changed_paths, full=args.full, full_reason=args.full_reason)
     sys.stdout.write(f"{json.dumps(selection, indent=2, sort_keys=True)}\n")
     output_path = args.github_output or (Path(os.environ["GITHUB_OUTPUT"]) if "GITHUB_OUTPUT" in os.environ else None)
     if output_path is not None:

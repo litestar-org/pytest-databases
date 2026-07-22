@@ -122,10 +122,32 @@ def test_select_providers_deduplicates_paths_and_images(manifest: dict[str, Any]
 
 
 def test_select_providers_full_mode(manifest: dict[str, Any]) -> None:
-    result = select_providers(manifest, ["README.md"], full=True)
+    result = select_providers(manifest, ["README.md"], full=True, full_reason="ci:full label")
 
     assert result["mode"] == "full"
     assert set(result["providers"]) == EXPECTED_PROVIDERS
+    assert result["reason"] == "ci:full label"
+    assert len(result["provider_matrix"]["include"]) == len(EXPECTED_PROVIDERS) * 6
+    assert {cell["python-version"] for cell in result["provider_matrix"]["include"]} == {
+        "3.9",
+        "3.10",
+        "3.11",
+        "3.12",
+        "3.13",
+        "3.14",
+    }
+
+
+def test_selective_provider_matrix_uses_python_312(manifest: dict[str, Any]) -> None:
+    result = select_providers(manifest, ["tests/test_bigquery.py"])
+
+    assert result["provider_matrix"]["include"] == [
+        {
+            "provider": "bigquery",
+            "python-version": "3.12",
+            "test_paths": ["tests/test_bigquery.py"],
+        }
+    ]
 
 
 def test_docs_only_selection_skips_code_jobs_and_requests_docs(manifest: dict[str, Any]) -> None:

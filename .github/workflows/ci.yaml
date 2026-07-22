@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -48,12 +51,22 @@ jobs:
         id: select
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          FULL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          LABEL_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
         run: |
           args=(--github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
-          if [[ "$FULL" == "true" || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
-            args+=(--full)
+          full_reason=""
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            full_reason="nightly schedule"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            full_reason="manual workflow dispatch"
+          elif [[ "$LABEL_FULL" == "true" ]]; then
+            full_reason="ci:full label"
+          elif [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            full_reason="unavailable push base"
+          fi
+          if [[ -n "$full_reason" ]]; then
+            args+=(--full --full-reason "$full_reason")
           else
             args+=(--base-ref "$BASE_SHA" --head-ref "$HEAD_SHA")
           fi
@@ -134,7 +147,7 @@ jobs:
         run: make docs
 
   provider:
-    name: Provider / ${{ matrix.provider }} / Python 3.12
+    name: Provider / ${{ matrix.provider }} / Python ${{ matrix.python-version }}
     if: needs.select.outputs.run_provider_tests == 'true'
     needs: select
     runs-on: ubuntu-latest
@@ -149,7 +162,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -160,13 +173,20 @@ jobs:
       - name: Pull provider images
         run: uv run python -m scripts.ci.pull_images --provider "${{ matrix.provider }}"
 
-      - name: Run provider tests
+      - name: Run provider tests with coverage
+        if: matrix.python-version == '3.12'
         run: uv run python -m scripts.ci.run_tests --provider "${{ matrix.provider }}" --coverage
 
+      - name: Run provider tests
+        if: matrix.python-version != '3.12'
+        run: uv run python -m scripts.ci.run_tests --provider "${{ matrix.provider }}"
+
       - name: Name raw coverage data
+        if: matrix.python-version == '3.12'
         run: mv .coverage ".coverage.${{ matrix.provider }}"
 
       - name: Upload raw coverage data
+        if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-data-${{ matrix.provider }}
