@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: test-${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -161,12 +161,61 @@ jobs:
         run: uv run python -m scripts.ci.pull_images --provider "${{ matrix.provider }}"
 
       - name: Run provider tests
-        run: uv run python -m scripts.ci.run_tests --provider "${{ matrix.provider }}"
+        run: uv run python -m scripts.ci.run_tests --provider "${{ matrix.provider }}" --coverage
+
+      - name: Name raw coverage data
+        run: mv .coverage ".coverage.${{ matrix.provider }}"
+
+      - name: Upload raw coverage data
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-data-${{ matrix.provider }}
+          path: .coverage.${{ matrix.provider }}
+          include-hidden-files: true
+
+  coverage:
+    name: Coverage
+    if: needs.select.outputs.run_provider_tests == 'true' && needs.provider.result == 'success'
+    needs: [select, provider]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install coverage dependencies
+        run: uv sync --frozen --no-dev --group test
+
+      - name: Download raw coverage data
+        uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-data-*
+          path: coverage-data
+          merge-multiple: true
+
+      - name: Combine coverage data
+        run: |
+          uv run coverage combine coverage-data
+          uv run coverage xml
+
+      - name: Upload coverage report to Codecov
+        uses: codecov/codecov-action@v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: litestar-org/pytest-databases
+          files: coverage.xml
+          fail_ci_if_error: true
 
   ci-required:
     name: CI required
     if: always()
-    needs: [select, quality, compatibility, docs, provider]
+    needs: [select, quality, compatibility, docs, provider, coverage]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -184,7 +233,9 @@ jobs:
           --compatibility "${{ needs.compatibility.result }}"
           --docs "${{ needs.docs.result }}"
           --provider "${{ needs.provider.result }}"
+          --coverage "${{ needs.coverage.result }}"
           --expect-quality "${{ needs.select.outputs.run_quality }}"
           --expect-compatibility "${{ needs.select.outputs.run_compatibility }}"
           --expect-docs "${{ needs.select.outputs.run_docs }}"
           --expect-provider "${{ needs.select.outputs.run_provider_tests }}"
+          --expect-coverage "${{ needs.select.outputs.run_provider_tests }}"

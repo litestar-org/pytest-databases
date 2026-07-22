@@ -25,5 +25,5 @@ def test_build_provider_command_uses_only_owned_tests() -> None:
     command = build_provider_command(manifest, "postgres", coverage=True)
 
     assert command[:3] == [sys.executable, "-m", "pytest"]
-    assert command[3:4] == ["--cov=pytest_databases"]
-    assert command[4:] == ["tests/test_postgres.py"]
+    assert command[3:5] == ["--cov=pytest_databases", "--cov-report="]
+    assert command[5:] == ["tests/test_postgres.py"]

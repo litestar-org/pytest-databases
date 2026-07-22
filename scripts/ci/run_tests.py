@@ -25,7 +25,7 @@ def build_provider_command(manifest: Mapping[str, Any], provider_id: str, *, cov
     if provider_id not in providers:
         message = f"unknown provider: {provider_id}"
         raise ValueError(message)
-    coverage_args = ["--cov=pytest_databases"] if coverage else []
+    coverage_args = ["--cov=pytest_databases", "--cov-report="] if coverage else []
     return [sys.executable, "-m", "pytest", *coverage_args, *providers[provider_id]["test_paths"]]
 
 

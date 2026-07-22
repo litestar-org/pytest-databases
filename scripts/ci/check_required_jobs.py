@@ -33,15 +33,18 @@ def _parse_bool(value: str) -> bool:
 def main(argv: Sequence[str] | None = None) -> int:
     """Validate Actions job results and selector intent."""
     parser = argparse.ArgumentParser()
-    for job in ("select", "quality", "compatibility", "docs", "provider"):
+    for job in ("select", "quality", "compatibility", "docs", "provider", "coverage"):
         parser.add_argument(f"--{job}", required=True)
-    for job in ("quality", "compatibility", "docs", "provider"):
+    for job in ("quality", "compatibility", "docs", "provider", "coverage"):
         parser.add_argument(f"--expect-{job}", required=True)
     args = parser.parse_args(argv)
 
-    statuses = {job: getattr(args, job) for job in ("select", "quality", "compatibility", "docs", "provider")}
+    statuses = {
+        job: getattr(args, job) for job in ("select", "quality", "compatibility", "docs", "provider", "coverage")
+    }
     expected = {
-        job: _parse_bool(getattr(args, f"expect_{job}")) for job in ("quality", "compatibility", "docs", "provider")
+        job: _parse_bool(getattr(args, f"expect_{job}"))
+        for job in ("quality", "compatibility", "docs", "provider", "coverage")
     }
     failures = evaluate_required_jobs(statuses, expected=expected)
     if failures:
