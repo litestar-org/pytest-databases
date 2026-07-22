@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 PROJECT_ROOT = Path(__file__).parents[2]
 DEFAULT_MANIFEST_PATH = PROJECT_ROOT / ".github" / "ci" / "provider-groups.json"
+MANIFEST_REPOSITORY_PATH = ".github/ci/provider-groups.json"
 GIT_EXECUTABLE = shutil.which("git")
 PROVIDER_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -164,6 +165,7 @@ def select_providers(
     *,
     full: bool = False,
     full_reason: str | None = None,
+    manifest_provider_ids: Sequence[str] | None = (),
 ) -> dict[str, Any]:
     """Map changed paths to provider groups, failing closed for unknown paths."""
     paths = _deduplicate(normalized for path in changed_paths if (normalized := _normalize_changed_path(path)))
@@ -188,6 +190,10 @@ def select_providers(
         else:
             mode = "docs-only"
             reason = "all changed paths are documentation"
+    elif MANIFEST_REPOSITORY_PATH in paths and manifest_provider_ids is None:
+        selected_ids = all_provider_ids
+        mode = "all-providers"
+        reason = "shared provider manifest settings changed"
     elif any(_matches(path, manifest["shared_all_provider_paths"]) for path in paths):
         selected_ids = all_provider_ids
         mode = "all-providers"
@@ -198,6 +204,7 @@ def select_providers(
             for provider_id, provider in providers.items()
             if any(_matches(path, [*provider["source_globs"], *provider["test_paths"]]) for path in paths)
         }
+        selected.update(manifest_provider_ids or ())
         known_paths = {
             path
             for path in paths
@@ -205,6 +212,7 @@ def select_providers(
                 _matches(path, [*provider["source_globs"], *provider["test_paths"], *provider["docs_globs"]])
                 for provider in providers.values()
             )
+            or path == MANIFEST_REPOSITORY_PATH
             or _matches(path, manifest["docs_only_globs"])
             or _matches(path, manifest["metadata_only_globs"])
         }
@@ -239,6 +247,37 @@ def select_providers(
         "run_docs": run_docs,
         "run_quality": bool(selected_ids) or mode == "metadata-only",
     }
+
+
+def changed_manifest_provider_ids(base_ref: str, manifest: Mapping[str, Any], *, cwd: Path = PROJECT_ROOT) -> list[str] | None:
+    """Return provider entries changed from the base, or ``None`` for shared schema changes."""
+    if GIT_EXECUTABLE is None:
+        message = "git executable was not found"
+        raise RuntimeError(message)
+    result = subprocess.run(
+        [GIT_EXECUTABLE, "show", f"{base_ref}:{MANIFEST_REPOSITORY_PATH}"],
+        cwd=cwd,
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return None
+    base_manifest = json.loads(result.stdout)
+    base_shared = {key: value for key, value in base_manifest.items() if key != "providers"}
+    head_shared = {key: value for key, value in manifest.items() if key != "providers"}
+    if base_shared != head_shared:
+        return None
+    base_providers = base_manifest.get("providers", {})
+    head_providers = manifest["providers"]
+    changed = sorted(
+        provider_id
+        for provider_id in set(base_providers) | set(head_providers)
+        if base_providers.get(provider_id) != head_providers.get(provider_id)
+    )
+    if any(provider_id not in head_providers for provider_id in changed):
+        return None
+    return changed
 
 
 def parse_name_status(output: bytes) -> list[str]:
@@ -377,7 +416,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("--base-ref and --head-ref must be provided together")
         changed_paths = changed_files_for_range(args.base_ref, args.head_ref)
 
-    selection = select_providers(manifest, changed_paths, full=args.full, full_reason=args.full_reason)
+    manifest_provider_ids: Sequence[str] | None = ()
+    if MANIFEST_REPOSITORY_PATH in changed_paths:
+        manifest_provider_ids = (
+            changed_manifest_provider_ids(args.base_ref, manifest) if args.base_ref is not None else None
+        )
+    selection = select_providers(
+        manifest,
+        changed_paths,
+        full=args.full,
+        full_reason=args.full_reason,
+        manifest_provider_ids=manifest_provider_ids,
+    )
     selection["event_name"] = os.environ.get("GITHUB_EVENT_NAME", "local")
     selection["base_ref"] = args.base_ref
     selection["head_ref"] = args.head_ref

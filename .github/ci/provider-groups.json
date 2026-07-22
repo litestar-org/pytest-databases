@@ -2,7 +2,6 @@
   "schema_version": 1,
   "supported_python_versions": ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"],
   "shared_all_provider_paths": [
-    ".github/ci/provider-groups.json",
     ".github/workflows/ci.yaml",
     "Makefile",
     "pyproject.toml",

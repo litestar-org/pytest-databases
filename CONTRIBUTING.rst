@@ -38,6 +38,8 @@ Pull requests use the changed files to choose the smallest safe test scope:
 
 - A provider implementation or provider test change runs that provider on Python 3.12. Clientless import compatibility
   checks still run on every supported Python version.
+- Adding or changing one provider entry in the CI manifest selects only that provider. Shared manifest settings and
+  provider removal still fail closed by selecting every provider.
 - Shared runtime, dependency, lock, or workflow changes run every provider once on Python 3.12.
 - Documentation-only changes build the documentation and do not start containers or pull container images.
 - An unrecognized path fails closed by running every provider on Python 3.12.
