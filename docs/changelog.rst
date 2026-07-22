@@ -9,6 +9,8 @@ Next
 Added
 ~~~~~
 
+* A dependency-free ``localstack_service`` fixture with clientless SQS operations, worker-safe resource prefixes,
+  and Docker or Podman support. Closes `gh-150 <https://github.com/litestar-org/pytest-databases/issues/150>`_.
 * First-class Docker and Podman runtime selection through one Docker-compatible API transport. Closes
   `gh-146 <https://github.com/litestar-org/pytest-databases/issues/146>`_.
 * Runtime-neutral ``container_client``, ``container_service``, and ``ContainerService`` names while retaining all

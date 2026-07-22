@@ -41,6 +41,7 @@ Ready-made database fixtures for your pytest tests.
 - **Elasticsearch**: Version 7 and 8 are available
 - **Azure blob storage**: Via azurite
 - **Minio**: Latest version
+- **LocalStack**: Tokenless AWS service emulation with in-container CLI access
 
 ## Installation
 
