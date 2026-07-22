@@ -173,6 +173,12 @@
       ],
       "docs_globs": ["docs/supported-databases/redis.rst"]
     },
+    "rabbitmq": {
+      "source_globs": ["src/pytest_databases/docker/rabbitmq.py"],
+      "test_paths": ["tests/test_rabbitmq.py"],
+      "images": ["rabbitmq:4.3-management"],
+      "docs_globs": ["docs/supported-databases/rabbitmq.rst"]
+    },
     "rustfs": {
       "source_globs": ["src/pytest_databases/docker/rustfs.py"],
       "test_paths": ["tests/test_rustfs.py", "tests/test_rustfs_config.py"],
