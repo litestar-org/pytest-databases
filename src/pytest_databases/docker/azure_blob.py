@@ -4,20 +4,42 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
-from azure.storage.blob import ContainerClient
-from azure.storage.blob.aio import ContainerClient as AsyncContainerClient
 
 from pytest_databases.helpers import get_xdist_worker_count, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Generator
+    from collections.abc import Generator
 
     from pytest_databases._service import DockerService
 
 
 DEFAULT_ACCOUNT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
 DEFAULT_ACCOUNT_NAME = "devstoreaccount1"
+AZURE_CLI_IMAGE = "mcr.microsoft.com/azure-cli:latest"
+
+
+def _bootstrap_azure_blob_container(
+    docker_service: DockerService,
+    *,
+    connection_string: str,
+    container_name: str,
+) -> None:
+    docker_service._client.containers.run(
+        AZURE_CLI_IMAGE,
+        [
+            "az",
+            "storage",
+            "container",
+            "create",
+            "--name",
+            container_name,
+            "--connection-string",
+            connection_string,
+        ],
+        network_mode="host",
+        remove=True,
+    )
 
 
 @dataclass
@@ -47,6 +69,7 @@ def azure_blob_service(
     docker_service: DockerService,
     azurite_in_memory: bool,
     azure_blob_xdist_isolation_level: XdistIsolationLevel,
+    azure_blob_default_container_name: str,
 ) -> Generator[ServiceContainer, None, None]:
     command = "azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck"
     if azurite_in_memory:
@@ -83,6 +106,12 @@ def azure_blob_service(
             f"BlobEndpoint={account_url};"
         )
 
+        _bootstrap_azure_blob_container(
+            docker_service,
+            connection_string=connection_string,
+            container_name=azure_blob_default_container_name,
+        )
+
         yield AzureBlobService(
             host=service.host,
             port=service.port,
@@ -97,27 +126,3 @@ def azure_blob_service(
 @pytest.fixture(scope="session")
 def azure_blob_default_container_name() -> str:
     return "pytest-databases"
-
-
-@pytest.fixture(scope="session")
-def azure_blob_container_client(
-    azure_blob_service: AzureBlobService,
-    azure_blob_default_container_name: str,
-) -> Generator[ContainerClient, None, None]:
-    with ContainerClient.from_connection_string(
-        azure_blob_service.connection_string,
-        container_name=azure_blob_default_container_name,
-    ) as container_client:
-        yield container_client
-
-
-@pytest.fixture(scope="session")
-async def azure_blob_async_container_client(
-    azure_blob_service: AzureBlobService,
-    azure_blob_default_container_name: str,
-) -> AsyncGenerator[AsyncContainerClient, None]:
-    async with AsyncContainerClient.from_connection_string(
-        azure_blob_service.connection_string,
-        container_name=azure_blob_default_container_name,
-    ) as container_client:
-        yield container_client
