@@ -178,13 +178,13 @@ ignore-words-list = "alog"
 skip = 'uv.lock, package-lock.json'
 
 [tool.pyright]
-exclude = ["scripts", "docs"]
-include = ["src/pytest_databases", "tests"]
+exclude = ["docs"]
+include = ["src/pytest_databases", "tests", "scripts/ci"]
 
 
 [tool.mypy]
 disallow_untyped_defs = false
-files = ["src/pytest_databases", "tests"]
+files = ["src/pytest_databases", "tests", "scripts/ci"]
 follow_imports = "normal"                 # "silent" for not following
 ignore_missing_imports = true
 pretty = true
@@ -237,7 +237,7 @@ exclude = [
   '__pycache__',
 ]
 fix = true
-include = ["src/**/*.py", "src/**/*.pyi", "tests/**/*.py", "tests/**/*.pyi"]
+include = ["src/**/*.py", "src/**/*.pyi", "tests/**/*.py", "tests/**/*.pyi", "scripts/ci/**/*.py"]
 line-length = 120
 lint.fixable = ["ALL"]
 lint.ignore = [

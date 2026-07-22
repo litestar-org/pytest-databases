@@ -5,25 +5,82 @@ on:
     branches:
       - main
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: test-${{ github.head_ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHONUNBUFFERED: "1"
   FORCE_COLOR: "1"
 
 jobs:
-  test:
-    name: Python ${{ matrix.python-version }} - ${{ matrix.cdist-group }}/3
+  select:
+    name: Select provider tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      mode: ${{ steps.select.outputs.mode }}
+      providers: ${{ steps.select.outputs.providers }}
+      run_compatibility: ${{ steps.select.outputs.run_compatibility }}
+      run_docs: ${{ steps.select.outputs.run_docs }}
+      run_provider_tests: ${{ steps.select.outputs.run_provider_tests }}
+      run_quality: ${{ steps.select.outputs.run_quality }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Select provider scope
+        id: select
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          LABEL_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+        run: |
+          args=(--github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
+          full_reason=""
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            full_reason="nightly schedule"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            full_reason="manual workflow dispatch"
+          elif [[ "$LABEL_FULL" == "true" ]]; then
+            full_reason="ci:full label"
+          elif [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            full_reason="unavailable push base"
+          fi
+          if [[ -n "$full_reason" ]]; then
+            args+=(--full --full-reason "$full_reason")
+          else
+            args+=(--base-ref "$BASE_SHA" --head-ref "$HEAD_SHA")
+          fi
+          uv run --frozen python -m scripts.ci.select_provider_tests "${args[@]}"
+
+  compatibility:
+    name: Clientless compatibility / Python ${{ matrix.python-version }}
+    if: needs.select.outputs.run_compatibility == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-        cdist-group: [1, 2, 3]
 
     steps:
       - uses: actions/checkout@v7
@@ -36,76 +93,109 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Intall dependencies
+      - name: Install clientless test dependencies
+        run: uv sync --frozen --no-dev --group test
+
+      - name: Run clientless compatibility tests
+        run: uv run python -m scripts.ci.run_tests --compatibility
+
+  quality:
+    name: Quality
+    if: needs.select.outputs.run_quality == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
         run: uv sync --frozen --all-extras
 
-      # Pre-pull docker images with retry to absorb transient registry failures
-      # (MCR WAF blocks on mcr.microsoft.com, Docker Hub anonymous rate limits)
-      # before pytest starts spawning fixture subprocesses. Pull in parallel
-      # (-P 6) - sequential pulls of ~30 images cost 10+ min on a runner.
-      - name: Pre-pull docker images
-        run: |
-          set -u
-          images=(
-            "mcr.microsoft.com/azure-storage/azurite"
-            "mcr.microsoft.com/mssql/server:2022-latest"
-            "dolthub/dolt-sql-server:latest"
-            "postgres:11" "postgres:12" "postgres:13" "postgres:14"
-            "postgres:15" "postgres:16" "postgres:17" "postgres:18"
-            "pgvector/pgvector:pg15"
-            "paradedb/paradedb:0.21.5-pg16"
-            "google/alloydbomni:16"
-            "mysql:5.6" "mysql:5.7" "mysql:8"
-            "mariadb:11.3"
-            "gvenzl/oracle-free:23-slim-faststart"
-            "gvenzl/oracle-xe:18-slim-faststart"
-            "redis:latest"
-            "valkey/valkey:latest"
-            "mongo:latest"
-            "cockroachdb/cockroach:latest"
-            "software.yugabyte.com/yugabytedb/yugabyte:latest"
-            "quay.io/minio/minio"
-            "minio/mc:latest"
-            "rustfs/rustfs:latest"
-            "rustfs/rc:latest"
-            "gcr.io/cloud-spanner-emulator/emulator:latest"
-            "ghcr.io/goccy/bigquery-emulator:latest"
-            "gizmodata/gizmosql:latest"
-          )
-          printf '%s\n' "${images[@]}" | xargs -n1 -P6 -I{} bash -c '
-            image="$1"
-            for attempt in 1 2 3 4 5; do
-              if docker pull --quiet "$image"; then
-                exit 0
-              fi
-              [ "$attempt" -lt 5 ] && sleep $((attempt * attempt * 5))
-            done
-            echo "::warning::Failed to pull $image after 5 attempts"
-          ' _ {}
+      - name: Run lint and type checks
+        run: make lint
 
-      - if: matrix.python-version == '3.12'
-        name: Run tests with coverage tracking
-        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
+  docs:
+    name: Documentation
+    if: needs.select.outputs.run_docs == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
 
-      - if: matrix.python-version != '3.12'
-        name: Run tests without tracking coverage
-        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
-      - if: matrix.python-version == '3.12'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Build documentation
+        run: make docs
+
+  provider:
+    name: Provider / ${{ matrix.provider }} / Python ${{ matrix.python-version }}
+    if: needs.select.outputs.run_provider_tests == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Pull provider images
+        run: uv run python -m scripts.ci.pull_images --provider "${{ matrix.provider }}"
+
+      - name: Run provider tests with coverage
+        if: matrix.python-version == '3.12'
+        run: uv run python -m scripts.ci.run_tests --provider "${{ matrix.provider }}" --coverage
+
+      - name: Run provider tests
+        if: matrix.python-version != '3.12'
+        run: uv run python -m scripts.ci.run_tests --provider "${{ matrix.provider }}"
+
+      - name: Name raw coverage data
+        if: matrix.python-version == '3.12'
+        run: mv .coverage ".coverage.${{ matrix.provider }}"
+
+      - name: Upload raw coverage data
+        if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-xml
-          path: coverage.xml
+          name: coverage-data-${{ matrix.provider }}
+          path: .coverage.${{ matrix.provider }}
+          include-hidden-files: true
 
-      - if: matrix.python-version == '3.12'
-        name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v7.0.0
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          slug: litestar-org/pytest-databases
-
-  # run elasticsearch in a separate step. it's too slow
-  test_elasticsearch:
+  coverage:
+    name: Coverage
+    if: needs.select.outputs.run_provider_tests == 'true' && needs.provider.result == 'success'
+    needs: [select, provider]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -113,50 +203,71 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: 3.9
+          python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Intall dependencies
-        run: uv sync --frozen --all-extras
+      - name: Install coverage dependencies
+        run: uv sync --frozen --no-dev --group test
 
-      - name: Pre-pull docker images
+      - name: Download raw coverage data
+        uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-data-*
+          path: coverage-data
+          merge-multiple: true
+
+      - name: Combine coverage data
         run: |
-          set -u
-          for image in "elasticsearch:7.17.19" "elasticsearch:8.13.0"; do
-            for attempt in 1 2 3 4 5; do
-              if docker pull --quiet "$image"; then
-                break
-              fi
-              [ "$attempt" -eq 5 ] && echo "::warning::Failed to pull $image" || sleep $((attempt * attempt * 5))
-            done
-          done
+          uv run coverage combine coverage-data
+          uv run coverage xml
 
-      - name: Run tests with coverage tracking
-        run: uv run pytest -k elasticsearch
+      - name: Upload coverage report to Codecov
+        uses: codecov/codecov-action@v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: litestar-org/pytest-databases
+          files: coverage.xml
+          fail_ci_if_error: false
 
-  # sonar:
-  #   needs:
-  #     - test
-  #     - test_elasticsearch
-  #   if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'litestar-org'
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Check out repository
-  #       uses: actions/checkout@v7
-  #       with:
-  #         fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
-  #     - name: Download Artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         name: coverage-xml
+  ci-required:
+    name: CI required
+    if: always()
+    needs: [select, quality, compatibility, docs, provider, coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
 
-  #     - name: Fix coverage file for sonarcloud
-  #       run: sed -i "s/home\/runner\/work\/pytest-databases\/pytest-databases/github\/workspace/g" coverage.xml
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
-  #     - name: SonarCloud Scan
-  #       uses: sonarsource/sonarcloud-github-action@master
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Validate required job results
+        run: >-
+          python -m scripts.ci.check_required_jobs
+          --select "${{ needs.select.result }}"
+          --quality "${{ needs.quality.result }}"
+          --compatibility "${{ needs.compatibility.result }}"
+          --docs "${{ needs.docs.result }}"
+          --provider "${{ needs.provider.result }}"
+          --coverage "${{ needs.coverage.result }}"
+          --expect-quality "${{ needs.select.outputs.run_quality }}"
+          --expect-compatibility "${{ needs.select.outputs.run_compatibility }}"
+          --expect-docs "${{ needs.select.outputs.run_docs }}"
+          --expect-provider "${{ needs.select.outputs.run_provider_tests }}"
+          --expect-coverage "${{ needs.select.outputs.run_provider_tests }}"
+
+  # Temporary ruleset compatibility shim. The repository currently requires
+  # this legacy context; remove it after the ruleset requires CI required.
+  test_elasticsearch:
+    name: test_elasticsearch
+    if: always()
+    needs: ci-required
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror stable gate result
+        env:
+          REQUIRED_RESULT: ${{ needs.ci-required.result }}
+        run: test "$REQUIRED_RESULT" = "success"
