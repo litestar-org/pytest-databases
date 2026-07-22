@@ -15,6 +15,32 @@ env:
   FORCE_COLOR: "1"
 
 jobs:
+  compatibility:
+    name: Clientless compatibility / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install clientless test dependencies
+        run: uv sync --frozen --no-dev --group test
+
+      - name: Run clientless compatibility tests
+        run: uv run python -m scripts.ci.run_tests --compatibility
+
   test:
     name: Python ${{ matrix.python-version }} - ${{ matrix.cdist-group }}/3
     runs-on: ubuntu-latest

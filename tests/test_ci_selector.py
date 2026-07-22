@@ -72,7 +72,7 @@ def test_provider_manifest_owns_every_adapter_source_and_test_once() -> None:
     provider_tests = {
         path.relative_to(PROJECT_ROOT).as_posix()
         for path in (PROJECT_ROOT / "tests").glob("test_*.py")
-        if path.name != "test_ci_selector.py"
+        if not path.name.startswith("test_ci_")
     }
 
     assert len(owned_sources) == len(set(owned_sources))
