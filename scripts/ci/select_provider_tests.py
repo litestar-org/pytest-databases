@@ -300,12 +300,16 @@ def changed_manifest_provider_ids(
     head_compatibility = set(manifest.get("compatibility_test_paths", []))
     if base_compatibility - head_compatibility:
         return None
-    changed_test_files = {path for provider_id in changed for path in head_providers[provider_id]["test_paths"]}
-    if any(
-        path.split("::", maxsplit=1)[0] not in changed_test_files for path in head_compatibility - base_compatibility
-    ):
-        return None
-    return changed
+    changed_provider_ids = set(changed)
+    for compatibility_path in head_compatibility - base_compatibility:
+        test_file = compatibility_path.split("::", maxsplit=1)[0]
+        owners = {
+            provider_id for provider_id, provider in head_providers.items() if test_file in provider["test_paths"]
+        }
+        if len(owners) != 1:
+            return None
+        changed_provider_ids.update(owners)
+    return sorted(changed_provider_ids)
 
 
 def parse_name_status(output: bytes) -> list[str]:
