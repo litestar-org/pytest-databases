@@ -6,7 +6,7 @@ Integration with `GizmoSQL <https://github.com/gizmodata/gizmosql>`_, a high-per
 .. note::
 
    GizmoSQL always runs with TLS enabled using auto-generated self-signed certificates.
-   The connection fixtures automatically skip certificate verification for testing purposes.
+   When you connect from your own client code, configure TLS to skip certificate verification.
 
 Installation
 ------------
@@ -18,51 +18,41 @@ Installation
 Usage Example
 -------------
 
-Using the service fixture:
+The plugin ships service fixtures without a Python Flight SQL client dependency. Bring your
+own client (for example ``adbc-driver-flightsql``) and connect using the ``uri``, ``username``,
+and ``password`` fields on ``GizmoSQLService``. ``gizmosql_service`` uses DuckDB by default:
 
 .. code-block:: python
 
-    import pytest
+    from adbc_driver_flightsql import DatabaseOptions
     from adbc_driver_flightsql import dbapi as flightsql
-    from pytest_databases.docker.gizmosql import GizmoSQLService, _make_connection_kwargs
+    from pytest_databases.docker.gizmosql import GizmoSQLService
 
     pytest_plugins = ["pytest_databases.docker.gizmosql"]
 
+
     def test(gizmosql_service: GizmoSQLService) -> None:
-        db_kwargs = _make_connection_kwargs(
-            gizmosql_service.username,
-            gizmosql_service.password,
-        )
+        db_kwargs = {
+            "username": gizmosql_service.username,
+            "password": gizmosql_service.password,
+            DatabaseOptions.TLS_SKIP_VERIFY.value: "true",
+        }
         with flightsql.connect(
             uri=gizmosql_service.uri,
             db_kwargs=db_kwargs,
             autocommit=True,
         ) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+                cur.execute("""
+                    CREATE TABLE test_table (id INTEGER, name VARCHAR);
+                    INSERT INTO test_table VALUES (1, 'test');
+                """)
+
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM test_table")
                 result = cur.fetchone()
-                assert result is not None and result[0] == 1
-
-Using the connection fixture:
-
-.. code-block:: python
-
-    import pytest
-
-    pytest_plugins = ["pytest_databases.docker.gizmosql"]
-
-    def test(gizmosql_connection) -> None:
-        with gizmosql_connection.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE test_table (id INTEGER, name VARCHAR);
-                INSERT INTO test_table VALUES (1, 'test');
-            """)
-
-        with gizmosql_connection.cursor() as cur:
-            cur.execute("SELECT * FROM test_table")
-            result = cur.fetchone()
-            assert result is not None
-            assert result[0] == 1
+                assert result is not None
+                assert result[0] == 1
 
 .. note::
 
@@ -75,17 +65,31 @@ Available Fixtures
 * ``gizmosql_image``: The Docker image to use for GizmoSQL (default: ``gizmodata/gizmosql:latest``).
 * ``gizmosql_username``: The username for authentication.
 * ``gizmosql_password``: The password for authentication.
-* ``gizmosql_service``: A fixture that provides a GizmoSQL service container.
-* ``gizmosql_connection``: A fixture that provides an ADBC Flight SQL connection.
+* ``gizmosql_duckdb_service``: A GizmoSQL service explicitly configured with the DuckDB backend.
+* ``gizmosql_sqlite_service``: A GizmoSQL service explicitly configured with the SQLite backend.
+* ``gizmosql_service``: The backward-compatible default, which returns ``gizmosql_duckdb_service``.
 * ``xdist_gizmosql_isolation_level``: Xdist isolation level (default: ``server``).
+
+Both backend-specific fixtures can be requested in the same test session. They use distinct
+containers and share the image, username, password, TLS, readiness, and teardown configuration:
+
+.. code-block:: python
+
+    from pytest_databases.docker.gizmosql import GizmoSQLService
+
+
+    def test_backends(
+        gizmosql_duckdb_service: GizmoSQLService,
+        gizmosql_sqlite_service: GizmoSQLService,
+    ) -> None:
+        assert gizmosql_duckdb_service.uri != gizmosql_sqlite_service.uri
 
 Parallel Testing (xdist)
 ------------------------
 
-GizmoSQL only supports ``server`` isolation level for pytest-xdist parallel testing.
-This means each xdist worker gets its own dedicated container. Database-level isolation
-is not supported because DuckDB (the default backend) doesn't support multiple databases
-per instance.
+GizmoSQL only supports ``server`` isolation level for pytest-xdist parallel testing. Each
+xdist worker gets a dedicated container for every requested backend. Database-level isolation
+is not supported because the embedded backends do not provide independent server databases.
 
 .. code-block:: python
 

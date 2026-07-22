@@ -1,19 +1,48 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
-from adbc_driver_flightsql import DatabaseOptions
-from adbc_driver_flightsql import dbapi as flightsql
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterator
+
+    from docker.models.containers import Container
 
     from pytest_databases._service import DockerService
+
+
+def _output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
+    if isinstance(output, bytes):
+        return output
+    if isinstance(output, str):
+        return output.encode()
+    return b"".join(output)
+
+
+def _exec_gizmosql(container: Container, sql: str, *, user: str, password: str) -> tuple[int, bytes]:
+    result = container.exec_run(
+        [
+            "gizmosql_client",
+            "--host",
+            "localhost",
+            "--port",
+            "31337",
+            "--username",
+            user,
+            "--tls",
+            "--tls-skip-verify",
+            "--command",
+            sql,
+        ],
+        environment={"GIZMOSQL_PASSWORD": password},
+    )
+    return result.exit_code if result.exit_code is not None else -1, _output_to_bytes(result.output)
 
 
 @dataclasses.dataclass
@@ -35,21 +64,6 @@ class GizmoSQLService(ServiceContainer):
         GizmoSQL always runs with TLS enabled.
         """
         return f"grpc+tls://{self.host}:{self.port}"
-
-
-def _make_connection_kwargs(
-    username: str,
-    password: str,
-) -> dict[str, str]:
-    """Build the db_kwargs dictionary for ADBC Flight SQL connection.
-
-    Always includes TLS_SKIP_VERIFY since GizmoSQL uses self-signed certificates.
-    """
-    return {
-        "username": username,
-        "password": password,
-        DatabaseOptions.TLS_SKIP_VERIFY.value: "true",
-    }
 
 
 @pytest.fixture(scope="session")
@@ -81,68 +95,103 @@ def gizmosql_password() -> str:
     return "gizmosql_password"
 
 
-@pytest.fixture(autouse=False, scope="session")
-def gizmosql_service(
+@contextlib.contextmanager
+def _provide_gizmosql_service(
     docker_service: DockerService,
-    xdist_gizmosql_isolation_level: XdistIsolationLevel,
-    gizmosql_image: str,
-    gizmosql_username: str,
-    gizmosql_password: str,
+    isolation_level: XdistIsolationLevel,
+    image: str,
+    username: str,
+    password: str,
+    backend: Literal["duckdb", "sqlite"],
 ) -> Generator[GizmoSQLService, None, None]:
     def check(_service: ServiceContainer) -> bool:
-        """Health check using ADBC Flight SQL connection."""
-        try:
-            uri = f"grpc+tls://{_service.host}:{_service.port}"
-            db_kwargs = _make_connection_kwargs(gizmosql_username, gizmosql_password)
-
-            with flightsql.connect(uri=uri, db_kwargs=db_kwargs, autocommit=True) as conn, conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                result = cur.fetchone()
-                return result is not None and result[0] == 1
-        except Exception:  # noqa: BLE001
-            return False
+        exit_code, output = _exec_gizmosql(
+            _service.container,
+            "SELECT 1",
+            user=username,
+            password=password,
+        )
+        return exit_code == 0 and b"1" in output
 
     worker_num = get_xdist_worker_num()
-    name = "gizmosql"
+    name = f"gizmosql-{backend}"
     if worker_num is not None:
-        # Only server isolation is supported for GizmoSQL (DuckDB doesn't support multiple DBs)
         name += f"_{worker_num}"
 
     env: dict[str, str] = {
-        "GIZMOSQL_PASSWORD": gizmosql_password,
-        "GIZMOSQL_USERNAME": gizmosql_username,
+        "DATABASE_BACKEND": backend,
+        "GIZMOSQL_PASSWORD": password,
+        "GIZMOSQL_USERNAME": username,
     }
 
     with docker_service.run(
-        image=gizmosql_image,
+        image=image,
         check=check,
         container_port=31337,
         name=name,
         env=env,
         timeout=90,
         pause=1.0,
-        transient=xdist_gizmosql_isolation_level == "server",
+        transient=isolation_level == "server",
     ) as service:
         yield GizmoSQLService(
             host=service.host,
             port=service.port,
             container=service.container,
-            username=gizmosql_username,
-            password=gizmosql_password,
+            username=username,
+            password=password,
         )
 
 
 @pytest.fixture(autouse=False, scope="session")
-def gizmosql_connection(
-    gizmosql_service: GizmoSQLService,
-) -> Generator[flightsql.Connection, None, None]:
-    db_kwargs = _make_connection_kwargs(
-        gizmosql_service.username,
-        gizmosql_service.password,
-    )
-    with flightsql.connect(
-        uri=gizmosql_service.uri,
-        db_kwargs=db_kwargs,
-        autocommit=True,
-    ) as conn:
-        yield conn
+def gizmosql_duckdb_service(
+    docker_service: DockerService,
+    xdist_gizmosql_isolation_level: XdistIsolationLevel,
+    gizmosql_image: str,
+    gizmosql_username: str,
+    gizmosql_password: str,
+) -> Generator[GizmoSQLService, None, None]:
+    """Provide a GizmoSQL service configured with the DuckDB backend.
+
+    Yields:
+        A DuckDB-backed GizmoSQL service.
+    """
+    with _provide_gizmosql_service(
+        docker_service=docker_service,
+        isolation_level=xdist_gizmosql_isolation_level,
+        image=gizmosql_image,
+        username=gizmosql_username,
+        password=gizmosql_password,
+        backend="duckdb",
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def gizmosql_sqlite_service(
+    docker_service: DockerService,
+    xdist_gizmosql_isolation_level: XdistIsolationLevel,
+    gizmosql_image: str,
+    gizmosql_username: str,
+    gizmosql_password: str,
+) -> Generator[GizmoSQLService, None, None]:
+    """Provide a GizmoSQL service configured with the SQLite backend.
+
+    Yields:
+        A SQLite-backed GizmoSQL service.
+    """
+    with _provide_gizmosql_service(
+        docker_service=docker_service,
+        isolation_level=xdist_gizmosql_isolation_level,
+        image=gizmosql_image,
+        username=gizmosql_username,
+        password=gizmosql_password,
+        backend="sqlite",
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def gizmosql_service(gizmosql_duckdb_service: GizmoSQLService) -> GizmoSQLService:
+    """Provide the default DuckDB-backed GizmoSQL service."""
+    return gizmosql_duckdb_service
