@@ -249,7 +249,9 @@ def select_providers(
     }
 
 
-def changed_manifest_provider_ids(base_ref: str, manifest: Mapping[str, Any], *, cwd: Path = PROJECT_ROOT) -> list[str] | None:
+def changed_manifest_provider_ids(
+    base_ref: str, manifest: Mapping[str, Any], *, cwd: Path = PROJECT_ROOT
+) -> list[str] | None:
     """Return provider entries changed from the base, or ``None`` for shared schema changes."""
     if GIT_EXECUTABLE is None:
         message = "git executable was not found"
@@ -264,8 +266,9 @@ def changed_manifest_provider_ids(base_ref: str, manifest: Mapping[str, Any], *,
     if result.returncode != 0:
         return None
     base_manifest = json.loads(result.stdout)
-    base_shared = {key: value for key, value in base_manifest.items() if key != "providers"}
-    head_shared = {key: value for key, value in manifest.items() if key != "providers"}
+    provider_scoped_keys = {"providers", "compatibility_test_paths"}
+    base_shared = {key: value for key, value in base_manifest.items() if key not in provider_scoped_keys}
+    head_shared = {key: value for key, value in manifest.items() if key not in provider_scoped_keys}
     if base_shared != head_shared:
         return None
     base_providers = base_manifest.get("providers", {})
@@ -276,6 +279,15 @@ def changed_manifest_provider_ids(base_ref: str, manifest: Mapping[str, Any], *,
         if base_providers.get(provider_id) != head_providers.get(provider_id)
     )
     if any(provider_id not in head_providers for provider_id in changed):
+        return None
+    base_compatibility = set(base_manifest.get("compatibility_test_paths", []))
+    head_compatibility = set(manifest.get("compatibility_test_paths", []))
+    if base_compatibility - head_compatibility:
+        return None
+    changed_test_files = {path for provider_id in changed for path in head_providers[provider_id]["test_paths"]}
+    if any(
+        path.split("::", maxsplit=1)[0] not in changed_test_files for path in head_compatibility - base_compatibility
+    ):
         return None
     return changed
 
