@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
+from scripts.ci.select_provider_tests import changed_files_for_range, parse_name_status, select_providers
 
 PROJECT_ROOT = Path(__file__).parents[1]
 MANIFEST_PATH = PROJECT_ROOT / ".github" / "ci" / "provider-groups.json"
@@ -62,3 +67,87 @@ def test_provider_manifest_owns_every_adapter_source_and_test_once() -> None:
     assert len(owned_tests) == len(set(owned_tests))
     assert set(owned_sources) == adapter_sources
     assert set(owned_tests) == provider_tests
+
+
+@pytest.fixture
+def manifest() -> dict[str, object]:
+    return json.loads(MANIFEST_PATH.read_text())
+
+
+@pytest.mark.parametrize(
+    ("changed_paths", "expected_mode", "expected_providers"),
+    [
+        (["src/pytest_databases/docker/postgres.py"], "selective", {"postgres"}),
+        (["tests/test_gizmosql.py"], "selective", {"gizmosql"}),
+        (["docs/supported-databases/postgres.rst"], "docs-only", set()),
+        (["README.md", "docs/usage.rst"], "docs-only", set()),
+        (["src/pytest_databases/_service.py"], "all-providers", EXPECTED_PROVIDERS),
+        (["pyproject.toml"], "all-providers", EXPECTED_PROVIDERS),
+        (["src/pytest_databases/new_adapter.py"], "fail-closed", EXPECTED_PROVIDERS),
+        (["tests/test_new_adapter.py"], "fail-closed", EXPECTED_PROVIDERS),
+        ([], "fail-closed", EXPECTED_PROVIDERS),
+    ],
+)
+def test_select_providers(
+    manifest: dict[str, object], changed_paths: list[str], expected_mode: str, expected_providers: set[str]
+) -> None:
+    result = select_providers(manifest, changed_paths)
+
+    assert result["mode"] == expected_mode
+    assert set(result["providers"]) == expected_providers
+    assert result["changed_paths"] == changed_paths
+
+
+def test_select_providers_deduplicates_paths_and_images(manifest: dict[str, object]) -> None:
+    result = select_providers(
+        manifest,
+        ["tests/test_redis.py", "tests/test_redis.py", "src/pytest_databases/docker/valkey.py"],
+    )
+
+    assert result["providers"] == ["redis", "valkey"]
+    assert result["changed_paths"] == ["tests/test_redis.py", "src/pytest_databases/docker/valkey.py"]
+    assert len(result["images"]) == len(set(result["images"]))
+
+
+def test_select_providers_full_mode(manifest: dict[str, object]) -> None:
+    result = select_providers(manifest, ["README.md"], full=True)
+
+    assert result["mode"] == "full"
+    assert set(result["providers"]) == EXPECTED_PROVIDERS
+
+
+def test_parse_name_status_retains_deleted_and_both_renamed_paths() -> None:
+    output = (
+        b"D\0tests/test_old.py\0R100\0src/pytest_databases/docker/old.py\0src/pytest_databases/docker/postgres.py\0"
+    )
+
+    assert parse_name_status(output) == [
+        "tests/test_old.py",
+        "src/pytest_databases/docker/old.py",
+        "src/pytest_databases/docker/postgres.py",
+    ]
+
+
+def test_changed_files_for_range_uses_the_requested_git_base(tmp_path: Path) -> None:
+    git = shutil.which("git")
+    assert git is not None
+    subprocess.run([git, "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run([git, "config", "user.email", "ci@example.com"], cwd=tmp_path, check=True)
+    subprocess.run([git, "config", "user.name", "CI Test"], cwd=tmp_path, check=True)
+    old_path = tmp_path / "tests" / "test_old.py"
+    old_path.parent.mkdir()
+    old_path.write_text("old\n")
+    subprocess.run([git, "add", "."], cwd=tmp_path, check=True)
+    subprocess.run([git, "commit", "--quiet", "-m", "base"], cwd=tmp_path, check=True)
+    base = subprocess.run(
+        [git, "rev-parse", "HEAD"], cwd=tmp_path, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    new_path = old_path.with_name("test_postgres.py")
+    old_path.rename(new_path)
+    subprocess.run([git, "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run([git, "commit", "--quiet", "-m", "rename"], cwd=tmp_path, check=True)
+
+    assert changed_files_for_range(base, "HEAD", cwd=tmp_path) == [
+        "tests/test_old.py",
+        "tests/test_postgres.py",
+    ]
