@@ -16,6 +16,8 @@ Added
 * Session-owned container labels/names and a daemon-scoped creation lock that prevents cross-session cleanup/reuse and
   rootless dynamic-port allocation races. Closes `gh-152 <https://github.com/litestar-org/pytest-databases/issues/152>`_.
 * Explicit ``cleanup_stale_containers()`` recovery for containers left by a hard-killed pytest process.
+* Clientless RabbitMQ 4.3 service fixtures with worker-specific virtual-host or broker isolation. Closes
+  `gh-150 <https://github.com/litestar-org/pytest-databases/issues/150>`_.
 
 0.19.0 (2026-05-23)
 -------------------

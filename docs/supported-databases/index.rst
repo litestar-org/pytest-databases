@@ -18,6 +18,7 @@ This section provides detailed information on the supported databases, including
    yugabyte
    mongodb
    gizmosql
+   rabbitmq
    redis
    valkey
    elasticsearch
