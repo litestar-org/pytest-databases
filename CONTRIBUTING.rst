@@ -31,12 +31,40 @@ Workflow
 
 .. note:: To run the integration tests locally, you will need the `ODBC Driver for SQL Server <https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server?view=sql-server-ver16>`_, one option is using `unixODBC <https://www.unixodbc.org/>`_.
 
+Selective continuous integration
+++++++++++++++++++++++++++++++++
+
+Pull requests use the changed files to choose the smallest safe test scope:
+
+- A provider implementation or provider test change runs that provider on Python 3.12. Clientless import compatibility
+  checks still run on every supported Python version.
+- Shared runtime, dependency, lock, or workflow changes run every provider once on Python 3.12.
+- Documentation-only changes build the documentation and do not start containers or pull container images.
+- An unrecognized path fails closed by running every provider on Python 3.12.
+
+The ``Select provider tests`` job summary records the changed paths, selection reason, tests, images, and estimated job
+and image-pull counts. This is the first place to look when a provider job did or did not run.
+
+Add the ``ci:full`` label to a pull request to run every provider on Python 3.9 through 3.14. The same full matrix runs
+nightly and can be started manually from GitHub Actions. Adding or removing ``ci:full`` starts a new selection run.
+
+``CI required`` is the stable required-check name. It verifies the selector and every job the selector requested while
+allowing jobs that were intentionally out of scope to remain skipped.
+
+Maintainers changing branch protection should use this order:
+
+1. Merge the workflow and wait for ``CI required`` to succeed on ``main``.
+2. Add ``CI required`` to the required status checks.
+3. Confirm a pull request cannot merge when an expected provider or compatibility job fails.
+4. Remove obsolete individual or matrix-generated check names only after the stable check is required.
+
 Guidelines for writing code
 ----------------------------
 
 - All code should be fully `typed <https://peps.python.org/pep-0484/>`_. This is enforced via
   `mypy <https://mypy.readthedocs.io/en/stable/>`_.
-- All code should be tested. This is enforced via `pytest <https://docs.pytest.org/en/stable/>`_.
+- Shipped package behavior should be tested. CI helper scripts and workflow presentation do not add repository tests.
+  Package tests are enforced via `pytest <https://docs.pytest.org/en/stable/>`_.
 - All code should be properly formatted. This is enforced via `black <https://black.readthedocs.io/en/stable/>`_ and `Ruff <https://beta.ruff.rs/docs/>`_.
 
 Writing and running tests
