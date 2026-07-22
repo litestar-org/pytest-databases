@@ -41,6 +41,7 @@
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
     "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
     "tests/test_mssql.py::test_plugin_imports_without_pymssql",
+    "tests/test_redpanda.py::test_plugin_imports_without_kafka_clients",
     "tests/test_spanner.py::test_plugin_imports_without_google_cloud_spanner",
     "tests/test_valkey.py::test_plugin_imports_without_valkey"
   ],
@@ -161,6 +162,12 @@
         "postgres:18"
       ],
       "docs_globs": ["docs/supported-databases/postgres.rst"]
+    },
+    "redpanda": {
+      "source_globs": ["src/pytest_databases/docker/redpanda.py"],
+      "test_paths": ["tests/test_redpanda.py"],
+      "images": ["docker.redpanda.com/redpandadata/redpanda:v26.1.13"],
+      "docs_globs": ["docs/supported-databases/redpanda.rst"]
     },
     "redis": {
       "source_globs": ["src/pytest_databases/docker/redis.py"],

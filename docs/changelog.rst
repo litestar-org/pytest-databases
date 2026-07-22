@@ -9,6 +9,8 @@ Next
 Added
 ~~~~~
 
+* A clientless ``redpanda_service`` fixture with host-reachable advertised
+  broker metadata and xdist topic or server isolation.
 * First-class Docker and Podman runtime selection through one Docker-compatible API transport. Closes
   `gh-146 <https://github.com/litestar-org/pytest-databases/issues/146>`_.
 * Runtime-neutral ``container_client``, ``container_service``, and ``ContainerService`` names while retaining all
