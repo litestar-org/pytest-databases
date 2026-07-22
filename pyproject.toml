@@ -62,18 +62,18 @@ Source = "https://github.com/litestar-org/pytest-databases"
 azure-storage = ["azure-storage-blob"]
 bigquery = ["google-cloud-bigquery"]
 cockroachdb = []
-dragonfly = ["redis"]
+dragonfly = []
 elasticsearch7 = []
 elasticsearch8 = []
 gizmosql = ["adbc-driver-flightsql", "pyarrow"]
-keydb = ["redis"]
+keydb = []
 mariadb = []
 mongodb = []
 mssql = []
 mysql = []
 oracle = []
 postgres = ["psycopg>=3"]
-redis = ["redis"]
+redis = []
 spanner = []
 valkey = []
 yugabyte = []
@@ -115,7 +115,6 @@ lint = [
   "types-decorator",
   "types-pyyaml",
   "types-docutils",
-  "types-redis",
   "types-pymysql",
   "slotscheck",
 ]
