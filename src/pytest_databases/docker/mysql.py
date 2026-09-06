@@ -73,7 +73,7 @@ def _provide_mysql_service(
     database: str,
 ) -> Generator[MySQLService, None, None]:
     def check(_service: ServiceContainer) -> bool:
-        container_name = f"pytest_databases_{name}"
+        container_name = docker_service.container_name(name)
         container = docker_service._get_container(container_name)
         if not container:
             return False
@@ -115,7 +115,7 @@ def _provide_mysql_service(
         # before mysql has finished provisioning the app user and applying our
         # post-start grants. Verify the app user can actually reach db_name
         # before yielding so tests don't race the fixture into 'access denied'.
-        container_name = f"pytest_databases_{name}"
+        container_name = docker_service.container_name(name)
         container = docker_service._get_container(container_name)
         if container is None:
             msg = f"MySQL container {container_name!r} disappeared after startup"

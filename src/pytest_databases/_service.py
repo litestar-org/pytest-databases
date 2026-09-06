@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import filelock
 import pytest
+from docker import DockerClient
 from docker.errors import APIError, ImageNotFound
 from typing_extensions import Self
 
-from docker import DockerClient
-from pytest_databases.helpers import get_xdist_worker_id
+from pytest_databases.helpers import get_xdist_worker_id, simple_string_hash
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
@@ -56,10 +56,15 @@ def get_docker_client() -> DockerClient:
     return DockerClient.from_env(environment=env)
 
 
-def _stop_all_containers(client: DockerClient) -> None:
+def _compute_namespace(session: pytest.Session) -> str:
+    override = os.environ.get("PYTEST_DATABASES_NAMESPACE", "").strip()
+    return override if override else simple_string_hash(str(session.config.rootpath))
+
+
+def _stop_all_containers(client: DockerClient, *, label: str = "pytest_databases") -> None:
     containers: list[Container] = client.containers.list(
         all=True,
-        filters={"label": "pytest_databases"},
+        filters={"label": label},
         ignore_removed=True,
     )
     for container in containers:
@@ -88,10 +93,12 @@ class DockerService(AbstractContextManager):
         client: DockerClient,
         tmp_path: pathlib.Path,
         session: pytest.Session,
+        namespace: str,
     ) -> None:
         self._client = client
         self._tmp_path = tmp_path
         self._session = session
+        self._namespace = namespace
         self._is_xdist = get_xdist_worker_id() is not None
 
     def __enter__(self) -> Self:
@@ -100,9 +107,9 @@ class DockerService(AbstractContextManager):
             with filelock.FileLock(ctrl_file.with_suffix(".lock")):
                 if not ctrl_file.exists():
                     ctrl_file.touch()
-                    self._stop_all_containers()
+                    self._stop_namespace_containers()
         else:
-            self._stop_all_containers()
+            self._stop_namespace_containers()
         return self
 
     def __exit__(
@@ -113,7 +120,13 @@ class DockerService(AbstractContextManager):
         __traceback: TracebackType | None,
     ) -> None:
         if not self._is_xdist:
-            self._stop_all_containers()
+            self._stop_namespace_containers()
+
+    def _stop_namespace_containers(self) -> None:
+        _stop_all_containers(self._client, label=f"pytest_databases_namespace={self._namespace}")
+
+    def container_name(self, name: str) -> str:
+        return f"pytest_databases_{name}_{self._namespace}"
 
     def _get_container(self, name: str) -> Container | None:
         containers = self._client.containers.list(
@@ -125,9 +138,6 @@ class DockerService(AbstractContextManager):
         if containers:
             return containers[0]
         return None
-
-    def _stop_all_containers(self) -> None:
-        _stop_all_containers(self._client)
 
     @contextmanager
     def run(
@@ -162,7 +172,7 @@ class DockerService(AbstractContextManager):
         if platform is not None:
             platform_kwarg = {"platform": platform}
 
-        name = f"pytest_databases_{name}"
+        name = self.container_name(name)
         lock = filelock.FileLock(self._tmp_path / name) if self._is_xdist else contextlib.nullcontext()
         with lock:
             container = self._get_container(name)
@@ -188,7 +198,10 @@ class DockerService(AbstractContextManager):
                     detach=True,
                     remove=True,
                     ports={container_port: host_port},  # pyright: ignore[reportArgumentType]
-                    labels=["pytest_databases"],
+                    labels={
+                        "pytest_databases": "",
+                        "pytest_databases_namespace": self._namespace,
+                    },
                     name=name,
                     environment=env,
                     ulimits=ulimits,
@@ -281,16 +294,23 @@ def docker_client() -> Generator[DockerClient, None, None]:
 
 
 @pytest.fixture(scope="session")
+def docker_service_namespace(request: pytest.FixtureRequest) -> str:
+    return _compute_namespace(request.session)
+
+
+@pytest.fixture(scope="session")
 def docker_service(
     docker_client: DockerClient,
     tmp_path_factory: pytest.TempPathFactory,
     request: pytest.FixtureRequest,
+    docker_service_namespace: str,
 ) -> Generator[DockerService, None, None]:
     tmp_path = _get_base_tmp_path(tmp_path_factory)
     with DockerService(
         client=docker_client,
         tmp_path=tmp_path,
         session=request.session,
+        namespace=docker_service_namespace,
     ) as service:
         yield service
 
@@ -316,4 +336,5 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[
             # if we're running on xdist, delete the ctrl file, telling the deamon proc
             # to stop all running containers.
             # when not running on xdist, containers are stopped by the service itself
-            _stop_all_containers(get_docker_client())
+            namespace = _compute_namespace(session)
+            _stop_all_containers(get_docker_client(), label=f"pytest_databases_namespace={namespace}")

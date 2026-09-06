@@ -68,7 +68,7 @@ def _provide_dolt_service(
     database: str,
 ) -> Generator[DoltService, None, None]:
     def check(_service: ServiceContainer) -> bool:
-        container_name = f"pytest_databases_{name}"
+        container_name = docker_service.container_name(name)
         container = docker_service._get_container(container_name)
         if not container:
             return False
@@ -108,7 +108,7 @@ def _provide_dolt_service(
         # Ensure the worker-specific database exists and permissions are correct.
         # Grant global privileges to the app user so tests can create databases
         # if needed, matching the MySQL/MariaDB pattern.
-        container_name = f"pytest_databases_{name}"
+        container_name = docker_service.container_name(name)
         setup_sql = (
             f"CREATE DATABASE IF NOT EXISTS {db_name}; GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; FLUSH PRIVILEGES;"
         )
