@@ -11,6 +11,7 @@ These variables apply globally to the Docker setup:
 *   ``SKIP_DOCKER_COMPOSE=True``: If set, skip trying to manage database containers via Docker Compose. Useful if you manage services externally. (Default: "False")
 *   ``USE_LEGACY_DOCKER_COMPOSE=True``: If set, forces the use of the older ``docker-compose`` command instead of ``docker compose``. (Default: "False")
 *   ``DOCKER_HOST``: Specifies the host where the Docker daemon is running and where services will be exposed. (Default: "127.0.0.1")
+*   ``PYTEST_DATABASES_NAMESPACE``: If set, the Docker container will be labelled with the provided namespace. This allows multiple processes to run pytest using this library without any concurrency issues when starting/stopping the containers.
 
 Database-Specific Variables
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

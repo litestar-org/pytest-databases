@@ -67,7 +67,7 @@ def _provide_mariadb_service(
     database: str,
 ) -> Generator[MariaDBService, None, None]:
     def check(_service: ServiceContainer) -> bool:
-        container_name = f"pytest_databases_{name}"
+        container_name = docker_service.container_name(name)
         container = docker_service._get_container(container_name)
         if not container:
             return False
@@ -108,7 +108,7 @@ def _provide_mariadb_service(
         # mariadb has fully provisioned the app user with the @'%' grant. Verify
         # the app user can actually reach db_name from any host before yielding,
         # otherwise tests race into 'Host not allowed' / 'access denied'.
-        container_name = f"pytest_databases_{name}"
+        container_name = docker_service.container_name(name)
         container = docker_service._get_container(container_name)
         if container is None:
             msg = f"MariaDB container {container_name!r} disappeared after startup"

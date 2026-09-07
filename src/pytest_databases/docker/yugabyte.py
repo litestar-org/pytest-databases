@@ -250,7 +250,7 @@ def yugabyte_service(
     yugabyte_database: str,
 ) -> Generator[YugabyteService, None, None]:
     def yugabyte_responsive(_service: ServiceContainer) -> bool:
-        container = docker_service._get_container(f"pytest_databases_{container_name}")
+        container = docker_service._get_container(docker_service.container_name(container_name))
         if container is None:
             return False
         exit_code, output = _exec_ysqlsh(container, "SELECT 1")
@@ -276,7 +276,7 @@ def yugabyte_service(
         timeout=120,
         pause=1.0,
     ) as service:
-        container = docker_service._get_container(f"pytest_databases_{container_name}")
+        container = docker_service._get_container(docker_service.container_name(container_name))
         if container is None:
             msg = f"Yugabyte container {container_name!r} disappeared after startup"
             raise RuntimeError(msg)
