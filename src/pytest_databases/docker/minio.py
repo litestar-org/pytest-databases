@@ -20,6 +20,11 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
+# Upstream MinIO no longer publishes images to quay.io or Docker Hub.
+MINIO_IMAGE = "cgr.dev/chainguard/minio:latest"
+MINIO_MC_IMAGE = "cgr.dev/chainguard/minio-client:latest"
+
+
 @dataclass
 class MinioService(ServiceContainer):
     endpoint: str
@@ -94,7 +99,7 @@ def minio_service(
     }
 
     with docker_service.run(
-        image="quay.io/minio/minio",
+        image=MINIO_IMAGE,
         name=name,
         command=command,
         container_port=9000,
@@ -106,28 +111,22 @@ def minio_service(
     ) as service:
         # Create default bucket using minio/mc container
         scheme = "https" if minio_secure else "http"
-        endpoint_url = f"{scheme}://{service.host}:{service.port}"
 
         client = docker_service._client
 
         try:
-            client.images.get("minio/mc:latest")
+            client.images.get(MINIO_MC_IMAGE)
         except ImageNotFound:
-            client.images.pull("minio/mc:latest")
+            client.images.pull(MINIO_MC_IMAGE)
 
-        command = " ".join([
-            "sh",
-            "-c",
-            (
-                f"mc alias set local {endpoint_url} {minio_access_key} {minio_secret_key} && "
-                f"mc mb local/{minio_default_bucket_name}"
-            ),
-        ])
+        # The mc image has no shell, so configure the alias through the environment.
+        mc_host = f"{scheme}://{minio_access_key}:{minio_secret_key}@{service.host}:{service.port}"
 
         with contextlib.suppress(Exception):
             client.containers.run(
-                image="minio/mc:latest",
-                command=command,
+                image=MINIO_MC_IMAGE,
+                command=["mb", f"local/{minio_default_bucket_name}"],
+                environment={"MC_HOST_local": mc_host},
                 remove=True,
                 network_mode="host",
             )
