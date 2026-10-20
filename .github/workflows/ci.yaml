@@ -19,10 +19,12 @@ jobs:
     name: Python ${{ matrix.python-version }} - ${{ matrix.cdist-group }}/3
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # 3.15 is non-blocking until its dependency wheels are available
+    continue-on-error: ${{ matrix.python-version == '3.15' }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
         cdist-group: [1, 2, 3]
 
     steps:
