@@ -49,16 +49,6 @@ nightly and can be started manually from GitHub Actions. Adding or removing ``ci
 ``CI required`` is the stable required-check name. It verifies the selector and every job the selector requested while
 allowing jobs that were intentionally out of scope to remain skipped.
 
-Maintainers changing branch protection should use this order:
-
-1. Merge the workflow and wait for ``CI required`` to succeed on ``main``.
-2. Add ``CI required`` to the required status checks.
-3. Confirm a pull request cannot merge when an expected provider or compatibility job fails.
-4. Remove obsolete individual or matrix-generated check names only after the stable check is required.
-
-During this transition, the workflow keeps the legacy ``test_elasticsearch`` context as a thin mirror of
-``CI required``. Remove that compatibility job only after the repository ruleset requires the stable check.
-
 Guidelines for writing code
 ----------------------------
 
