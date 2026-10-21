@@ -106,6 +106,7 @@ def _prepare_database(
     user: str,
     password: str,
 ) -> None:
+    """Ensure database and user exist and database is online."""
     setup_sql = [_make_database_sql(database)]
     if user != MSSQL_USER:
         setup_sql = [
@@ -114,15 +115,24 @@ def _prepare_database(
             _make_user_sql(database, user),
         ]
 
+    quoted_db = _quote_literal(database)
+    online_check_sql = (
+        f"SET NOCOUNT ON; "
+        f"SELECT 1 FROM sys.databases WHERE name = {quoted_db} AND state_desc = N'ONLINE';"
+    )
+
     last_output = b""
-    for attempt in range(5):
+    for attempt in range(10):
         for sql in setup_sql:
             exit_code, output = _exec_sqlcmd(container, sql, password=password)
             if exit_code != 0:
                 last_output = output
                 break
         else:
-            return
+            verify_code, verify_out = _exec_sqlcmd(container, online_check_sql, password=password)
+            if verify_code == 0 and verify_out.strip() == b"1":
+                return
+            last_output = verify_out
         time.sleep(1 + attempt * 0.5)
 
     msg = f"SQL Server database {database!r} could not be prepared. Last output: {last_output!r}"

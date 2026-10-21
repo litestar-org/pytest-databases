@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import filelock
 import pytest
-from docker.errors import APIError, ImageNotFound
+from docker.errors import APIError, DockerException, ImageNotFound
 from typing_extensions import Self
 
 from pytest_databases.helpers import get_xdist_worker_id
@@ -225,6 +225,41 @@ def _resolve_binding(container: Container, container_port: int, protocol: str) -
     return int(binding[0]["HostPort"])
 
 
+def _check_container_alive(container: Container, service_name: str) -> None:
+    """Verify that the container has not exited prematurely during startup.
+
+    Args:
+        container: The container instance being polled.
+        service_name: Name of the service for diagnostic error reporting.
+
+    Raises:
+        RuntimeError: If the container has exited or is dead.
+    """
+    try:
+        container.reload()
+    except (DockerException, OSError, AttributeError):
+        return
+    status = getattr(container, "status", None)
+    if not status:
+        state = getattr(container, "attrs", {}).get("State", {})
+        status = state.get("Status")
+    if status in {"exited", "dead"}:
+        try:
+            logs = container.logs(tail=50)
+            log_preview = (
+                logs.decode("utf-8", errors="replace").strip()
+                if isinstance(logs, bytes)
+                else str(logs).strip()
+            )
+        except (DockerException, OSError, AttributeError):
+            log_preview = "<no logs available>"
+        msg = (
+            f"Service {service_name!r} container exited prematurely with status {status!r}.\n"
+            f"Container logs (tail 50 lines):\n{log_preview}"
+        )
+        raise RuntimeError(msg)
+
+
 def _wait_for_readiness(
     service: ServiceContainer,
     service_name: str,
@@ -247,6 +282,7 @@ def _wait_for_readiness(
     if wait_for_log:
         log_bytes = wait_for_log.encode() if isinstance(wait_for_log, str) else wait_for_log
         while time.time() - started < timeout:
+            _check_container_alive(service.container, service_name)
             if log_bytes in service.container.logs():
                 break
             time.sleep(pause)
@@ -256,6 +292,7 @@ def _wait_for_readiness(
 
     if check:
         while time.time() - started < timeout:
+            _check_container_alive(service.container, service_name)
             if check(service) is True:
                 break
             time.sleep(pause)
@@ -383,6 +420,25 @@ class ContainerService(AbstractContextManager):
         return "127.0.0.1"
 
     @staticmethod
+    def resolve_port(
+        container: Container,
+        container_port: int,
+        protocol: str = "tcp",
+    ) -> int:
+        """Extract the bound host port for a given container port and protocol.
+
+        Args:
+            container: The container instance.
+            container_port: Internal container port number.
+            protocol: Communication protocol (tcp, udp, or both).
+
+        Returns:
+            The host port integer.
+        """
+        container.reload()
+        return _resolve_binding(container, container_port, protocol)
+
+    @staticmethod
     def get_internal_network_ip(
         container: Container,
         network_name: str | None = None,
@@ -485,6 +541,7 @@ class ContainerService(AbstractContextManager):
         platform: str | None = None,
         protocol: str = "tcp",
         host_port: int | None = None,
+        extra_ports: dict[int, int | None] | None = None,
     ) -> Generator[ServiceContainer, None, None]:
         """Start and manage an ephemeral container service lifecycle.
 
@@ -507,6 +564,7 @@ class ContainerService(AbstractContextManager):
             platform: Target container platform.
             protocol: Port protocol (tcp, udp, or both).
             host_port: Optional fixed host port binding.
+            extra_ports: Additional internal-to-host port mappings to expose.
 
         Yields:
             A ServiceContainer handle with host and port bindings.
@@ -533,6 +591,8 @@ class ContainerService(AbstractContextManager):
 
             if container is None:
                 ports_dict: dict[Any, Any] = {container_port: host_port}
+                if extra_ports:
+                    ports_dict.update(extra_ports)
                 for attempt in range(3):
                     try:
                         container = self._client.containers.run(

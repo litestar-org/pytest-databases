@@ -1,6 +1,99 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
+
+from pytest_databases.docker.oracle import (
+    ensure_oracle_user,
+    provide_oracle_service,
+)
+from pytest_databases.types import ServiceContainer
+
+pytest_plugins = ["pytest_databases.docker.oracle"]
+
+
+def test_xdist_oracle_isolation_level_default(xdist_oracle_isolation_level: str) -> None:
+    """Ensure xdist_oracle_isolation_level defaults to database."""
+    assert xdist_oracle_isolation_level == "database"
+
+
+def test_oracle_database_isolation_naming_and_user() -> None:
+    """Ensure database isolation preserves shared name and assigns per-worker user."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_service = ServiceContainer(container=mock_container, host="127.0.0.1", port=1521)
+    mock_docker.run.return_value.__enter__.return_value = mock_service
+
+    with (
+        patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=2),
+        patch("pytest_databases.docker.oracle.ensure_oracle_user"),
+        patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"1")),
+        provide_oracle_service(
+            docker_service=mock_docker,
+            image="gvenzl/oracle-free:23-slim-faststart",
+            name="oracle23ai",
+            service_name="FREEPDB1",
+            user="app",
+            password="secret",
+            system_password="sys-secret",
+            isolation_level="database",
+        ) as service,
+    ):
+        assert service.user == "app_2"
+
+    call_kwargs = mock_docker.run.call_args[1]
+    assert call_kwargs["name"] == "oracle23ai"
+    assert call_kwargs["transient"] is False
+
+
+def test_oracle_server_isolation_naming_and_user() -> None:
+    """Ensure server isolation suffixes name and retains default user."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_service = ServiceContainer(container=mock_container, host="127.0.0.1", port=1521)
+    mock_docker.run.return_value.__enter__.return_value = mock_service
+
+    with (
+        patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=3),
+        patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"1")),
+        provide_oracle_service(
+            docker_service=mock_docker,
+            image="gvenzl/oracle-free:23-slim-faststart",
+            name="oracle23ai",
+            service_name="FREEPDB1",
+            user="app",
+            password="secret",
+            system_password="sys-secret",
+            isolation_level="server",
+        ) as service,
+    ):
+        assert service.user == "app"
+
+    call_kwargs = mock_docker.run.call_args[1]
+    assert call_kwargs["name"] == "oracle23ai_3"
+    assert call_kwargs["transient"] is True
+
+
+def test_ensure_oracle_user_invokes_sysdba() -> None:
+    """Ensure ensure_oracle_user connects as sysdba to create user."""
+    mock_container = MagicMock()
+    with patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"")) as mock_exec:
+        ensure_oracle_user(
+            container=mock_container,
+            user="app_1",
+            password="secret",
+            service_name="FREEPDB1",
+            system_password="sys-secret",
+        )
+
+    mock_exec.assert_called_once()
+    _, kwargs = mock_exec.call_args
+    assert kwargs["user"] == "sys"
+    assert kwargs["password"] == "sys-secret"
+    assert kwargs["as_sysdba"] is True
+    assert kwargs["whenever_sqlerror"] == "CONTINUE"
+    assert "CREATE USER app_1" in kwargs["sql"]
 
 
 @pytest.fixture(scope="module")

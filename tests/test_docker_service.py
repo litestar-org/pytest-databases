@@ -125,3 +125,32 @@ def test_unrelated_apierror_does_not_retry(tmp_path: Path) -> None:
         pass
 
     assert mock_client.containers.run.call_count == 1
+
+
+def test_container_fast_fail_when_status_exited(tmp_path: Path) -> None:
+    """Ensure readiness check raises RuntimeError immediately if container status is exited."""
+    mock_client = MagicMock()
+    mock_container = MagicMock()
+    mock_container.status = "exited"
+    mock_container.ports = {"5432/tcp": [{"HostPort": "32800"}]}
+    mock_container.logs.return_value = b"FATAL: configuration error"
+    mock_client.containers.run.return_value = mock_container
+
+    service = make_service(tmp_path, mock_client)
+
+    with pytest.raises(RuntimeError, match="exited prematurely with status 'exited'"), service.run(
+        image="postgres:latest",
+        container_port=5432,
+        name="fast_fail_test",
+        check=lambda _s: False,
+        timeout=10,
+    ):
+        pass
+
+
+def test_resolve_port_extracts_mapped_host_port(tmp_path: Path) -> None:
+    """Ensure ContainerService.resolve_port extracts port binding."""
+    mock_container = MagicMock()
+    mock_container.ports = {"9020/tcp": [{"HostPort": "39020"}]}
+    port = ContainerService.resolve_port(mock_container, 9020)
+    assert port == 39020
