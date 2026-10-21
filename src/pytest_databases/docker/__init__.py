@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess  # noqa: S404
+import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import time
 import timeit
 from contextlib import AbstractContextManager

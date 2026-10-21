@@ -74,7 +74,7 @@ def minio_service(
             msg = "URL must start with 'http:' or 'https:'"
             raise ValueError(msg)
         try:
-            with urlopen(url=Request(url, method="GET"), timeout=10) as response:  # noqa: S310
+            with urlopen(url=Request(url, method="GET"), timeout=10) as response:  # ruff: ignore[suspicious-url-open-usage]
                 return response.status == 200
         except (URLError, ConnectionError):
             return False

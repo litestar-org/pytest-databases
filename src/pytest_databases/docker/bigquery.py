@@ -74,7 +74,7 @@ def bigquery_service(
 
             resp = list(job.result())
             return resp[0].one == 1
-        except Exception:  # noqa: BLE001
+        except Exception:  # ruff: ignore[blind-except]
             return False
 
     with docker_service.run(

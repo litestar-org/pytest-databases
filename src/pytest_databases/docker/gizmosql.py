@@ -30,7 +30,7 @@ class GizmoSQLService(ServiceContainer):
 
     @property
     def uri(self) -> str:
-        """Return the gRPC+TLS URI for connecting to the service.
+        """The gRPC+TLS URI for connecting to the service.
 
         GizmoSQL always runs with TLS enabled.
         """
@@ -99,7 +99,7 @@ def gizmosql_service(
                 cur.execute("SELECT 1")
                 result = cur.fetchone()
                 return result is not None and result[0] == 1
-        except Exception:  # noqa: BLE001
+        except Exception:  # ruff: ignore[blind-except]
             return False
 
     worker_num = get_xdist_worker_num()
