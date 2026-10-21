@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from pytest_databases._service import ContainerService, DockerService
+from pytest_databases._service import (
+    MANAGED_LABEL,
+    OWNER_LABEL,
+    SERVICE_LABEL,
+    ContainerService,
+    DockerService,
+    _stop_all_containers,
+    _stop_owned_containers,
+    derive_session_owner_id,
+    stop_all_containers,
+    stop_owned_containers,
+)
 from pytest_databases.runtime import (
     ContainerRuntimeConfig,
     ContainerRuntimeKind,
@@ -14,6 +25,9 @@ from pytest_databases.runtime import (
 )
 
 __all__ = [
+    "MANAGED_LABEL",
+    "OWNER_LABEL",
+    "SERVICE_LABEL",
     "ContainerRuntimeConfig",
     "ContainerRuntimeKind",
     "ContainerService",
@@ -23,4 +37,9 @@ __all__ = [
     "RuntimeCandidate",
     "RuntimeResolutionError",
     "RuntimeType",
+    "_stop_all_containers",
+    "_stop_owned_containers",
+    "derive_session_owner_id",
+    "stop_all_containers",
+    "stop_owned_containers",
 ]

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import os
+import re
 import time
 from contextlib import AbstractContextManager, contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import filelock
@@ -21,7 +25,6 @@ from pytest_databases.runtime import (
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
-    import pathlib
     from collections.abc import Generator
     from types import TracebackType
 
@@ -30,18 +33,28 @@ if TYPE_CHECKING:
     from docker.types import Ulimit
 
 __all__ = [
+    "MANAGED_LABEL",
+    "OWNER_LABEL",
+    "SERVICE_LABEL",
     "ContainerService",
     "DockerService",
     "container_client",
     "container_runtime",
     "container_service",
+    "derive_session_owner_id",
     "docker_client",
     "docker_service",
     "get_docker_client",
     "get_docker_host",
     "pytest_addoption",
     "pytest_sessionfinish",
+    "stop_all_containers",
+    "stop_owned_containers",
 ]
+
+OWNER_LABEL = "pytest_databases.owner"
+SERVICE_LABEL = "pytest_databases.service"
+MANAGED_LABEL = "pytest_databases"
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -62,6 +75,26 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Default container runtime (auto, docker, podman).",
         default=None,
     )
+
+
+def derive_session_owner_id(rootpath: Path, namespace: str | None = None) -> str:
+    """Derive a deterministic container owner ID for a pytest rootpath and optional namespace.
+
+    Args:
+        rootpath: Root path of the pytest project session.
+        namespace: Optional namespace override or suffix.
+
+    Returns:
+        A deterministic session identifier.
+    """
+    resolved = str(rootpath.resolve())
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:12]
+    raw_namespace = namespace if namespace is not None else os.getenv("PYTEST_DATABASES_NAMESPACE")
+    if raw_namespace:
+        clean_ns = re.sub(r"[^a-z0-9_]+", "_", raw_namespace.lower()).strip("_")[:16]
+        if clean_ns:
+            return f"{digest}_{clean_ns}"
+    return digest
 
 
 def get_docker_host() -> str:
@@ -98,15 +131,16 @@ def _stop_single_container(container: Container) -> None:
         raise RuntimeError(msg)
 
 
-def _stop_all_containers(client: DockerClient) -> None:
-    """Stop all containers managed by pytest_databases.
+def stop_owned_containers(client: DockerClient, owner_id: str) -> None:
+    """Stop all containers owned by a specific session owner ID.
 
     Args:
         client: The Docker client to issue stop and remove calls against.
+        owner_id: The session owner identifier.
     """
     containers: list[Container] = client.containers.list(
         all=True,
-        filters={"label": "pytest_databases"},
+        filters={"label": f"{OWNER_LABEL}={owner_id}"},
         ignore_removed=True,
     )
     for container in containers:
@@ -117,21 +151,170 @@ def _stop_all_containers(client: DockerClient) -> None:
                 raise
 
 
+def stop_all_containers(client: DockerClient) -> None:
+    """Stop all containers managed by pytest_databases.
+
+    Args:
+        client: The Docker client to issue stop and remove calls against.
+    """
+    containers: list[Container] = client.containers.list(
+        all=True,
+        filters={"label": MANAGED_LABEL},
+        ignore_removed=True,
+    )
+    for container in containers:
+        try:
+            _stop_single_container(container)
+        except APIError as exc:
+            if exc.status_code not in {404, 409}:
+                raise
+
+
+_stop_owned_containers = stop_owned_containers
+_stop_all_containers = stop_all_containers
+
+
+def _ensure_image(client: DockerClient, image: str, platform_kwarg: dict[str, Any]) -> None:
+    """Ensure image is present locally, pulling if missing with retry.
+
+    Args:
+        client: DockerClient to use for querying and pulling.
+        image: Image tag string.
+        platform_kwarg: Platform keyword arguments.
+    """
+    try:
+        client.images.get(image)
+    except ImageNotFound:
+        for attempt in range(3):
+            try:
+                image_name, *tag = image.rsplit(":", maxsplit=1)
+                image_tag = tag[0] if tag else None
+                client.images.pull(image_name, tag=image_tag, **platform_kwarg)
+                break
+            except (APIError, ImageNotFound):
+                if attempt == 2:
+                    raise
+                time.sleep(2**attempt)
+
+
+def _resolve_binding(container: Container, container_port: int, protocol: str) -> int:
+    """Extract the bound host port for a given container port and protocol.
+
+    Args:
+        container: The container instance.
+        container_port: Internal port number.
+        protocol: Communication protocol.
+
+    Returns:
+        The host port integer.
+    """
+    if protocol == "both":
+        binding = container.ports.get(f"{container_port}/tcp") or container.ports.get(f"{container_port}/udp")
+    elif protocol in {"tcp", "udp"}:
+        binding = container.ports.get(f"{container_port}/{protocol}")
+    else:
+        msg = f"Invalid protocol '{protocol}'. Must be 'tcp', 'udp', or 'both'."
+        raise ValueError(msg)
+
+    if not binding:
+        msg = (
+            f"Container port {container_port}/{protocol} not found in exposed ports. "
+            f"Available ports: {list(container.ports.keys())}"
+        )
+        raise RuntimeError(msg)
+    return int(binding[0]["HostPort"])
+
+
+def _wait_for_readiness(
+    service: ServiceContainer,
+    service_name: str,
+    wait_for_log: str | bytes | None,
+    check: Callable[[ServiceContainer], bool] | None,
+    timeout: int,
+    pause: float,
+) -> None:
+    """Wait until a service passes its log check or check callable.
+
+    Args:
+        service: The service container instance.
+        service_name: Name of the service.
+        wait_for_log: Log message to await.
+        check: Callable readiness check.
+        timeout: Maximum seconds to wait.
+        pause: Seconds between polling attempts.
+    """
+    started = time.time()
+    if wait_for_log:
+        log_bytes = wait_for_log.encode() if isinstance(wait_for_log, str) else wait_for_log
+        while time.time() - started < timeout:
+            if log_bytes in service.container.logs():
+                break
+            time.sleep(pause)
+        else:
+            msg = f"Service {service_name!r} failed to come online"
+            raise ValueError(msg)
+
+    if check:
+        while time.time() - started < timeout:
+            if check(service) is True:
+                break
+            time.sleep(pause)
+        else:
+            msg = f"Service {service_name!r} failed to come online"
+            raise ValueError(msg)
+
+
 class ContainerService(AbstractContextManager):
     """Manager for ephemeral test database containers."""
 
     def __init__(
         self,
         client: DockerClient,
-        tmp_path: pathlib.Path,
+        tmp_path: Path,
         session: pytest.Session,
         runtime_config: ContainerRuntimeConfig | None = None,
+        owner_id: str | None = None,
     ) -> None:
         self._client = client
         self._tmp_path = tmp_path
         self._session = session
         self._is_xdist = get_xdist_worker_id() is not None
         self._runtime_config = runtime_config
+        rootpath: Path = getattr(session.config, "rootpath", Path.cwd())
+        self._owner_id = owner_id if owner_id is not None else derive_session_owner_id(rootpath)
+
+    @property
+    def owner_id(self) -> str:
+        """The deterministic session owner identifier."""
+        return self._owner_id
+
+    def container_name(self, service_name: str) -> str:
+        """Generate a session-scoped container name.
+
+        Args:
+            service_name: The logical service identifier.
+
+        Returns:
+            A unique container name scoped by owner.
+        """
+        logical_name = service_name.removeprefix("pytest_databases_")
+        return f"pytest_databases_{logical_name}_{self._owner_id[:12]}"
+
+    def container_labels(self, service_name: str) -> dict[str, str]:
+        """Generate metadata labels including ownership for container tracking.
+
+        Args:
+            service_name: The logical service identifier.
+
+        Returns:
+            Dictionary of container metadata labels.
+        """
+        logical_name = service_name.removeprefix("pytest_databases_")
+        return {
+            MANAGED_LABEL: "true",
+            OWNER_LABEL: self._owner_id,
+            SERVICE_LABEL: logical_name,
+        }
 
     def __enter__(self) -> Self:
         if self._is_xdist:
@@ -139,9 +322,9 @@ class ContainerService(AbstractContextManager):
             with filelock.FileLock(ctrl_file.with_suffix(".lock")):
                 if not ctrl_file.exists():
                     ctrl_file.touch()
-                    self._stop_all_containers()
+                    self._stop_owned_containers()
         else:
-            self._stop_all_containers()
+            self._stop_owned_containers()
         return self
 
     def __exit__(
@@ -152,11 +335,19 @@ class ContainerService(AbstractContextManager):
         __traceback: TracebackType | None,
     ) -> None:
         if not self._is_xdist:
-            self._stop_all_containers()
+            self._stop_owned_containers()
 
     def _get_container(self, name: str) -> Container | None:
+        logical_name = name.removeprefix("pytest_databases_")
         containers = self._client.containers.list(
-            filters={"name": name},
+            filters={
+                "label": [
+                    f"{MANAGED_LABEL}=true",
+                    f"{OWNER_LABEL}={self._owner_id}",
+                    f"{SERVICE_LABEL}={logical_name}",
+                ]
+            },
+            ignore_removed=True,
         )
         if len(containers) > 1:
             msg = "More than one running container found"
@@ -164,6 +355,9 @@ class ContainerService(AbstractContextManager):
         if containers:
             return containers[0]
         return None
+
+    def _stop_owned_containers(self) -> None:
+        _stop_owned_containers(self._client, self._owner_id)
 
     def _stop_all_containers(self) -> None:
         _stop_all_containers(self._client)
@@ -217,6 +411,29 @@ class ContainerService(AbstractContextManager):
                 return str(ip)
         msg = f"Container {container.name!r} has no assigned IP address"
         raise RuntimeError(msg)
+
+    def run_container(
+        self,
+        image: str,
+        *args: Any,
+        service_name: str,
+        **kwargs: Any,
+    ) -> Any:
+        """Create a managed container with session ownership labels.
+
+        Args:
+            image: The container image to run.
+            *args: Positional arguments forwarded to containers.run.
+            service_name: The logical service identifier.
+            **kwargs: Keyword arguments forwarded to containers.run.
+
+        Returns:
+            The created container instance.
+        """
+        kwargs["labels"] = self.container_labels(service_name)
+        if "name" not in kwargs or not kwargs["name"]:
+            kwargs["name"] = self.container_name(service_name)
+        return self._client.containers.run(image, *args, **kwargs)
 
     @contextmanager
     def run(
@@ -274,22 +491,16 @@ class ContainerService(AbstractContextManager):
             platform_kwarg["platform"] = platform
 
         service_name = f"pytest_databases_{name}"
-        lock = filelock.FileLock(self._tmp_path / service_name) if self._is_xdist else contextlib.nullcontext()
+        scoped_container_name = self.container_name(service_name)
+        labels = self.container_labels(service_name)
+        lock = (
+            filelock.FileLock(self._tmp_path / f"{service_name}.lock")
+            if self._is_xdist
+            else contextlib.nullcontext()
+        )
         with lock:
             container = self._get_container(service_name)
-            try:
-                self._client.images.get(image)
-            except ImageNotFound:
-                for attempt in range(3):
-                    try:
-                        image_name, *tag = image.rsplit(":", maxsplit=1)
-                        image_tag = tag[0] if tag else None
-                        self._client.images.pull(image_name, tag=image_tag, **platform_kwarg)
-                        break
-                    except (APIError, ImageNotFound):
-                        if attempt == 2:
-                            raise
-                        time.sleep(2**attempt)
+            _ensure_image(self._client, image, platform_kwarg)
 
             if container is None:
                 ports_dict: dict[Any, Any] = {container_port: host_port}
@@ -299,8 +510,8 @@ class ContainerService(AbstractContextManager):
                     detach=True,
                     remove=True,
                     ports=ports_dict,
-                    labels=["pytest_databases"],
-                    name=service_name,
+                    labels=labels,
+                    name=scoped_container_name,
                     environment=env,
                     ulimits=ulimits,
                     mem_limit=mem_limit,
@@ -318,49 +529,15 @@ class ContainerService(AbstractContextManager):
             else:
                 container.reload()
 
-        binding = None
-        if protocol == "both":
-            binding = container.ports.get(f"{container_port}/tcp") or container.ports.get(f"{container_port}/udp")
-        elif protocol in {"tcp", "udp"}:
-            binding = container.ports.get(f"{container_port}/{protocol}")
-        else:
-            msg = f"Invalid protocol '{protocol}'. Must be 'tcp', 'udp', or 'both'."
-            raise ValueError(msg)
-
-        if not binding:
-            msg = (
-                f"Container port {container_port}/{protocol} not found in exposed ports. "
-                f"Available ports: {list(container.ports.keys())}"
-            )
-            raise RuntimeError(msg)
-
-        resolved_host_port = int(binding[0]["HostPort"])
+        host_port_val = _resolve_binding(container, container_port, protocol)
         resolved_host = self.resolve_service_host(container, container_host)
         service = ServiceContainer(
             container=container,
             host=resolved_host,
-            port=resolved_host_port,
+            port=host_port_val,
         )
 
-        started = time.time()
-        if wait_for_log:
-            log_bytes = wait_for_log.encode() if isinstance(wait_for_log, str) else wait_for_log
-            while time.time() - started < timeout:
-                if log_bytes in container.logs():
-                    break
-                time.sleep(pause)
-            else:
-                msg = f"Service {service_name!r} failed to come online"
-                raise ValueError(msg)
-
-        if check:
-            while time.time() - started < timeout:
-                if check(service) is True:
-                    break
-                time.sleep(pause)
-            else:
-                msg = f"Service {service_name!r} failed to come online"
-                raise ValueError(msg)
+        _wait_for_readiness(service, service_name, wait_for_log, check, timeout, pause)
 
         if exec_after_start:
             container.exec_run(exec_after_start)
@@ -467,15 +644,16 @@ def docker_service(container_service: ContainerService) -> Generator[ContainerSe
     yield container_service
 
 
-def _get_base_tmp_path(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
-    tmp_path = tmp_path_factory.getbasetemp()
+def _get_base_tmp_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    tmp_path: Path = tmp_path_factory.getbasetemp()
     if get_xdist_worker_id() is not None:
         tmp_path = tmp_path.parent
     return tmp_path
 
 
-def _get_ctrl_file(session: pytest.Session) -> pathlib.Path:
-    tmp_path_factory: pytest.TempPathFactory = session.config._tmp_path_factory
+def _get_ctrl_file(session: pytest.Session) -> Path:
+    config: Any = session.config
+    tmp_path_factory: pytest.TempPathFactory = config._tmp_path_factory
     tmp_path = _get_base_tmp_path(tmp_path_factory)
     return tmp_path / "ctrl"
 
@@ -495,4 +673,6 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[
         return (yield)
     finally:
         if not hasattr(session.config, "workerinput") and _get_ctrl_file(session).exists():
-            _stop_all_containers(get_docker_client())
+            rootpath: Path = getattr(session.config, "rootpath", Path.cwd())
+            owner_id = derive_session_owner_id(rootpath)
+            _stop_owned_containers(get_docker_client(), owner_id)
