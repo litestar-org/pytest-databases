@@ -199,7 +199,7 @@ strict-imports = false
 
 [tool.codespell]
 ignore-words-list = "alog"
-skip = 'uv.lock, package-lock.json'
+skip = 'uv.lock, package-lock.json, docs/_build'
 
 [tool.pyright]
 exclude = ["docs"]
@@ -280,7 +280,7 @@ lint.ignore = [
   "PLC1901", # empty string comparisons
   "PLW2901", # `for` loop variable overwritten
   "SIM114",  # Combine `if` branches using logical `or` operator
-  "E203",    # Whitespace before :, needed for black compatability and also `ruff format`
+  "E203",    # Whitespace before :, needed for black compatibility and also `ruff format`
   "ISC001",  # causes unexpected behaviour with formatter
   "E501",    # pycodestyle line too long, handled by black
   "D100",    # pydocstyle - missing docstring in public module
