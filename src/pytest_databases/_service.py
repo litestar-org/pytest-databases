@@ -433,7 +433,36 @@ class ContainerService(AbstractContextManager):
         kwargs["labels"] = self.container_labels(service_name)
         if "name" not in kwargs or not kwargs["name"]:
             kwargs["name"] = self.container_name(service_name)
-        return self._client.containers.run(image, *args, **kwargs)
+
+        ports = kwargs.get("ports")
+        has_dynamic_port = False
+        if isinstance(ports, dict):
+            has_dynamic_port = any(v is None for v in ports.values())
+
+        if not has_dynamic_port:
+            return self._client.containers.run(image, *args, **kwargs)
+
+        container_name = kwargs["name"]
+        for attempt in range(3):
+            try:
+                return self._client.containers.run(image, *args, **kwargs)
+            except APIError as exc:
+                err_msg = str(exc).lower()
+                is_port_in_use = (
+                    "address already in use" in err_msg
+                    or "portmanager.addport" in err_msg
+                )
+                if not is_port_in_use or attempt == 2:
+                    raise
+                try:
+                    failed_c = self._client.containers.get(container_name)
+                    failed_c.remove(force=True)
+                except APIError:
+                    pass
+                time.sleep(0.05 * (attempt + 1))
+
+        msg = f"Failed to run container for service {service_name!r} after retries"
+        raise RuntimeError(msg)
 
     @contextmanager
     def run(
@@ -504,19 +533,40 @@ class ContainerService(AbstractContextManager):
 
             if container is None:
                 ports_dict: dict[Any, Any] = {container_port: host_port}
-                container = self._client.containers.run(
-                    image,
-                    command,
-                    detach=True,
-                    remove=True,
-                    ports=ports_dict,
-                    labels=labels,
-                    name=scoped_container_name,
-                    environment=env,
-                    ulimits=ulimits,
-                    mem_limit=mem_limit,
-                    **platform_kwarg,
-                )
+                for attempt in range(3):
+                    try:
+                        container = self._client.containers.run(
+                            image,
+                            command,
+                            detach=True,
+                            remove=True,
+                            ports=ports_dict,
+                            labels=labels,
+                            name=scoped_container_name,
+                            environment=env,
+                            ulimits=ulimits,
+                            mem_limit=mem_limit,
+                            **platform_kwarg,
+                        )
+                        break
+                    except APIError as exc:
+                        err_msg = str(exc).lower()
+                        is_port_in_use = (
+                            "address already in use" in err_msg
+                            or "portmanager.addport" in err_msg
+                        )
+                        if host_port is not None or not is_port_in_use or attempt == 2:
+                            raise
+                        try:
+                            failed_c = self._client.containers.get(scoped_container_name)
+                            failed_c.remove(force=True)
+                        except APIError:
+                            pass
+                        time.sleep(0.05 * (attempt + 1))
+
+                if container is None:
+                    msg = f"Service {service_name!r} failed to create container"
+                    raise ValueError(msg)
 
                 for i in range(10):
                     container.reload()
@@ -528,6 +578,10 @@ class ContainerService(AbstractContextManager):
                     raise ValueError(msg)
             else:
                 container.reload()
+
+        if container is None:
+            msg = f"Service {service_name!r} failed to create container"
+            raise ValueError(msg)
 
         host_port_val = _resolve_binding(container, container_port, protocol)
         resolved_host = self.resolve_service_host(container, container_host)
