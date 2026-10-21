@@ -1,5 +1,8 @@
+"""Tests for Google Cloud Spanner emulator container fixtures and HTTP REST provisioning."""
+
 from __future__ import annotations
 
+import email.message
 import io
 import json
 import urllib.error
@@ -10,7 +13,7 @@ import pytest
 
 from pytest_databases.docker.spanner import (
     bootstrap_spanner_emulator,
-    spanner_service,
+    provide_spanner_service,
 )
 from pytest_databases.types import ServiceContainer
 
@@ -33,17 +36,15 @@ def test_spanner_database_isolation_naming() -> None:
     with (
         patch("pytest_databases.docker.spanner.get_xdist_worker_num", return_value=1),
         patch("pytest_databases.docker.spanner.bootstrap_spanner_emulator") as mock_bootstrap,
-    ):
-        spanner_fixture = spanner_service.__wrapped__
-        generator = spanner_fixture(
+        provide_spanner_service(
             docker_service=mock_docker,
-            xdist_spanner_isolation_level="database",
             spanner_image="emulator:latest",
             spanner_project="test-proj",
             spanner_instance_name="test-inst",
             spanner_database_name="test-db",
-        )
-        service = next(generator)
+            isolation_level="database",
+        ) as service,
+    ):
         assert service.database_name == "test-db_1"
         assert service.rest_port == 39020
 
@@ -70,17 +71,15 @@ def test_spanner_server_isolation_naming() -> None:
     with (
         patch("pytest_databases.docker.spanner.get_xdist_worker_num", return_value=1),
         patch("pytest_databases.docker.spanner.bootstrap_spanner_emulator"),
-    ):
-        spanner_fixture = spanner_service.__wrapped__
-        generator = spanner_fixture(
+        provide_spanner_service(
             docker_service=mock_docker,
-            xdist_spanner_isolation_level="server",
             spanner_image="emulator:latest",
             spanner_project="test-proj",
             spanner_instance_name="test-inst",
             spanner_database_name="test-db",
-        )
-        service = next(generator)
+            isolation_level="server",
+        ) as service,
+    ):
         assert service.database_name == "test-db"
 
     call_kwargs = mock_docker.run.call_args[1]
@@ -96,7 +95,7 @@ def test_bootstrap_spanner_emulator_rest_calls() -> None:
     def fake_urlopen(req: urllib.request.Request, timeout: int = 5) -> io.BytesIO:
         recorded_urls.append(req.full_url)
         assert req.data is not None
-        raw_data = req.data if isinstance(req.data, bytes) else bytes(req.data)  # type: ignore[arg-type]
+        raw_data = req.data if isinstance(req.data, bytes) else str(req.data).encode("utf-8")
         recorded_payloads.append(json.loads(raw_data.decode("utf-8")))
         return io.BytesIO(b"{}")
 
@@ -118,7 +117,8 @@ def test_bootstrap_spanner_emulator_rest_calls() -> None:
 
 def test_bootstrap_spanner_emulator_handles_409() -> None:
     """Ensure bootstrap_spanner_emulator treats HTTP 409 conflict as success."""
-    http_error = urllib.error.HTTPError("http://test", 409, "Conflict", hdrs=None, fp=io.BytesIO(b"already exists"))  # type: ignore[arg-type]
+    headers = email.message.Message()
+    http_error = urllib.error.HTTPError("http://test", 409, "Conflict", headers, io.BytesIO(b"already exists"))
 
     with patch("urllib.request.urlopen", side_effect=http_error):
         bootstrap_spanner_emulator(
@@ -132,7 +132,10 @@ def test_bootstrap_spanner_emulator_handles_409() -> None:
 
 def test_bootstrap_spanner_emulator_raises_on_500() -> None:
     """Ensure bootstrap_spanner_emulator raises HTTPError on 500 error."""
-    http_error = urllib.error.HTTPError("http://test", 500, "Internal Server Error", hdrs=None, fp=io.BytesIO(b"internal error"))  # type: ignore[arg-type]
+    headers = email.message.Message()
+    http_error = urllib.error.HTTPError(
+        "http://test", 500, "Internal Server Error", headers, io.BytesIO(b"internal error")
+    )
 
     with (
         patch("urllib.request.urlopen", side_effect=http_error),
@@ -173,26 +176,22 @@ def test_plugin_imports_without_google_cloud_spanner(pytester: pytest.Pytester) 
 
 def test_service_fixture(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("""
-    from google.api_core.client_options import ClientOptions
-    from google.auth.credentials import AnonymousCredentials
-    from google.cloud import spanner
+    import json
+    import urllib.request
 
     pytest_plugins = ["pytest_databases.docker.spanner"]
 
     def test_spanner_service(spanner_service) -> None:
         assert spanner_service.endpoint == f"{spanner_service.host}:{spanner_service.port}"
+        assert spanner_service.rest_endpoint == f"{spanner_service.host}:{spanner_service.rest_port}"
 
-        spanner_client = spanner.Client(
-            project=spanner_service.project,
-            credentials=AnonymousCredentials(),
-            client_options=ClientOptions(api_endpoint=spanner_service.endpoint),
+        db_url = (
+            f"http://{spanner_service.rest_endpoint}/v1/projects/{spanner_service.project}"
+            f"/instances/{spanner_service.instance_name}/databases/{spanner_service.database_name}"
         )
-        instance = spanner_client.instance(spanner_service.instance_name)
-        database = instance.database(spanner_service.database_name)
-
-        with database.snapshot() as snapshot:
-            resp = next(iter(snapshot.execute_sql("SELECT 1")))
-        assert resp[0] == 1
+        with urllib.request.urlopen(db_url, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert payload["name"].endswith(f"/databases/{spanner_service.database_name}")
     """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")

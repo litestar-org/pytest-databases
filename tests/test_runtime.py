@@ -9,7 +9,6 @@ import pytest
 
 from pytest_databases.runtime import (
     ContainerRuntimeConfig,
-    ResolvedRuntime,
     RuntimeCandidate,
     RuntimeResolutionError,
     RuntimeType,
@@ -171,7 +170,31 @@ def test_container_runtime_config_serialization() -> None:
     serialized = config.to_dict()
     restored = ContainerRuntimeConfig.from_dict(serialized)
     assert restored == config
-    assert ResolvedRuntime == ContainerRuntimeConfig
+
+
+def test_container_host_environment_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify CONTAINER_HOST populates DOCKER_HOST in client environment."""
+    candidates = discover_runtime_candidates(environment={"CONTAINER_HOST": "unix:///run/podman.sock"})
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.expected_kind is RuntimeType.PODMAN
+    env_dict = dict(candidate.environment or ())
+    assert env_dict.get("DOCKER_HOST") == "unix:///run/podman.sock"
+
+    mock_client = MagicMock()
+    mock_from_env = MagicMock(return_value=mock_client)
+    monkeypatch.setattr("pytest_databases.runtime.DockerClient.from_env", mock_from_env)
+
+    config = ContainerRuntimeConfig(
+        kind=RuntimeType.PODMAN,
+        endpoint="unix:///run/podman.sock",
+        source="CONTAINER_HOST",
+        environment=candidate.environment,
+    )
+    client = config.create_client()
+    assert client is mock_client
+    call_env = mock_from_env.call_args[1]["environment"]
+    assert call_env.get("DOCKER_HOST") == "unix:///run/podman.sock"
 
 
 def test_resolve_from_env_var() -> None:

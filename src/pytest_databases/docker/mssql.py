@@ -1,3 +1,5 @@
+"""Microsoft SQL Server container service fixtures."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -6,17 +8,30 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
+    from collections.abc import Generator
 
     from docker.models.containers import Container
 
     from pytest_databases._service import DockerService
     from pytest_databases.types import XdistIsolationLevel
 
+__all__ = (
+    "MSSQL_DATABASE",
+    "MSSQL_PASSWORD",
+    "MSSQL_USER",
+    "SQLCMD",
+    "MSSQLService",
+    "mssql_database",
+    "mssql_image",
+    "mssql_password",
+    "mssql_service",
+    "mssql_user",
+    "xdist_mssql_isolation_level",
+)
 
 MSSQL_USER = "sa"
 MSSQL_PASSWORD = "Super-secret1"
@@ -24,163 +39,56 @@ MSSQL_DATABASE = "pytest_databases"
 SQLCMD = "/opt/mssql-tools18/bin/sqlcmd"
 
 
-def _output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
-    if isinstance(output, bytes):
-        return output
-    if isinstance(output, str):
-        return output.encode()
-    return b"".join(output)
-
-
-def _quote_identifier(value: str) -> str:
-    return f"[{value.replace(']', ']]')}]"
-
-
-def _quote_literal(value: str) -> str:
-    return f"N'{value.replace(chr(39), chr(39) * 2)}'"
-
-
-def _exec_sqlcmd(
-    container: Container,
-    sql: str,
-    *,
-    database: str = "master",
-    user: str = MSSQL_USER,
-    password: str = MSSQL_PASSWORD,
-) -> tuple[int, bytes]:
-    result = container.exec_run([
-        SQLCMD,
-        "-C",
-        "-b",
-        "-S",
-        "localhost,1433",
-        "-U",
-        user,
-        "-P",
-        password,
-        "-d",
-        database,
-        "-l",
-        "2",
-        "-h",
-        "-1",
-        "-W",
-        "-Q",
-        sql,
-    ])
-    return result.exit_code if result.exit_code is not None else -1, _output_to_bytes(result.output)
-
-
-def _make_login_sql(user: str, password: str) -> str:
-    quoted_user = _quote_identifier(user)
-    quoted_user_literal = _quote_literal(user)
-    quoted_password = _quote_literal(password)
-    return (
-        f"IF SUSER_ID({quoted_user_literal}) IS NULL "
-        f"CREATE LOGIN {quoted_user} WITH PASSWORD = {quoted_password}; "
-        f"ELSE ALTER LOGIN {quoted_user} WITH PASSWORD = {quoted_password}, CHECK_POLICY = OFF;"
-    )
-
-
-def _make_database_sql(database: str) -> str:
-    quoted_database = _quote_identifier(database)
-    quoted_database_literal = _quote_literal(database)
-    return f"IF DB_ID({quoted_database_literal}) IS NULL CREATE DATABASE {quoted_database};"
-
-
-def _make_user_sql(database: str, user: str) -> str:
-    quoted_database = _quote_identifier(database)
-    quoted_user = _quote_identifier(user)
-    quoted_user_literal = _quote_literal(user)
-    return (
-        f"USE {quoted_database}; "
-        f"IF USER_ID({quoted_user_literal}) IS NULL CREATE USER {quoted_user} FOR LOGIN {quoted_user}; "
-        f"IF IS_ROLEMEMBER(N'db_owner', {quoted_user_literal}) = 0 "
-        f"ALTER ROLE db_owner ADD MEMBER {quoted_user};"
-    )
-
-
-def _prepare_database(
-    container: Container,
-    database: str,
-    user: str,
-    password: str,
-) -> None:
-    """Ensure database and user exist and database is online."""
-    setup_sql = [_make_database_sql(database)]
-    if user != MSSQL_USER:
-        setup_sql = [
-            _make_login_sql(user, password),
-            *setup_sql,
-            _make_user_sql(database, user),
-        ]
-
-    quoted_db = _quote_literal(database)
-    online_check_sql = (
-        f"SET NOCOUNT ON; "
-        f"SELECT 1 FROM sys.databases WHERE name = {quoted_db} AND state_desc = N'ONLINE';"
-    )
-
-    last_output = b""
-    for attempt in range(10):
-        for sql in setup_sql:
-            exit_code, output = _exec_sqlcmd(container, sql, password=password)
-            if exit_code != 0:
-                last_output = output
-                break
-        else:
-            verify_code, verify_out = _exec_sqlcmd(container, online_check_sql, password=password)
-            if verify_code == 0 and verify_out.strip() == b"1":
-                return
-            last_output = verify_out
-        time.sleep(1 + attempt * 0.5)
-
-    msg = f"SQL Server database {database!r} could not be prepared. Last output: {last_output!r}"
-    raise RuntimeError(msg)
-
-
-@pytest.fixture(scope="session")
-def xdist_mssql_isolation_level() -> XdistIsolationLevel:
-    return "database"
-
-
-@pytest.fixture(scope="session")
-def mssql_image() -> str:
-    return "mcr.microsoft.com/mssql/server:2022-latest"
-
-
-@pytest.fixture(scope="session")
-def mssql_user() -> str:
-    return MSSQL_USER
-
-
-@pytest.fixture(scope="session")
-def mssql_password() -> str:
-    return MSSQL_PASSWORD
-
-
-@pytest.fixture(scope="session")
-def mssql_database() -> str:
-    return MSSQL_DATABASE
-
-
 @dataclasses.dataclass
 class MSSQLService(ServiceContainer):
+    """Service container metadata for Microsoft SQL Server."""
+
     user: str
     password: str
     database: str
 
     @property
     def connection_string(self) -> str:
+        """ODBC connection string for the active SQL Server container."""
         return (
             "encrypt=no; "
             "TrustServerCertificate=yes; "
-            f"driver={{ODBC Driver 18 for SQL Server}}; "
+            "driver={ODBC Driver 18 for SQL Server}; "
             f"server={self.host},{self.port}; "
             f"database={self.database}; "
             f"UID={self.user}; "
             f"PWD={self.password}"
         )
+
+
+@pytest.fixture(scope="session")
+def xdist_mssql_isolation_level() -> XdistIsolationLevel:
+    """Default ``pytest-xdist`` isolation level for Microsoft SQL Server."""
+    return "database"
+
+
+@pytest.fixture(scope="session")
+def mssql_image() -> str:
+    """Default Microsoft SQL Server container image."""
+    return "mcr.microsoft.com/mssql/server:2022-latest"
+
+
+@pytest.fixture(scope="session")
+def mssql_user() -> str:
+    """Default Microsoft SQL Server administrative username."""
+    return MSSQL_USER
+
+
+@pytest.fixture(scope="session")
+def mssql_password() -> str:
+    """Default Microsoft SQL Server administrative password."""
+    return MSSQL_PASSWORD
+
+
+@pytest.fixture(scope="session")
+def mssql_database() -> str:
+    """Default Microsoft SQL Server database name."""
+    return MSSQL_DATABASE
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -192,6 +100,12 @@ def mssql_service(
     mssql_password: str,
     mssql_database: str,
 ) -> Generator[MSSQLService, None, None]:
+    """Provide a session-scoped Microsoft SQL Server container service.
+
+    Yields:
+        MSSQLService: Started Microsoft SQL Server container metadata.
+    """
+
     def check(_service: ServiceContainer) -> bool:
         exit_code, output = _exec_sqlcmd(
             _service.container,
@@ -235,3 +149,108 @@ def mssql_service(
             user=mssql_user,
             password=mssql_password,
         )
+
+
+def _quote_identifier(value: str) -> str:
+    return f"[{value.replace(']', ']]')}]"
+
+
+def _quote_literal(value: str) -> str:
+    return f"N'{value.replace(chr(39), chr(39) * 2)}'"
+
+
+def _exec_sqlcmd(
+    container: Container,
+    sql: str,
+    *,
+    database: str = "master",
+    user: str = MSSQL_USER,
+    password: str = MSSQL_PASSWORD,
+) -> tuple[int, bytes]:
+    result = container.exec_run([
+        SQLCMD,
+        "-C",
+        "-b",
+        "-S",
+        "localhost,1433",
+        "-U",
+        user,
+        "-P",
+        password,
+        "-d",
+        database,
+        "-l",
+        "2",
+        "-h",
+        "-1",
+        "-W",
+        "-Q",
+        sql,
+    ])
+    return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
+
+
+def _make_login_sql(user: str, password: str) -> str:
+    quoted_user = _quote_identifier(user)
+    quoted_user_literal = _quote_literal(user)
+    quoted_password = _quote_literal(password)
+    return (
+        f"IF SUSER_ID({quoted_user_literal}) IS NULL "
+        f"CREATE LOGIN {quoted_user} WITH PASSWORD = {quoted_password}; "
+        f"ELSE ALTER LOGIN {quoted_user} WITH PASSWORD = {quoted_password}, CHECK_POLICY = OFF;"
+    )
+
+
+def _make_database_sql(database: str) -> str:
+    quoted_database = _quote_identifier(database)
+    quoted_database_literal = _quote_literal(database)
+    return f"IF DB_ID({quoted_database_literal}) IS NULL CREATE DATABASE {quoted_database};"
+
+
+def _make_user_sql(database: str, user: str) -> str:
+    quoted_database = _quote_identifier(database)
+    quoted_user = _quote_identifier(user)
+    quoted_user_literal = _quote_literal(user)
+    return (
+        f"USE {quoted_database}; "
+        f"IF USER_ID({quoted_user_literal}) IS NULL CREATE USER {quoted_user} FOR LOGIN {quoted_user}; "
+        f"IF IS_ROLEMEMBER(N'db_owner', {quoted_user_literal}) = 0 "
+        f"ALTER ROLE db_owner ADD MEMBER {quoted_user};"
+    )
+
+
+def _prepare_database(
+    container: Container,
+    database: str,
+    user: str,
+    password: str,
+) -> None:
+    setup_sql = [_make_database_sql(database)]
+    if user != MSSQL_USER:
+        setup_sql = [
+            _make_login_sql(user, password),
+            *setup_sql,
+            _make_user_sql(database, user),
+        ]
+
+    quoted_db = _quote_literal(database)
+    online_check_sql = (
+        f"SET NOCOUNT ON; SELECT 1 FROM sys.databases WHERE name = {quoted_db} AND state_desc = N'ONLINE';"
+    )
+
+    last_output = b""
+    for attempt in range(10):
+        for sql in setup_sql:
+            exit_code, output = _exec_sqlcmd(container, sql, password=password)
+            if exit_code != 0:
+                last_output = output
+                break
+        else:
+            verify_code, verify_out = _exec_sqlcmd(container, online_check_sql, password=password)
+            if verify_code == 0 and verify_out.strip() == b"1":
+                return
+            last_output = verify_out
+        time.sleep(1 + attempt * 0.5)
+
+    msg = f"SQL Server database {database!r} could not be prepared. Last output: {last_output!r}"
+    raise RuntimeError(msg)

@@ -1,3 +1,5 @@
+"""Tests for Oracle database container service fixtures and per-worker schema isolation."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -27,7 +29,7 @@ def test_oracle_database_isolation_naming_and_user() -> None:
 
     with (
         patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=2),
-        patch("pytest_databases.docker.oracle.ensure_oracle_user"),
+        patch("pytest_databases.docker.oracle.ensure_oracle_user", return_value=True) as mock_ensure,
         patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"1")),
         provide_oracle_service(
             docker_service=mock_docker,
@@ -41,10 +43,18 @@ def test_oracle_database_isolation_naming_and_user() -> None:
         ) as service,
     ):
         assert service.user == "app_2"
-
-    call_kwargs = mock_docker.run.call_args[1]
-    assert call_kwargs["name"] == "oracle23ai"
-    assert call_kwargs["transient"] is False
+        call_kwargs = mock_docker.run.call_args[1]
+        assert call_kwargs["name"] == "oracle23ai"
+        assert call_kwargs["transient"] is False
+        check_fn = call_kwargs["check"]
+        assert check_fn(mock_service) is True
+        mock_ensure.assert_called_once_with(
+            mock_container,
+            user="app_2",
+            password="secret",
+            service_name="FREEPDB1",
+            system_password="sys-secret",
+        )
 
 
 def test_oracle_server_isolation_naming_and_user() -> None:
@@ -79,12 +89,15 @@ def test_ensure_oracle_user_invokes_sysdba() -> None:
     """Ensure ensure_oracle_user connects as sysdba to create user."""
     mock_container = MagicMock()
     with patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"")) as mock_exec:
-        ensure_oracle_user(
-            container=mock_container,
-            user="app_1",
-            password="secret",
-            service_name="FREEPDB1",
-            system_password="sys-secret",
+        assert (
+            ensure_oracle_user(
+                container=mock_container,
+                user="app_1",
+                password="secret",
+                service_name="FREEPDB1",
+                system_password="sys-secret",
+            )
+            is True
         )
 
     mock_exec.assert_called_once()

@@ -15,11 +15,8 @@ from docker import DockerClient
 from docker.context import ContextAPI
 from docker.errors import DockerException
 
-__all__ = [
+__all__ = (
     "ContainerRuntimeConfig",
-    "ContainerRuntimeKind",
-    "ResolvedContainerRuntimeKind",
-    "ResolvedRuntime",
     "RuntimeCandidate",
     "RuntimeResolutionError",
     "RuntimeType",
@@ -28,7 +25,7 @@ __all__ = [
     "discover_runtime_candidates",
     "parse_runtime_type",
     "resolve_container_runtime",
-]
+)
 
 _DEFAULT_CONTEXT = object()
 _CREDENTIAL_PATTERN = re.compile(r"(?<=://)[^/@]+@")
@@ -40,10 +37,6 @@ class RuntimeType(str, Enum):
     AUTO = "auto"
     DOCKER = "docker"
     PODMAN = "podman"
-
-
-ContainerRuntimeKind = RuntimeType
-ResolvedContainerRuntimeKind = RuntimeType
 
 
 class RuntimeResolutionError(RuntimeError):
@@ -81,7 +74,10 @@ class ContainerRuntimeConfig:
                 raise RuntimeResolutionError(message)
             return DockerClient(base_url=context.Host, tls=context.TLSConfig, timeout=self.timeout)
         if self.environment:
-            return DockerClient.from_env(environment=dict(self.environment), timeout=self.timeout)
+            env_dict = dict(self.environment)
+            if "DOCKER_HOST" not in env_dict and self.endpoint:
+                env_dict["DOCKER_HOST"] = self.endpoint
+            return DockerClient.from_env(environment=env_dict, timeout=self.timeout)
         return DockerClient(base_url=self.endpoint, timeout=self.timeout)
 
     def to_dict(self) -> dict[str, object]:
@@ -116,9 +112,6 @@ class ContainerRuntimeConfig:
         )
 
 
-ResolvedRuntime = ContainerRuntimeConfig
-
-
 def default_host_from_base_url(base_url: str) -> str:
     """Extract the default reachable host IP or name from a container endpoint URL."""
     if not base_url or base_url.startswith(("unix://", "npipe://")):
@@ -149,31 +142,6 @@ def classify_runtime(info: Mapping[str, object], version: Mapping[str, object]) 
     raise RuntimeResolutionError(message)
 
 
-def _podman_connection_uris(path: Path) -> list[str]:
-    """Read Podman connection service destination URIs from a JSON file."""
-    if not path.is_file():
-        return []
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    uris: list[str] = []
-
-    def visit(value: object) -> None:
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if key in {"uri", "URI"} and isinstance(item, str):
-                    uris.append(item)
-                else:
-                    visit(item)
-        elif isinstance(value, list):
-            for item in value:
-                visit(item)
-
-    visit(payload)
-    return uris
-
-
 def discover_runtime_candidates(
     environment: Mapping[str, str] | None = None,
     docker_context: object | None = _DEFAULT_CONTEXT,
@@ -185,10 +153,13 @@ def discover_runtime_candidates(
     for variable in ("PYTEST_DATABASES_CONTAINER_RUNTIME_ENDPOINT", "DOCKER_HOST", "CONTAINER_HOST"):
         endpoint = env.get(variable)
         if endpoint:
-            transport_environment = tuple(
-                sorted((key, env[key]) for key in (variable, "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH") if key in env)
-            )
-            return [RuntimeCandidate(endpoint, variable, None, environment=transport_environment)]
+            env_pairs = [(variable, endpoint)]
+            env_pairs.extend((key, env[key]) for key in ("DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH") if key in env)
+            if not any(k == "DOCKER_HOST" for k, _ in env_pairs):
+                env_pairs.append(("DOCKER_HOST", endpoint))
+            transport_environment = tuple(sorted(env_pairs))
+            kind = RuntimeType.PODMAN if variable == "CONTAINER_HOST" else None
+            return [RuntimeCandidate(endpoint, variable, kind, environment=transport_environment)]
 
     candidates: list[RuntimeCandidate] = []
     if docker_context is _DEFAULT_CONTEXT:
@@ -229,6 +200,84 @@ def discover_runtime_candidates(
     return list(deduplicated.values())
 
 
+def resolve_container_runtime(
+    requested: RuntimeType | str | None = None,
+    *,
+    candidates: Sequence[RuntimeCandidate] | None = None,
+    probe: Callable[[RuntimeCandidate], RuntimeType | None] | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> ContainerRuntimeConfig:
+    """Resolve a reachable runtime with Docker-first auto semantics."""
+    active_probe = _default_probe if probe is None else probe
+    env = os.environ if environment is None else environment
+    if requested is None:
+        requested = env.get("PYTEST_DATABASES_CONTAINER_RUNTIME") or env.get("CONTAINER_RUNTIME") or RuntimeType.AUTO
+    runtime_type = parse_runtime_type(requested)
+    available = list(discover_runtime_candidates(environment=env) if candidates is None else candidates)
+    if runtime_type is RuntimeType.AUTO:
+        available.sort(
+            key=lambda candidate: (
+                0
+                if candidate.expected_kind is RuntimeType.DOCKER
+                else 2
+                if candidate.expected_kind is RuntimeType.PODMAN
+                else 1
+            )
+        )
+    attempted: list[str] = []
+    for candidate in available:
+        if runtime_type is not RuntimeType.AUTO and candidate.expected_kind not in {None, runtime_type}:
+            continue
+        actual_kind = active_probe(candidate)
+        attempted.append(f"{candidate.source} ({_sanitize_endpoint(candidate.endpoint)})")
+        if actual_kind is None:
+            continue
+        if runtime_type is not RuntimeType.AUTO and actual_kind is not runtime_type:
+            message = (
+                f"requested {runtime_type.value} from {candidate.source}, but endpoint "
+                f"{_sanitize_endpoint(candidate.endpoint)} reported {actual_kind.value}"
+            )
+            raise RuntimeResolutionError(message)
+        return ContainerRuntimeConfig(
+            actual_kind,
+            candidate.endpoint,
+            candidate.source,
+            candidate.context_name,
+            candidate.environment,
+        )
+    attempted_text = ", ".join(attempted) or "no candidates"
+    message = (
+        f"could not connect to requested {runtime_type.value} runtime; attempted {attempted_text}. "
+        "Start Docker, enable `systemctl --user enable --now podman.socket` on Linux, or set DOCKER_HOST/CONTAINER_HOST."
+    )
+    raise RuntimeResolutionError(message)
+
+
+def _podman_connection_uris(path: Path) -> list[str]:
+    """Read Podman connection service destination URIs from a JSON file."""
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    uris: list[str] = []
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"uri", "URI"} and isinstance(item, str):
+                    uris.append(item)
+                else:
+                    visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(payload)
+    return uris
+
+
 def _sanitize_endpoint(endpoint: str) -> str:
     """Mask user credentials present in an endpoint URL."""
     return _CREDENTIAL_PATTERN.sub("***@", endpoint)
@@ -252,55 +301,3 @@ def _default_probe(candidate: RuntimeCandidate) -> RuntimeType | None:
     finally:
         if client is not None:
             client.close()
-
-
-def resolve_container_runtime(
-    requested: RuntimeType | str | None = None,
-    *,
-    candidates: Sequence[RuntimeCandidate] | None = None,
-    probe: Callable[[RuntimeCandidate], RuntimeType | None] = _default_probe,
-    environment: Mapping[str, str] | None = None,
-) -> ContainerRuntimeConfig:
-    """Resolve a reachable runtime with Docker-first auto semantics."""
-    env = os.environ if environment is None else environment
-    if requested is None:
-        requested = env.get("PYTEST_DATABASES_CONTAINER_RUNTIME") or env.get("CONTAINER_RUNTIME") or RuntimeType.AUTO
-    runtime_type = parse_runtime_type(requested)
-    available = list(discover_runtime_candidates(environment=env) if candidates is None else candidates)
-    if runtime_type is RuntimeType.AUTO:
-        available.sort(
-            key=lambda candidate: (
-                0
-                if candidate.expected_kind is RuntimeType.DOCKER
-                else 2
-                if candidate.expected_kind is RuntimeType.PODMAN
-                else 1
-            )
-        )
-    attempted: list[str] = []
-    for candidate in available:
-        if runtime_type is not RuntimeType.AUTO and candidate.expected_kind not in {None, runtime_type}:
-            continue
-        actual_kind = probe(candidate)
-        attempted.append(f"{candidate.source} ({_sanitize_endpoint(candidate.endpoint)})")
-        if actual_kind is None:
-            continue
-        if runtime_type is not RuntimeType.AUTO and actual_kind is not runtime_type:
-            message = (
-                f"requested {runtime_type.value} from {candidate.source}, but endpoint "
-                f"{_sanitize_endpoint(candidate.endpoint)} reported {actual_kind.value}"
-            )
-            raise RuntimeResolutionError(message)
-        return ContainerRuntimeConfig(
-            actual_kind,
-            candidate.endpoint,
-            candidate.source,
-            candidate.context_name,
-            candidate.environment,
-        )
-    attempted_text = ", ".join(attempted) or "no candidates"
-    message = (
-        f"could not connect to requested {runtime_type.value} runtime; attempted {attempted_text}. "
-        "Start Docker, enable `systemctl --user enable --now podman.socket` on Linux, or set DOCKER_HOST/CONTAINER_HOST."
-    )
-    raise RuntimeResolutionError(message)

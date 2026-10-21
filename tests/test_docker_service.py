@@ -138,12 +138,15 @@ def test_container_fast_fail_when_status_exited(tmp_path: Path) -> None:
 
     service = make_service(tmp_path, mock_client)
 
-    with pytest.raises(RuntimeError, match="exited prematurely with status 'exited'"), service.run(
-        image="postgres:latest",
-        container_port=5432,
-        name="fast_fail_test",
-        check=lambda _s: False,
-        timeout=10,
+    with (
+        pytest.raises(RuntimeError, match="exited prematurely with status 'exited'"),
+        service.run(
+            image="postgres:latest",
+            container_port=5432,
+            name="fast_fail_test",
+            check=lambda _s: False,
+            timeout=10,
+        ),
     ):
         pass
 

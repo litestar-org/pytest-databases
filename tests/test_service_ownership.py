@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
 from pytest_databases import (
@@ -59,7 +59,7 @@ def make_service(
     mock_session.config.rootpath = tmp_path
     runtime_config = ContainerRuntimeConfig(RuntimeType.DOCKER, "unix:///docker.sock", "test")
     return ContainerService(
-        client=client or FakeClient(),  # type: ignore[arg-type]
+        client=cast("Any", client or FakeClient()),
         tmp_path=tmp_path,
         session=mock_session,
         runtime_config=runtime_config,
@@ -161,11 +161,9 @@ def test_cleanup_filters_one_owner_and_leaves_other_sessions_unlisted() -> None:
     running = MagicMock(status="running")
     client = FakeClient(FakeContainers([running]))
 
-    stop_owned_containers(client, "target-owner-id")  # type: ignore[arg-type]
+    stop_owned_containers(cast("Any", client), "target-owner-id")
 
-    assert client.containers.list_calls[0]["filters"] == {
-        "label": f"{OWNER_LABEL}=target-owner-id"
-    }
+    assert client.containers.list_calls[0]["filters"] == {"label": f"{OWNER_LABEL}=target-owner-id"}
     running.kill.assert_called_once_with()
 
 
