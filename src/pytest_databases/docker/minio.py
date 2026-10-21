@@ -20,12 +20,30 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 
+MINIO_IMAGE = "cgr.dev/chainguard/minio:latest"
+MINIO_MC_IMAGE = "cgr.dev/chainguard/minio-client:latest"
+
+
 @dataclass
 class MinioService(ServiceContainer):
+    """Service container for MinIO object storage."""
+
     endpoint: str
     access_key: str
     secret_key: str
     secure: bool
+
+
+@pytest.fixture(scope="session")
+def minio_image() -> str:
+    """Default MinIO container image from Chainguard."""
+    return MINIO_IMAGE
+
+
+@pytest.fixture(scope="session")
+def minio_client_image() -> str:
+    """Default MinIO mc client container image from Chainguard."""
+    return MINIO_MC_IMAGE
 
 
 @pytest.fixture(scope="session")
@@ -60,13 +78,21 @@ def minio_default_bucket_name(xdist_minio_isolation_level: XdistIsolationLevel) 
 
 @pytest.fixture(scope="session")
 def minio_service(
-    docker_service: "DockerService",
+    docker_service: DockerService,
     minio_access_key: str,
     minio_secret_key: str,
     minio_secure: bool,
     minio_default_bucket_name: str,
     xdist_minio_isolation_level: XdistIsolationLevel,
-) -> "Generator[MinioService, None, None]":
+    minio_image: str = MINIO_IMAGE,
+    minio_client_image: str = MINIO_MC_IMAGE,
+) -> Generator[MinioService, None, None]:
+    """Start a Chainguard MinIO service and create the default bucket via MC_HOST_local.
+
+    Yields:
+        MinioService: The started MinIO container service metadata.
+    """
+
     def check(_service: ServiceContainer) -> bool:
         scheme = "https" if minio_secure else "http"
         url = f"{scheme}://{_service.host}:{_service.port}/minio/health/ready"
@@ -74,7 +100,7 @@ def minio_service(
             msg = "URL must start with 'http:' or 'https:'"
             raise ValueError(msg)
         try:
-            with urlopen(url=Request(url, method="GET"), timeout=10) as response:  # ruff: ignore[suspicious-url-open-usage]
+            with urlopen(url=Request(url, method="GET"), timeout=10) as response:
                 return response.status == 200
         except (URLError, ConnectionError):
             return False
@@ -94,7 +120,7 @@ def minio_service(
     }
 
     with docker_service.run(
-        image="quay.io/minio/minio",
+        image=minio_image,
         name=name,
         command=command,
         container_port=9000,
@@ -104,30 +130,21 @@ def minio_service(
         check=check,
         transient=transient,
     ) as service:
-        # Create default bucket using minio/mc container
         scheme = "https" if minio_secure else "http"
-        endpoint_url = f"{scheme}://{service.host}:{service.port}"
-
         client = docker_service._client
 
         try:
-            client.images.get("minio/mc:latest")
+            client.images.get(minio_client_image)
         except ImageNotFound:
-            client.images.pull("minio/mc:latest")
+            client.images.pull(minio_client_image)
 
-        command = " ".join([
-            "sh",
-            "-c",
-            (
-                f"mc alias set local {endpoint_url} {minio_access_key} {minio_secret_key} && "
-                f"mc mb local/{minio_default_bucket_name}"
-            ),
-        ])
+        mc_host = f"{scheme}://{minio_access_key}:{minio_secret_key}@{service.host}:{service.port}"
 
         with contextlib.suppress(Exception):
             client.containers.run(
-                image="minio/mc:latest",
-                command=command,
+                image=minio_client_image,
+                command=["mb", f"local/{minio_default_bucket_name}"],
+                environment={"MC_HOST_local": mc_host},
                 remove=True,
                 network_mode="host",
             )

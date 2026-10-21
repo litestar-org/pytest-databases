@@ -202,13 +202,13 @@ ignore-words-list = "alog"
 skip = 'uv.lock, package-lock.json'
 
 [tool.pyright]
-exclude = ["scripts", "docs"]
-include = ["src/pytest_databases", "tests"]
+exclude = ["docs"]
+include = ["src/pytest_databases", "tests", "scripts/ci"]
 
 
 [tool.mypy]
 disallow_untyped_defs = false
-files = ["src/pytest_databases", "tests"]
+files = ["src/pytest_databases", "tests", "scripts/ci"]
 follow_imports = "normal"                 # "silent" for not following
 ignore_missing_imports = true
 pretty = true
@@ -361,6 +361,8 @@ docstring-code-line-length = 60
 "__main__.py" = ["E402"]
 "docs/*" = ["S404", "INP001"]
 "examples/*" = ["T201"]
+"scripts/**/*" = ["S404", "S607"]
+"src/pytest_databases/docker/*" = ["S310"]
 # Tests can use magic values, assertions, and relative imports
 "tests/**/*" = [
   "PLR2004",

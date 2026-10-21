@@ -147,7 +147,7 @@ def _provide_postgres_service(
         env={
             "POSTGRES_PASSWORD": password,
         },
-        exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
+        exec_after_start=f"psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
         transient=xdist_postgres_isolate == "server",
         host_port=host_port,
     ) as service:
