@@ -50,6 +50,7 @@
     "tests/test_cockroachdb.py::test_plugin_imports_without_psycopg",
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
     "tests/test_gizmosql.py::test_plugin_imports_without_adbc_driver_flightsql",
+    "tests/test_localstack.py::test_plugin_imports_without_aws_clients",
     "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
     "tests/test_mssql.py::test_plugin_imports_without_pymssql",
     "tests/test_oracle.py::test_plugin_imports_without_oracledb",
@@ -117,6 +118,12 @@
       "test_paths": ["tests/test_gizmosql.py"],
       "images": ["gizmodata/gizmosql:latest"],
       "docs_globs": ["docs/supported-databases/gizmosql.rst"]
+    },
+    "localstack": {
+      "source_globs": ["src/pytest_databases/docker/localstack.py"],
+      "test_paths": ["tests/test_localstack.py"],
+      "images": ["ministackorg/ministack:latest"],
+      "docs_globs": ["docs/supported-databases/localstack.rst"]
     },
     "mariadb": {
       "source_globs": ["src/pytest_databases/docker/mariadb.py"],
