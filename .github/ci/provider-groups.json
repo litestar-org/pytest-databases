@@ -48,6 +48,7 @@
     "tests/test_azure_blob.py::test_plugin_imports_without_azure_storage_blob",
     "tests/test_bigquery.py::test_plugin_imports_without_google_cloud_bigquery",
     "tests/test_cockroachdb.py::test_plugin_imports_without_psycopg",
+    "tests/test_db2.py::test_plugin_imports_without_db2_clients",
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
     "tests/test_gizmosql.py::test_plugin_imports_without_adbc_driver_flightsql",
     "tests/test_localstack.py::test_plugin_imports_without_aws_clients",
@@ -80,6 +81,12 @@
       "test_paths": ["tests/test_cockroachdb.py"],
       "images": ["cockroachdb/cockroach:latest"],
       "docs_globs": ["docs/supported-databases/cockroachdb.rst"]
+    },
+    "db2": {
+      "source_globs": ["src/pytest_databases/docker/db2.py"],
+      "test_paths": ["tests/test_db2.py"],
+      "images": ["icr.io/db2_community/db2:latest"],
+      "docs_globs": ["docs/supported-databases/db2.rst"]
     },
     "runtime": {
       "source_globs": [
