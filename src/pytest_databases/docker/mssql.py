@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import time
 from typing import TYPE_CHECKING
@@ -19,29 +20,42 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
     from pytest_databases.types import XdistIsolationLevel
 
-__all__ = (
+__all__ = [
     "MSSQL_DATABASE",
     "MSSQL_PASSWORD",
     "MSSQL_USER",
     "SQLCMD",
+    "SQLCMD_CANDIDATES",
     "MSSQLService",
+    "exec_sqlcmd",
+    "mssql_2022_image",
+    "mssql_2022_service",
+    "mssql_2025_image",
+    "mssql_2025_service",
     "mssql_database",
     "mssql_image",
     "mssql_password",
     "mssql_service",
     "mssql_user",
+    "provide_mssql_service",
     "xdist_mssql_isolation_level",
-)
+]
 
 MSSQL_USER = "sa"
 MSSQL_PASSWORD = "Super-secret1"
 MSSQL_DATABASE = "pytest_databases"
 SQLCMD = "/opt/mssql-tools18/bin/sqlcmd"
+SQLCMD_CANDIDATES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("/opt/mssql-tools18/bin/sqlcmd", ("-C",)),
+    ("/opt/mssql-tools/bin/sqlcmd", ()),
+    ("sqlcmd", ("-C",)),
+    ("sqlcmd", ()),
+)
 
 
 @dataclasses.dataclass
 class MSSQLService(ServiceContainer):
-    """Service container metadata for Microsoft SQL Server."""
+    """Service handle for a running SQL Server container."""
 
     user: str
     password: str
@@ -49,11 +63,11 @@ class MSSQLService(ServiceContainer):
 
     @property
     def connection_string(self) -> str:
-        """ODBC connection string for the active SQL Server container."""
+        """ODBC connection string for this SQL Server container."""
         return (
             "encrypt=no; "
             "TrustServerCertificate=yes; "
-            "driver={ODBC Driver 18 for SQL Server}; "
+            f"driver={{ODBC Driver 18 for SQL Server}}; "
             f"server={self.host},{self.port}; "
             f"database={self.database}; "
             f"UID={self.user}; "
@@ -61,53 +75,76 @@ class MSSQLService(ServiceContainer):
         )
 
 
-@pytest.fixture(scope="session")
-def xdist_mssql_isolation_level() -> XdistIsolationLevel:
-    """Default ``pytest-xdist`` isolation level for Microsoft SQL Server."""
-    return "database"
+def exec_sqlcmd(
+    container: Container,
+    sql: str,
+    *,
+    database: str = "master",
+    user: str = MSSQL_USER,
+    password: str = MSSQL_PASSWORD,
+) -> tuple[int, bytes]:
+    """Execute a T-SQL statement inside a SQL Server container across sqlcmd tool generations.
+
+    Returns:
+        Tuple of (exit_code, output_bytes).
+    """
+    last_code = -1
+    last_out = b""
+    for binary, extra_flags in SQLCMD_CANDIDATES:
+        result = container.exec_run([
+            binary,
+            *extra_flags,
+            "-b",
+            "-S",
+            "localhost,1433",
+            "-U",
+            user,
+            "-P",
+            password,
+            "-d",
+            database,
+            "-l",
+            "2",
+            "-h",
+            "-1",
+            "-W",
+            "-Q",
+            sql,
+        ])
+        code = result.exit_code if result.exit_code is not None else -1
+        out = exec_output_to_bytes(result.output)
+        if code == 0:
+            return code, out
+        last_code = code
+        last_out = out
+        lower_out = out.lower()
+        if (
+            code not in {126, 127}
+            and b"executable file not found" not in lower_out
+            and b"no such file" not in lower_out
+        ):
+            return code, out
+    return last_code, last_out
 
 
-@pytest.fixture(scope="session")
-def mssql_image() -> str:
-    """Default Microsoft SQL Server container image."""
-    return "mcr.microsoft.com/mssql/server:2022-latest"
-
-
-@pytest.fixture(scope="session")
-def mssql_user() -> str:
-    """Default Microsoft SQL Server administrative username."""
-    return MSSQL_USER
-
-
-@pytest.fixture(scope="session")
-def mssql_password() -> str:
-    """Default Microsoft SQL Server administrative password."""
-    return MSSQL_PASSWORD
-
-
-@pytest.fixture(scope="session")
-def mssql_database() -> str:
-    """Default Microsoft SQL Server database name."""
-    return MSSQL_DATABASE
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mssql_service(
+@contextlib.contextmanager
+def provide_mssql_service(
     docker_service: DockerService,
     xdist_mssql_isolation_level: XdistIsolationLevel,
-    mssql_image: str,
+    image: str,
+    name: str,
     mssql_user: str,
     mssql_password: str,
     mssql_database: str,
 ) -> Generator[MSSQLService, None, None]:
-    """Provide a session-scoped Microsoft SQL Server container service.
+    """Start and manage a SQL Server container service.
 
     Yields:
-        MSSQLService: Started Microsoft SQL Server container metadata.
+        Active MSSQLService instance.
     """
 
     def check(_service: ServiceContainer) -> bool:
-        exit_code, output = _exec_sqlcmd(
+        exit_code, output = exec_sqlcmd(
             _service.container,
             "SET NOCOUNT ON; SELECT 1 AS is_available",
             password=mssql_password,
@@ -116,7 +153,6 @@ def mssql_service(
 
     worker_num = get_xdist_worker_num()
     db_name = mssql_database
-    name = "mssql"
     if worker_num is not None:
         suffix = f"_{worker_num}"
         if xdist_mssql_isolation_level == "server":
@@ -125,7 +161,7 @@ def mssql_service(
             db_name += suffix
 
     with docker_service.run(
-        image=mssql_image,
+        image=image,
         check=check,
         container_port=1433,
         name=name,
@@ -151,46 +187,178 @@ def mssql_service(
         )
 
 
+@pytest.fixture(scope="session")
+def xdist_mssql_isolation_level() -> XdistIsolationLevel:
+    """Return the pytest-xdist isolation level for SQL Server.
+
+    Returns:
+        Default isolation level string.
+    """
+    return "database"
+
+
+@pytest.fixture(scope="session")
+def mssql_2022_image() -> str:
+    """Return the SQL Server 2022 container image.
+
+    Returns:
+        Container image tag.
+    """
+    return "mcr.microsoft.com/mssql/server:2022-latest"
+
+
+@pytest.fixture(scope="session")
+def mssql_2025_image() -> str:
+    """Return the SQL Server 2025 container image.
+
+    Returns:
+        Container image tag.
+    """
+    return "mcr.microsoft.com/mssql/server:2025-latest"
+
+
+@pytest.fixture(scope="session")
+def mssql_image(mssql_2022_image: str) -> str:
+    """Return the default SQL Server container image.
+
+    Returns:
+        Container image tag.
+    """
+    return mssql_2022_image
+
+
+@pytest.fixture(scope="session")
+def mssql_user() -> str:
+    """Return the SQL Server user.
+
+    Returns:
+        Username string.
+    """
+    return MSSQL_USER
+
+
+@pytest.fixture(scope="session")
+def mssql_password() -> str:
+    """Return the SQL Server SA password.
+
+    Returns:
+        Password string.
+    """
+    return MSSQL_PASSWORD
+
+
+@pytest.fixture(scope="session")
+def mssql_database() -> str:
+    """Return the SQL Server database name.
+
+    Returns:
+        Database name string.
+    """
+    return MSSQL_DATABASE
+
+
+@pytest.fixture(autouse=False, scope="session")
+def mssql_2022_service(
+    docker_service: DockerService,
+    xdist_mssql_isolation_level: XdistIsolationLevel,
+    mssql_2022_image: str,
+    mssql_user: str,
+    mssql_password: str,
+    mssql_database: str,
+) -> Generator[MSSQLService, None, None]:
+    """Provide a running SQL Server 2022 container service.
+
+    Yields:
+        Active MSSQLService instance.
+    """
+    with provide_mssql_service(
+        docker_service=docker_service,
+        xdist_mssql_isolation_level=xdist_mssql_isolation_level,
+        image=mssql_2022_image,
+        name="mssql-2022",
+        mssql_user=mssql_user,
+        mssql_password=mssql_password,
+        mssql_database=mssql_database,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def mssql_2025_service(
+    docker_service: DockerService,
+    xdist_mssql_isolation_level: XdistIsolationLevel,
+    mssql_2025_image: str,
+    mssql_user: str,
+    mssql_password: str,
+    mssql_database: str,
+) -> Generator[MSSQLService, None, None]:
+    """Provide a running SQL Server 2025 container service.
+
+    Yields:
+        Active MSSQLService instance.
+    """
+    with provide_mssql_service(
+        docker_service=docker_service,
+        xdist_mssql_isolation_level=xdist_mssql_isolation_level,
+        image=mssql_2025_image,
+        name="mssql-2025",
+        mssql_user=mssql_user,
+        mssql_password=mssql_password,
+        mssql_database=mssql_database,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def mssql_service(
+    docker_service: DockerService,
+    xdist_mssql_isolation_level: XdistIsolationLevel,
+    mssql_image: str,
+    mssql_user: str,
+    mssql_password: str,
+    mssql_database: str,
+) -> Generator[MSSQLService, None, None]:
+    """Provide the default SQL Server container service.
+
+    Yields:
+        Active MSSQLService instance.
+    """
+    with provide_mssql_service(
+        docker_service=docker_service,
+        xdist_mssql_isolation_level=xdist_mssql_isolation_level,
+        image=mssql_image,
+        name="mssql",
+        mssql_user=mssql_user,
+        mssql_password=mssql_password,
+        mssql_database=mssql_database,
+    ) as service:
+        yield service
+
+
 def _quote_identifier(value: str) -> str:
+    """Quote a SQL Server bracketed identifier.
+
+    Returns:
+        Bracket-escaped T-SQL identifier.
+    """
     return f"[{value.replace(']', ']]')}]"
 
 
 def _quote_literal(value: str) -> str:
+    """Quote a SQL Server Unicode string literal.
+
+    Returns:
+        Single-quote-escaped T-SQL Unicode string literal.
+    """
     return f"N'{value.replace(chr(39), chr(39) * 2)}'"
 
 
-def _exec_sqlcmd(
-    container: Container,
-    sql: str,
-    *,
-    database: str = "master",
-    user: str = MSSQL_USER,
-    password: str = MSSQL_PASSWORD,
-) -> tuple[int, bytes]:
-    result = container.exec_run([
-        SQLCMD,
-        "-C",
-        "-b",
-        "-S",
-        "localhost,1433",
-        "-U",
-        user,
-        "-P",
-        password,
-        "-d",
-        database,
-        "-l",
-        "2",
-        "-h",
-        "-1",
-        "-W",
-        "-Q",
-        sql,
-    ])
-    return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
-
-
 def _make_login_sql(user: str, password: str) -> str:
+    """Build T-SQL to create or update a SQL Server login.
+
+    Returns:
+        T-SQL statement string.
+    """
     quoted_user = _quote_identifier(user)
     quoted_user_literal = _quote_literal(user)
     quoted_password = _quote_literal(password)
@@ -202,12 +370,22 @@ def _make_login_sql(user: str, password: str) -> str:
 
 
 def _make_database_sql(database: str) -> str:
+    """Build T-SQL to create a SQL Server database if it does not exist.
+
+    Returns:
+        T-SQL statement string.
+    """
     quoted_database = _quote_identifier(database)
     quoted_database_literal = _quote_literal(database)
     return f"IF DB_ID({quoted_database_literal}) IS NULL CREATE DATABASE {quoted_database};"
 
 
 def _make_user_sql(database: str, user: str) -> str:
+    """Build T-SQL to provision a database user and grant db_owner membership.
+
+    Returns:
+        T-SQL statement string.
+    """
     quoted_database = _quote_identifier(database)
     quoted_user = _quote_identifier(user)
     quoted_user_literal = _quote_literal(user)
@@ -225,6 +403,11 @@ def _prepare_database(
     user: str,
     password: str,
 ) -> None:
+    """Ensure the SQL Server database and user exist and the database is ONLINE.
+
+    Raises:
+        RuntimeError: If the database does not reach ONLINE state within retries.
+    """
     setup_sql = [_make_database_sql(database)]
     if user != MSSQL_USER:
         setup_sql = [
@@ -241,12 +424,12 @@ def _prepare_database(
     last_output = b""
     for attempt in range(10):
         for sql in setup_sql:
-            exit_code, output = _exec_sqlcmd(container, sql, password=password)
+            exit_code, output = exec_sqlcmd(container, sql, password=password)
             if exit_code != 0:
                 last_output = output
                 break
         else:
-            verify_code, verify_out = _exec_sqlcmd(container, online_check_sql, password=password)
+            verify_code, verify_out = exec_sqlcmd(container, online_check_sql, password=password)
             if verify_code == 0 and verify_out.strip() == b"1":
                 return
             last_output = verify_out
