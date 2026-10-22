@@ -14,7 +14,6 @@ Usage Example
 
 .. code-block:: python
 
-    import pytest
     import mysql.connector
     from pytest_databases.docker.mysql import MySQLService
 
@@ -48,6 +47,7 @@ The following version-specific fixtures are also available:
 * ``mysql_8_service``: MySQL 8.0
 * ``mysql_84_service``: MySQL 8.4 LTS
 * ``mysql_96_service``: MySQL 9.6 Innovation
+* ``mysql_97_service``: MySQL 9.7 Innovation
 
 Service API
 -----------
