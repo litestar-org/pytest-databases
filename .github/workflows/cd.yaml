@@ -28,4 +28,4 @@ jobs:
           config: pyproject.toml
           args: -vv --latest --strip header
         env:
-          OUTPUT: docs/CHANGELOG.rst
+          OUTPUT: docs/changelog.rst

@@ -24,21 +24,18 @@ class UnknownProviderError(ValueError):
     """Raised when a provider ID is absent from the validated manifest."""
 
 
-def _default_run_command(command: list[str]) -> bool:
-    return subprocess.run(command, check=False, timeout=600).returncode == 0
-
-
 def pull_provider_images(
     manifest: Mapping[str, Any],
     provider_id: str,
     *,
-    run_command: Callable[[list[str]], bool] = _default_run_command,
+    run_command: Callable[[list[str]], bool] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     attempts: int = 5,
     workers: int = 4,
     docker_executable: str = "docker",
 ) -> list[str]:
     """Pull a provider's images and return any terminal failures."""
+    runner = _default_run_command if run_command is None else run_command
     providers = manifest["providers"]
     if provider_id not in providers:
         message = f"unknown provider: {provider_id}"
@@ -49,7 +46,7 @@ def pull_provider_images(
 
     def pull(image: str) -> str | None:
         for attempt in range(1, attempts + 1):
-            if run_command([docker_executable, "pull", image]):
+            if runner([docker_executable, "pull", image]):
                 return None
             if attempt < attempts:
                 sleep(float(attempt * attempt * 5))
@@ -87,6 +84,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write(f"failed to pull required images: {', '.join(failures)}\n")
         return 1
     return 0
+
+
+def _default_run_command(command: list[str]) -> bool:
+    return subprocess.run(command, check=False, timeout=600).returncode == 0
 
 
 if __name__ == "__main__":

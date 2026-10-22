@@ -26,10 +26,6 @@ def evaluate_required_jobs(statuses: Mapping[str, str], *, expected: Mapping[str
     return failures
 
 
-def _parse_bool(value: str) -> bool:
-    return value.lower() == "true"
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Validate Actions job results and selector intent."""
     parser = argparse.ArgumentParser()
@@ -51,6 +47,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write("\n".join(failures) + "\n")
         return 1
     return 0
+
+
+def _parse_bool(value: str) -> bool:
+    return value.lower() == "true"
 
 
 if __name__ == "__main__":

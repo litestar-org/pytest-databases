@@ -1,15 +1,66 @@
+"""Tests for YugabyteDB distributed SQL service fixtures."""
+
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
+
+from pytest_databases.docker.yugabyte import (
+    YUGABYTE_DATABASE,
+    YUGABYTE_PASSWORD,
+    YUGABYTE_USER,
+    provide_yugabyte_service,
+)
+from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     import pytest
+
+
+def test_provide_yugabyte_service_validates_without_sidecar_containers() -> None:
+    """Verify provide_yugabyte_service uses service.container directly without spawning sidecar containers."""
+    docker_service = MagicMock()
+    dummy_container = MagicMock()
+    dummy_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
+
+    @contextmanager
+    def fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
+        check = kwargs["check"]
+        assert callable(check)
+        service_container = ServiceContainer(host="127.0.0.1", port=5433, container=dummy_container)
+        assert check(service_container) is True
+        yield service_container
+
+    docker_service.run.side_effect = fake_run
+
+    with (
+        patch("pytest_databases.docker.yugabyte.socket.create_connection") as mock_connect,
+        provide_yugabyte_service(
+            docker_service,
+            isolation_level="database",
+            image="software.yugabyte.com/yugabytedb/yugabyte:latest",
+            user=YUGABYTE_USER,
+            password=YUGABYTE_PASSWORD,
+            database=YUGABYTE_DATABASE,
+        ) as service,
+    ):
+        assert service.host == "127.0.0.1"
+        assert service.port == 5433
+        assert service.database == YUGABYTE_DATABASE
+        assert service.user == YUGABYTE_USER
+        assert service.password == YUGABYTE_PASSWORD
+        mock_connect.assert_called_once_with(("127.0.0.1", 5433), timeout=2.0)
+        docker_service._client.containers.run.assert_not_called()
 
 
 def test_service_fixture(pytester: pytest.Pytester) -> None:
+    """Verify yugabyte_service provisions custom credentials and executes SQL."""
     pytester.makepyfile("""
-    import pytest
     import shlex
+    import pytest
 
     pytest_plugins = ["pytest_databases.docker.yugabyte"]
 
@@ -53,9 +104,10 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
 
 
 def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
+    """Verify database-isolated yugabyte_service isolates xdist workers in separate databases."""
     pytester.makepyfile("""
-    import pytest
     import shlex
+    import pytest
 
     pytest_plugins = ["pytest_databases.docker.yugabyte"]
 
@@ -83,9 +135,10 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
 
 
 def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
+    """Verify server-isolated yugabyte_service starts separate containers per xdist worker."""
     pytester.makepyfile("""
-    import pytest
     import shlex
+    import pytest
 
     pytest_plugins = ["pytest_databases.docker.yugabyte"]
 

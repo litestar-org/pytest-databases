@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -11,8 +12,10 @@ from scripts.ci.check_required_jobs import evaluate_required_jobs
 from scripts.ci.pull_images import UnknownProviderError, pull_provider_images
 from scripts.ci.run_tests import build_compatibility_command, build_provider_command
 from scripts.ci.select_provider_tests import (
+    GIT_EXECUTABLE,
     PROJECT_ROOT,
     ManifestValidationError,
+    changed_files_for_range,
     load_manifest,
     parse_name_status,
     render_summary,
@@ -98,9 +101,12 @@ def test_select_providers_docs_only_change() -> None:
 
 
 def test_select_providers_metadata_only_change() -> None:
-    """Verify metadata and CI unit test changes run quality checks without starting containers."""
+    """Verify metadata, Makefile, and CI unit test changes run quality checks without starting containers."""
     manifest = load_manifest()
-    selection = select_providers(manifest, [".pre-commit-config.yaml", "tests/test_ci_provider_groups.py"])
+    selection = select_providers(
+        manifest,
+        [".pre-commit-config.yaml", "Makefile", "tests/test_ci_provider_groups.py"],
+    )
 
     assert selection["mode"] == "metadata-only"
     assert selection["providers"] == []
@@ -108,6 +114,57 @@ def test_select_providers_metadata_only_change() -> None:
     assert selection["run_quality"] is True
     assert selection["run_docs"] is False
     assert selection["run_compatibility"] is False
+
+
+def test_select_providers_ci_plumbing_routes_to_runtime() -> None:
+    """Verify CI workflow and selector script changes run the lightweight runtime provider instead of all providers."""
+    manifest = load_manifest()
+    selection = select_providers(
+        manifest,
+        [".github/workflows/ci.yaml", "scripts/ci/select_provider_tests.py"],
+    )
+
+    assert selection["mode"] == "selective"
+    assert selection["providers"] == ["runtime"]
+    assert selection["provider_job_count"] == 1
+    assert selection["images"] == ["busybox:latest"]
+    assert selection["run_quality"] is True
+    assert selection["run_compatibility"] is True
+
+
+def test_changed_files_for_range_uses_merge_base(tmp_path: Path) -> None:
+    """Verify changed_files_for_range diffs against the merge-base when base advances ahead of branch."""
+    assert GIT_EXECUTABLE is not None
+    subprocess.run([GIT_EXECUTABLE, "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run([GIT_EXECUTABLE, "config", "user.name", "Test"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        [GIT_EXECUTABLE, "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [GIT_EXECUTABLE, "config", "commit.gpgsign", "false"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    (tmp_path / "base.txt").write_text("base\n", encoding="utf-8")
+    subprocess.run([GIT_EXECUTABLE, "add", "base.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run([GIT_EXECUTABLE, "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+
+    subprocess.run([GIT_EXECUTABLE, "checkout", "-b", "feature"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / "feature.txt").write_text("feature\n", encoding="utf-8")
+    subprocess.run([GIT_EXECUTABLE, "add", "feature.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run([GIT_EXECUTABLE, "commit", "-m", "feature"], cwd=tmp_path, check=True, capture_output=True)
+
+    subprocess.run([GIT_EXECUTABLE, "checkout", "main"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / "upstream.txt").write_text("upstream\n", encoding="utf-8")
+    subprocess.run([GIT_EXECUTABLE, "add", "upstream.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run([GIT_EXECUTABLE, "commit", "-m", "upstream"], cwd=tmp_path, check=True, capture_output=True)
+
+    assert changed_files_for_range("main", "feature", cwd=tmp_path) == ["feature.txt"]
 
 
 def test_select_providers_shared_runtime_and_full_matrix() -> None:

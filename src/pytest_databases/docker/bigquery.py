@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 from google.api_core.client_options import ClientOptions
 from google.auth.credentials import AnonymousCredentials, Credentials
-from google.cloud import bigquery
+from google.cloud import bigquery  # pyright: ignore[reportAttributeAccessIssue]
 
 from pytest_databases.helpers import get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel

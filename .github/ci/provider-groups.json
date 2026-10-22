@@ -2,9 +2,6 @@
   "schema_version": 1,
   "supported_python_versions": ["3.11", "3.12", "3.13", "3.14", "3.15"],
   "shared_all_provider_paths": [
-    ".github/workflows/ci.yaml",
-    "Makefile",
-    "scripts/ci/**",
     "src/pytest_databases/__init__.py",
     "src/pytest_databases/_service.py",
     "src/pytest_databases/docker/__init__.py",
@@ -13,10 +10,17 @@
     "tests/conftest.py"
   ],
   "provider_scoped_dependency_paths": ["pyproject.toml", "uv.lock"],
-  "docs_only_globs": ["*.md", "*.rst", "docs/**"],
+  "docs_only_globs": [
+    "*.md",
+    "*.rst",
+    "docs/**",
+    "scripts/build_docs.py",
+    "scripts/convert_docs.sh"
+  ],
   "metadata_only_globs": [
     ".editorconfig",
     ".git-blame-ignore-revs",
+    ".github/CODEOWNERS",
     ".github/dependabot.yaml",
     ".github/release.yml",
     ".github/workflows/cd.yaml",
@@ -25,7 +29,17 @@
     ".github/workflows/release.yaml",
     ".gitignore",
     ".pre-commit-config.yaml",
+    ".sourcery.yaml",
+    ".vscode/**",
+    "CODEOWNERS",
     "LICENSE",
+    "Makefile",
+    "scripts/__init__.py",
+    "scripts/install-hatch.sh",
+    "sonar-project.properties",
+    "src/pytest_databases/__metadata__.py",
+    "src/pytest_databases/py.typed",
+    "tests/__init__.py",
     "tests/test_ci_*.py",
     "tools/scripts/**"
   ],
@@ -57,7 +71,15 @@
       "docs_globs": ["docs/supported-databases/cockroachdb.rst"]
     },
     "runtime": {
-      "source_globs": ["src/pytest_databases/_service.py"],
+      "source_globs": [
+        ".github/workflows/ci.yaml",
+        "scripts/ci/__init__.py",
+        "scripts/ci/check_required_jobs.py",
+        "scripts/ci/pull_images.py",
+        "scripts/ci/run_tests.py",
+        "scripts/ci/select_provider_tests.py",
+        "src/pytest_databases/_service.py"
+      ],
       "test_paths": ["tests/test_service_host_port.py"],
       "images": ["busybox:latest"],
       "docs_globs": ["docs/getting-started/**"]
@@ -163,7 +185,7 @@
     },
     "rustfs": {
       "source_globs": ["src/pytest_databases/docker/rustfs.py"],
-      "test_paths": ["tests/test_rustfs.py", "tests/test_rustfs_config.py"],
+      "test_paths": ["tests/test_rustfs.py"],
       "images": ["rustfs/rc:latest", "rustfs/rustfs:latest"],
       "docs_globs": ["docs/supported-databases/rustfs.rst"]
     },

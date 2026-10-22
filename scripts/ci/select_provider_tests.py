@@ -37,28 +37,6 @@ def load_manifest(path: Path = DEFAULT_MANIFEST_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _validate_relative_path(path: str) -> None:
-    candidate = Path(path.split("::", maxsplit=1)[0])
-    if candidate.is_absolute() or ".." in candidate.parts:
-        message = f"unsafe path in provider manifest: {path}"
-        raise ManifestValidationError(message)
-
-
-def _discover_provider_files(project_root: Path) -> tuple[set[str], set[str]]:
-    sources = {
-        path.relative_to(project_root).as_posix()
-        for path in (project_root / "src" / "pytest_databases" / "docker").glob("*.py")
-        if path.name != "__init__.py"
-    }
-    sources.add("src/pytest_databases/_service.py")
-    tests = {
-        path.relative_to(project_root).as_posix()
-        for path in (project_root / "tests").glob("test_*.py")
-        if not path.name.startswith("test_ci_")
-    }
-    return sources, tests
-
-
 def validate_manifest(manifest: Mapping[str, Any], *, project_root: Path = PROJECT_ROOT) -> None:
     """Reject manifest schema, ownership, and repository inventory drift."""
     if manifest.get("schema_version") != 1:
@@ -137,21 +115,7 @@ def validate_manifest(manifest: Mapping[str, Any], *, project_root: Path = PROJE
             message = f"missing compatibility test path: {file_path}"
             raise ManifestValidationError(message)
 
-
-def _matches(path: str, patterns: Iterable[str]) -> bool:
-    return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
-
-
-def _deduplicate(values: Iterable[str]) -> list[str]:
-    return list(dict.fromkeys(values))
-
-
-def _normalize_changed_path(path: str) -> str:
-    normalized = path.strip("/")
-    if any(ord(character) < 32 or ord(character) == 127 for character in normalized):
-        message = f"changed path contains control characters: {path!r}"
-        raise ValueError(message)
-    return normalized
+    _validate_tracked_coverage(manifest, project_root)
 
 
 def build_matrix(manifest: Mapping[str, Any], provider_ids: Sequence[str], *, full: bool) -> dict[str, Any]:
@@ -350,12 +314,20 @@ def changed_files_for_range(base: str, head: str, *, cwd: Path = PROJECT_ROOT) -
         message = "git executable was not found"
         raise RuntimeError(message)
     result = subprocess.run(
-        [GIT_EXECUTABLE, "diff", "--name-status", "-z", "-M", base, head],
+        [GIT_EXECUTABLE, "diff", "--name-status", "-z", "-M", f"{base}...{head}"],
         cwd=cwd,
-        check=True,
+        check=False,
         capture_output=True,
         timeout=30,
     )
+    if result.returncode != 0:
+        result = subprocess.run(
+            [GIT_EXECUTABLE, "diff", "--name-status", "-z", "-M", base, head],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
     return parse_name_status(result.stdout)
 
 
@@ -478,6 +450,87 @@ def main(argv: Sequence[str] | None = None) -> int:
         with summary_path.open("a", encoding="utf-8") as summary_file:
             summary_file.write(f"{render_summary(selection)}\n")
     return 0
+
+
+def _validate_relative_path(path: str) -> None:
+    candidate = Path(path.split("::", maxsplit=1)[0])
+    if candidate.is_absolute() or ".." in candidate.parts:
+        message = f"unsafe path in provider manifest: {path}"
+        raise ManifestValidationError(message)
+
+
+def _discover_provider_files(project_root: Path) -> tuple[set[str], set[str]]:
+    sources = {
+        path.relative_to(project_root).as_posix()
+        for path in (project_root / "src" / "pytest_databases" / "docker").glob("*.py")
+        if path.name != "__init__.py"
+    }
+    sources.add("src/pytest_databases/_service.py")
+    if (project_root / ".github" / "workflows" / "ci.yaml").is_file():
+        sources.add(".github/workflows/ci.yaml")
+    sources.update(path.relative_to(project_root).as_posix() for path in (project_root / "scripts" / "ci").glob("*.py"))
+    tests = {
+        path.relative_to(project_root).as_posix()
+        for path in (project_root / "tests").glob("test_*.py")
+        if not path.name.startswith("test_ci_")
+    }
+    return sources, tests
+
+
+def _validate_tracked_coverage(manifest: Mapping[str, Any], project_root: Path) -> None:
+    coverage_patterns = _manifest_coverage_patterns(manifest)
+    unmapped_tracked = sorted(
+        path for path in _tracked_repository_files(project_root) if not _matches(path, coverage_patterns)
+    )
+    if unmapped_tracked:
+        message = f"unmapped tracked repository files: {', '.join(unmapped_tracked)}"
+        raise ManifestValidationError(message)
+
+
+def _manifest_coverage_patterns(manifest: Mapping[str, Any]) -> list[str]:
+    patterns = [
+        MANIFEST_REPOSITORY_PATH,
+        *manifest.get("shared_all_provider_paths", ()),
+        *manifest.get("provider_scoped_dependency_paths", ()),
+        *manifest.get("docs_only_globs", ()),
+        *manifest.get("metadata_only_globs", ()),
+    ]
+    for provider in manifest["providers"].values():
+        patterns.extend(provider["source_globs"])
+        patterns.extend(provider["test_paths"])
+        patterns.extend(provider["docs_globs"])
+    return _deduplicate(patterns)
+
+
+def _tracked_repository_files(project_root: Path) -> list[str]:
+    if GIT_EXECUTABLE is None:
+        return []
+    result = subprocess.run(
+        [GIT_EXECUTABLE, "ls-files", "-z"],
+        cwd=project_root,
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return []
+    return [path for path in result.stdout.decode().split("\0") if path]
+
+
+def _matches(path: str, patterns: Iterable[str]) -> bool:
+    return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+
+
+def _deduplicate(values: Iterable[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def _normalize_changed_path(path: str) -> str:
+    normalized = path.strip("/")
+    if any(ord(character) < 32 or ord(character) == 127 for character in normalized):
+        message = f"changed path contains control characters: {path!r}"
+        raise ValueError(message)
+    return normalized
 
 
 if __name__ == "__main__":

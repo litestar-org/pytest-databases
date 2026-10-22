@@ -145,7 +145,6 @@ lint = [
 ]
 test = [
   "coverage[toml]>=6.2",
-  "google-cloud-spanner",
   "pytest",
   "pytest-cov",
   "pytest-cdist>=0.2",
@@ -204,6 +203,8 @@ skip = 'uv.lock, package-lock.json, docs/_build'
 [tool.pyright]
 exclude = ["docs"]
 include = ["src/pytest_databases", "tests", "scripts/ci"]
+reportMissingImports = "none"
+reportMissingModuleSource = "none"
 
 
 [tool.mypy]
@@ -234,8 +235,18 @@ module = ["docutils.nodes.*"]
 
 
 [[tool.mypy.overrides]]
+disable_error_code = ["import-untyped"]
 ignore_missing_imports = true
-module = ["pyodbc", "google.auth.*", "google.cloud.*", "google.protobuf.*", "googleapiclient", "googleapiclient.*"]
+module = [
+  "pyodbc",
+  "redis",
+  "redis.*",
+  "google.auth.*",
+  "google.cloud.*",
+  "google.protobuf.*",
+  "googleapiclient",
+  "googleapiclient.*",
+]
 
 [tool.ruff]
 exclude = [
