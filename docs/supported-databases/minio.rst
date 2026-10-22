@@ -15,7 +15,7 @@ Installation
 Docker Image
 ------------
 
-`Official MinIO Docker Image <https://quay.io/minio/minio>`_
+`Chainguard MinIO Docker Image <https://images.chainguard.dev/directory/image/minio/overview>`_
 
 Configuration
 -------------

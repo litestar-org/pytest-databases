@@ -122,9 +122,7 @@ def _provide_mysql_service(
             raise RuntimeError(msg)
 
         setup_sql = (
-            f"CREATE DATABASE IF NOT EXISTS {db_name}; "
-            f"GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; "
-            "FLUSH PRIVILEGES;"
+            f"CREATE DATABASE IF NOT EXISTS {db_name}; GRANT ALL PRIVILEGES ON *.* TO '{user}'@'%'; FLUSH PRIVILEGES;"
         )
         verify_cmd = [
             "mysql",

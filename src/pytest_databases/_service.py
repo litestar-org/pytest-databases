@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-# ruff: noqa: PLW0717
+# ruff: file-ignore[too-many-statements-in-try-clause]
 import contextlib
 import json
 import os
-import subprocess  # noqa: S404
+import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import time
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Any, Callable
 
 import filelock
 import pytest
+from docker import DockerClient
 from docker.errors import APIError, ImageNotFound
 from typing_extensions import Self
 
-from docker import DockerClient
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.types import ServiceContainer
 
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 def get_docker_host() -> str:
     result = subprocess.run(
-        ["docker", "context", "ls", "--format=json"],  # noqa: S607
+        ["docker", "context", "ls", "--format=json"],  # ruff: ignore[start-process-with-partial-path]
         text=True,
         capture_output=True,
         check=True,
@@ -38,7 +38,7 @@ def get_docker_host() -> str:
     # if this is empty, we are not in a dockerized environment; It's probably a podman environment on linux
     if not docker_ls or (len(docker_ls) == 1 and docker_ls[0] == "[]"):
         uid_result = subprocess.run(
-            ["id", "-u"],  # noqa: S607
+            ["id", "-u"],  # ruff: ignore[start-process-with-partial-path]
             text=True,
             capture_output=True,
             check=True,
@@ -313,7 +313,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[
         return (yield)
     finally:
         if not hasattr(session.config, "workerinput") and _get_ctrl_file(session).exists():
-            # if we're running on xdist, delete the ctrl file, telling the deamon proc
+            # if we're running on xdist, delete the ctrl file, telling the daemon proc
             # to stop all running containers.
             # when not running on xdist, containers are stopped by the service itself
             _stop_all_containers(get_docker_client())
