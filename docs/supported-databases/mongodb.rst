@@ -52,6 +52,6 @@ Service API
 -----------
 
 .. automodule:: pytest_databases.docker.mongodb
-   :members: MongoDBService, _provide_mongodb_service
+   :members:
    :undoc-members:
    :show-inheritance:
