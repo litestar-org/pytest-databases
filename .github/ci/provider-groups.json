@@ -52,6 +52,7 @@
     "tests/test_gizmosql.py::test_plugin_imports_without_adbc_driver_flightsql",
     "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
     "tests/test_mssql.py::test_plugin_imports_without_pymssql",
+    "tests/test_oracle.py::test_plugin_imports_without_oracledb",
     "tests/test_postgres.py::test_plugin_imports_without_psycopg",
     "tests/test_redis.py::test_plugin_imports_without_redis",
     "tests/test_spanner.py::test_plugin_imports_without_google_cloud_spanner",
@@ -104,7 +105,10 @@
     "elasticsearch": {
       "source_globs": ["src/pytest_databases/docker/elastic_search.py"],
       "test_paths": ["tests/test_elasticsearch.py"],
-      "images": ["elasticsearch:7.17.19", "elasticsearch:8.13.0"],
+      "images": [
+        "elasticsearch:7.17.19",
+        "elasticsearch:8.13.0"
+      ],
       "docs_globs": ["docs/supported-databases/elasticsearch.rst"]
     },
     "gizmosql": {
@@ -116,7 +120,14 @@
     "mariadb": {
       "source_globs": ["src/pytest_databases/docker/mariadb.py"],
       "test_paths": ["tests/test_mariadb.py"],
-      "images": ["mariadb:11.3", "mariadb:11.4", "mariadb:12.2"],
+      "images": [
+        "mariadb:11.3",
+        "mariadb:11.4",
+        "mariadb:11.8",
+        "mariadb:12.2",
+        "mariadb:12.3",
+        "mariadb:13.0"
+      ],
       "docs_globs": ["docs/supported-databases/mariadb.rst"]
     },
     "minio": {
@@ -137,13 +148,23 @@
     "mssql": {
       "source_globs": ["src/pytest_databases/docker/mssql.py"],
       "test_paths": ["tests/test_mssql.py"],
-      "images": ["mcr.microsoft.com/mssql/server:2022-latest"],
+      "images": [
+        "mcr.microsoft.com/mssql/server:2022-latest",
+        "mcr.microsoft.com/mssql/server:2025-latest"
+      ],
       "docs_globs": ["docs/supported-databases/sqlserver.rst"]
     },
     "mysql": {
       "source_globs": ["src/pytest_databases/docker/mysql.py"],
       "test_paths": ["tests/test_mysql.py"],
-      "images": ["mysql:5.6", "mysql:5.7", "mysql:8", "mysql:8.4", "mysql:9.6"],
+      "images": [
+        "mysql:5.6",
+        "mysql:5.7",
+        "mysql:8",
+        "mysql:8.4",
+        "mysql:9.6",
+        "mysql:9.7"
+      ],
       "docs_globs": ["docs/supported-databases/mysql.rst"]
     },
     "oracle": {
