@@ -14,7 +14,6 @@ Usage Example
 
 .. code-block:: python
 
-    import pytest
     import mariadb
     from pytest_databases.docker.mariadb import MariaDBService
 
@@ -45,7 +44,10 @@ The following version-specific fixtures are also available:
 
 * ``mariadb_113_service``: MariaDB 11.3
 * ``mariadb_114_service``: MariaDB 11.4 LTS
+* ``mariadb_118_service``: MariaDB 11.8 LTS
 * ``mariadb_122_service``: MariaDB 12.2 Rolling
+* ``mariadb_123_service``: MariaDB 12.3 Rolling
+* ``mariadb_130_service``: MariaDB 13.0 Rolling
 
 Service API
 -----------
