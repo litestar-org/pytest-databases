@@ -1,16 +1,22 @@
-"""Oracle database container service fixtures and per-worker schema isolation."""
+"""Oracle Database and Autonomous Database Free container fixtures and wallet helpers."""
 
 from __future__ import annotations
 
 import contextlib
 import importlib
+import io
+import os
+import re
 import shlex
+import tarfile
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from pytest_databases._service import ContainerService
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
 
@@ -23,11 +29,16 @@ if TYPE_CHECKING:
     from pytest_databases.types import XdistIsolationLevel
 
 __all__ = [
+    "DEFAULT_ORACLE_ADB_IMAGE",
+    "ORACLE_ADB_ADW_SERVICES",
+    "ORACLE_ADB_ATP_SERVICES",
     "ORACLE_PASSWORD",
     "ORACLE_SYSTEM_PASSWORD",
     "ORACLE_USER",
+    "OracleADBService",
     "OracleService",
     "ensure_oracle_user",
+    "extract_adb_wallet",
     "open_oracle_connection",
     "oracle_18c_connection",
     "oracle_18c_image",
@@ -37,6 +48,11 @@ __all__ = [
     "oracle_23ai_image",
     "oracle_23ai_service",
     "oracle_23ai_service_name",
+    "oracle_adb_hostname",
+    "oracle_adb_image",
+    "oracle_adb_service",
+    "oracle_adb_wallet_password",
+    "oracle_adb_workload_type",
     "oracle_connection",
     "oracle_password",
     "oracle_responsive",
@@ -44,13 +60,40 @@ __all__ = [
     "oracle_startup_connection",
     "oracle_system_password",
     "oracle_user",
+    "parse_tnsnames",
+    "provide_oracle_adb_service",
     "provide_oracle_service",
+    "rewrite_tnsnames",
     "xdist_oracle_isolation_level",
 ]
 
 ORACLE_USER = "app"
 ORACLE_PASSWORD = "super-secret"
 ORACLE_SYSTEM_PASSWORD = "super-secret"
+DEFAULT_ORACLE_ADB_IMAGE = "container-registry.oracle.com/database/adb-free:latest-23ai"
+DEFAULT_ORACLE_ADB_WALLET_PATH = "/u01/app/oracle/wallets/tls_wallet"
+ORACLE_ADB_ATP_SERVICES: tuple[str, ...] = (
+    "myatp_high",
+    "myatp_medium",
+    "myatp_low",
+    "myatp_tp",
+    "myatp_tpurgent",
+)
+ORACLE_ADB_ADW_SERVICES: tuple[str, ...] = (
+    "myadw_high",
+    "myadw_medium",
+    "myadw_low",
+)
+_TNS_ENTRY_REGEX = re.compile(
+    r"^\s*([A-Za-z0-9_.-]+)\s*=\s*(\(DESCRIPTION\s*=.*?(?=\n\s*[A-Za-z0-9_.-]+\s*=\s*\(DESCRIPTION|\Z))",
+    re.DOTALL | re.MULTILINE | re.IGNORECASE,
+)
+_TNS_PARAM_PATTERNS: dict[str, re.Pattern[str]] = {
+    "protocol": re.compile(r"\(\s*PROTOCOL\s*=\s*([A-Za-z0-9_.-]+)\s*\)", re.IGNORECASE),
+    "host": re.compile(r"\(\s*HOST\s*=\s*([^)\s]+)\s*\)", re.IGNORECASE),
+    "port": re.compile(r"\(\s*PORT\s*=\s*(\d+)\s*\)", re.IGNORECASE),
+    "service_name": re.compile(r"\(\s*SERVICE_NAME\s*=\s*([^)\s]+)\s*\)", re.IGNORECASE),
+}
 
 
 @dataclass
@@ -61,6 +104,26 @@ class OracleService(ServiceContainer):
     password: str
     system_password: str
     service_name: str
+
+
+@dataclass
+class OracleADBService(OracleService):
+    """Container handle for Oracle Autonomous Database Free with TLS/mTLS wallet support."""
+
+    tls_port: int
+    wallet_password: str
+    workload_type: str
+    service_names: tuple[str, ...]
+
+    def extract_wallet(self, target_dir: Path) -> Path:
+        """Extract the container wallet files into ``target_dir`` and rewrite ``tnsnames.ora``."""
+        return extract_adb_wallet(
+            self.container,
+            target_dir,
+            host=self.host,
+            port=self.port,
+            tls_port=self.tls_port,
+        )
 
 
 def oracle_responsive(host: str, port: int, service_name: str, user: str, password: str) -> bool:
@@ -93,6 +156,101 @@ def oracle_responsive(host: str, port: int, service_name: str, user: str, passwo
         return resp[0] == 1 if resp is not None else False
     except (OSError, RuntimeError, ValueError, db_error):
         return False
+
+
+def parse_tnsnames(tns_content: str) -> dict[str, dict[str, str]]:
+    """Parse an Oracle ``tnsnames.ora`` file into structured service descriptor dictionaries.
+
+    Args:
+        tns_content: Raw text content of ``tnsnames.ora``.
+
+    Returns:
+        Mapping of lowercase TNS alias names to dictionaries containing ``protocol``,
+        ``host``, ``port``, ``service_name``, and ``descriptor``.
+    """
+    parsed: dict[str, dict[str, str]] = {}
+    for match in _TNS_ENTRY_REGEX.finditer(tns_content):
+        alias = match.group(1).strip().lower()
+        descriptor = " ".join(match.group(2).split())
+        entry: dict[str, str] = {"descriptor": descriptor}
+        for key, pattern in _TNS_PARAM_PATTERNS.items():
+            param_match = pattern.search(descriptor)
+            if param_match:
+                entry[key] = param_match.group(1)
+        parsed[alias] = entry
+    return parsed
+
+
+def rewrite_tnsnames(
+    tns_content: str,
+    *,
+    host: str,
+    port: int,
+    tls_port: int | None = None,
+) -> str:
+    """Rewrite ``HOST`` and ``PORT`` entries in ``tnsnames.ora`` to match mapped container ports.
+
+    Args:
+        tns_content: Original ``tnsnames.ora`` content.
+        host: Mapped host address.
+        port: Mapped host port for internal port 1521.
+        tls_port: Optional mapped host port for internal mTLS port 1522.
+
+    Returns:
+        Updated ``tnsnames.ora`` text.
+    """
+    updated = re.sub(r"(\(\s*HOST\s*=\s*)[^)\s]+(\s*\))", rf"\g<1>{host}\2", tns_content, flags=re.IGNORECASE)
+    updated = re.sub(r"(\(\s*PORT\s*=\s*)1521(\s*\))", rf"\g<1>{port}\2", updated, flags=re.IGNORECASE)
+    if tls_port is not None:
+        updated = re.sub(r"(\(\s*PORT\s*=\s*)1522(\s*\))", rf"\g<1>{tls_port}\2", updated, flags=re.IGNORECASE)
+    return updated
+
+
+def extract_adb_wallet(
+    container: Container,
+    target_dir: Path,
+    *,
+    host: str,
+    port: int,
+    tls_port: int | None = None,
+    container_wallet_path: str = DEFAULT_ORACLE_ADB_WALLET_PATH,
+) -> Path:
+    """Extract the TLS/mTLS wallet directory from an Oracle ADB-Free container and rewrite ``tnsnames.ora``.
+
+    Args:
+        container: Running Oracle ADB-Free container.
+        target_dir: Destination host directory where wallet files will be written.
+        host: Mapped container host address.
+        port: Mapped port for internal port 1521.
+        tls_port: Optional mapped port for internal port 1522.
+        container_wallet_path: Path to the wallet directory inside the container.
+
+    Returns:
+        Path to ``target_dir`` containing extracted wallet files (``cwallet.sso``, ``ewallet.pem``,
+        ``tnsnames.ora``, ``sqlnet.ora``).
+    """
+    target_dir.mkdir(parents=True, exist_ok=True)
+    bits, _stat = container.get_archive(container_wallet_path)
+    archive_bytes = b"".join(bits)
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:*") as tar:
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+            filename = Path(member.name).name
+            if not filename or filename.startswith("."):
+                continue
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                continue
+            data = extracted.read()
+            dest_file = target_dir / filename
+            if filename.lower() == "tnsnames.ora":
+                text = data.decode("utf-8", errors="replace")
+                rewritten = rewrite_tnsnames(text, host=host, port=port, tls_port=tls_port)
+                dest_file.write_text(rewritten, encoding="utf-8")
+            else:
+                dest_file.write_bytes(data)
+    return target_dir
 
 
 def ensure_oracle_user(
@@ -226,6 +384,119 @@ def provide_oracle_service(
 
 
 @contextlib.contextmanager
+def provide_oracle_adb_service(
+    docker_service: DockerService,
+    image: str,
+    name: str,
+    workload_type: str,
+    hostname: str,
+    user: str,
+    password: str,
+    system_password: str,
+    wallet_password: str,
+    isolation_level: XdistIsolationLevel = "database",
+) -> Generator[OracleADBService, None, None]:
+    """Start and manage an Oracle Autonomous Database Free (23ai) container.
+
+    Args:
+        docker_service: The container service manager.
+        image: Oracle ADB-Free container image.
+        name: Logical container service name.
+        workload_type: Autonomous workload profile (``ATP`` or ``ADW``).
+        hostname: Container hostname required by ADB-Free initialization scripts.
+        user: Default application username.
+        password: Application user password.
+        system_password: ADMIN / SYS password.
+        wallet_password: Password protecting the container's TLS/mTLS wallet.
+        isolation_level: xdist isolation strategy (database or server).
+
+    Yields:
+        An OracleADBService handle configured for the active worker.
+    """
+    normalized_workload = workload_type.strip().upper()
+    service_names = ORACLE_ADB_ADW_SERVICES if normalized_workload == "ADW" else ORACLE_ADB_ATP_SERVICES
+    default_service_name = f"{service_names[0]}.adb.oraclecloud.com"
+
+    worker_num = get_xdist_worker_num()
+    effective_user = user
+    if worker_num is not None:
+        if isolation_level == "server":
+            name = f"{name}_{worker_num}"
+        else:
+            effective_user = f"{user}_{worker_num}"
+
+    user_provisioned = False
+
+    def check(_service: ServiceContainer) -> bool:
+        nonlocal user_provisioned
+        if not user_provisioned:
+            sys_exit, sys_out = _exec_sqlplus(
+                _service.container,
+                user="sys",
+                password=system_password,
+                service_name=default_service_name,
+                sql="SELECT 1 FROM dual",
+                as_sysdba=True,
+            )
+            if sys_exit != 0 or sys_out.strip() != b"1":
+                return False
+            if (
+                ensure_oracle_user(
+                    _service.container,
+                    user=effective_user,
+                    password=password,
+                    service_name=default_service_name,
+                    system_password=system_password,
+                )
+                is False
+            ):
+                return False
+            user_provisioned = True
+        exit_code, output = _exec_sqlplus(
+            _service.container,
+            effective_user,
+            password,
+            default_service_name,
+            "SELECT 1 FROM dual",
+        )
+        return exit_code == 0 and output.strip() == b"1"
+
+    devices = ["/dev/fuse"] if Path("/dev/fuse").exists() else None
+    with docker_service.run(
+        image=image,
+        name=name,
+        check=check,
+        container_port=1521,
+        extra_ports={1522: None},
+        timeout=300,
+        pause=2.0,
+        transient=worker_num is not None and isolation_level == "server",
+        hostname=hostname,
+        cap_add=["SYS_ADMIN"],
+        devices=devices,
+        env={
+            "WORKLOAD_TYPE": normalized_workload,
+            "WALLET_PASSWORD": wallet_password,
+            "ADMIN_PASSWORD": system_password,
+        },
+    ) as service:
+        tls_port = ContainerService.resolve_port(service.container, 1522)
+        yield OracleADBService(
+            host=service.host,
+            port=service.port,
+            tls_port=tls_port,
+            container=service.container,
+            system_password=system_password,
+            user=effective_user,
+            password=password,
+            service_name=default_service_name,
+            wallet_password=wallet_password,
+            workload_type=normalized_workload,
+            service_names=service_names,
+        )
+
+
+@contextlib.contextmanager
 def open_oracle_connection(
     service: OracleService,
     fixture_name: str = "open_oracle_connection",
@@ -300,6 +571,30 @@ def oracle_18c_service_name() -> str:
         The pluggable database name.
     """
     return "xepdb1"
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_adb_image() -> str:
+    """Container image for Oracle Autonomous Database Free (23ai)."""
+    return os.getenv("ORACLE_ADB_IMAGE", DEFAULT_ORACLE_ADB_IMAGE)
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_adb_workload_type() -> str:
+    """Workload type for Oracle Autonomous Database Free (``ATP`` or ``ADW``)."""
+    return os.getenv("ORACLE_ADB_WORKLOAD_TYPE", "ATP")
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_adb_hostname() -> str:
+    """Container hostname for Oracle Autonomous Database Free."""
+    return os.getenv("ORACLE_ADB_HOSTNAME", "adb-free.local")
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_adb_wallet_password() -> str:
+    """Wallet password for Oracle Autonomous Database Free."""
+    return os.getenv("ORACLE_ADB_WALLET_PASSWORD", "Welcome12345!")
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -401,6 +696,38 @@ def oracle_18c_service(
         password=oracle_password,
         system_password=oracle_system_password,
         docker_service=docker_service,
+        isolation_level=xdist_oracle_isolation_level,
+    ) as service:
+        yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_adb_service(
+    docker_service: DockerService,
+    xdist_oracle_isolation_level: XdistIsolationLevel,
+    oracle_adb_image: str,
+    oracle_adb_workload_type: str,
+    oracle_adb_hostname: str,
+    oracle_user: str,
+    oracle_password: str,
+    oracle_system_password: str,
+    oracle_adb_wallet_password: str,
+) -> Generator[OracleADBService, None, None]:
+    """Session fixture providing an Oracle Autonomous Database Free (23ai) container service.
+
+    Yields:
+        An OracleADBService handle.
+    """
+    with provide_oracle_adb_service(
+        docker_service=docker_service,
+        image=oracle_adb_image,
+        name="oracle_adb",
+        workload_type=oracle_adb_workload_type,
+        hostname=oracle_adb_hostname,
+        user=oracle_user,
+        password=oracle_password,
+        system_password=oracle_system_password,
+        wallet_password=oracle_adb_wallet_password,
         isolation_level=xdist_oracle_isolation_level,
     ) as service:
         yield service
