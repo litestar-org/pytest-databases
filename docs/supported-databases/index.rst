@@ -27,3 +27,4 @@ This section provides detailed information on the supported databases, including
    redpanda
    localstack
    pubsub
+   rabbitmq

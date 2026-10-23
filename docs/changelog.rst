@@ -81,6 +81,10 @@ Added
   (default ``gcr.io/google.com/cloudsdktool/google-cloud-cli:577.0.0-emulators``, env ``PUBSUB_IMAGE``),
   ``pubsub_project``, ``xdist_pubsub_isolation_level`` (default ``database``: one emulator, a project per worker) and
   ``provide_pubsub_service``.
+* ``rabbitmq_service`` (``RabbitMQService`` with ``amqp_url``, ``management_port`` and ``management_url``),
+  ``rabbitmq_image`` (default ``rabbitmq:4.3-management``), ``rabbitmq_username``, ``rabbitmq_password``,
+  ``rabbitmq_vhost``, ``xdist_rabbitmq_isolation_level`` (default ``database``: one broker, a virtual host per worker)
+  and ``provide_rabbitmq_service``.
 
 Changed
 ~~~~~~~
