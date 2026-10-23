@@ -188,7 +188,8 @@
       "test_paths": ["tests/test_oracle.py"],
       "images": [
         "gvenzl/oracle-free:23-slim-faststart",
-        "gvenzl/oracle-xe:18-slim-faststart"
+        "gvenzl/oracle-xe:18-slim-faststart",
+        "container-registry.oracle.com/database/adb-free:latest-23ai"
       ],
       "docs_globs": ["docs/supported-databases/oracle.rst"]
     },

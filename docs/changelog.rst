@@ -92,6 +92,16 @@ Added
   ``validate_db2_database_name`` and ``provide_db2_service``. The container runs privileged. ``db2_4k_device_support``
   (default ``True``, env ``DB2_4K_DEVICE_SUPPORT``) sets ``DB2_4K_DEVICE_SUPPORT=ON`` and ``DB2_DIRECT_IO=NO`` before
   the first ``db2start`` so the database is created on storage with 4096-byte logical sectors.
+* ``oracle_adb_service`` (``OracleADBService`` with TLS, mTLS, ORDS and MongoDB API ports, ``wallet_dir``,
+  ``ords_url``, ``apex_url``, ``sql_developer_url``, ``mongo_uri``, ``extract_wallet()`` and ``enable_ords_schema()``)
+  for Oracle Autonomous Database Free (default ``container-registry.oracle.com/database/adb-free:latest-23ai``, env
+  ``ORACLE_ADB_IMAGE``), the ``oracle_adb_image``, ``oracle_adb_workload_type``, ``oracle_adb_hostname``,
+  ``oracle_adb_tz``, ``oracle_adb_password``, ``oracle_adb_admin_password``, ``oracle_adb_wallet_password``,
+  ``oracle_adb_wallet_dir``, ``oracle_adb_volumes``, ``oracle_adb_devices`` and ``oracle_adb_filesystemio_options``
+  fixtures, and ``provide_oracle_adb_service``, ``ensure_oracle_adb_user``, ``enable_oracle_ords_schema``,
+  ``extract_adb_wallet``, ``parse_tnsnames``, ``rewrite_tnsnames`` and ``rewrite_sqlnet_ora``.
+  ``oracle_adb_filesystemio_options`` (default ``NONE``, env ``ORACLE_ADB_FILESYSTEMIO_OPTIONS``) rewrites the server
+  parameter file before the database starts so the instance opens on storage with 4096-byte logical sectors.
 
 Changed
 ~~~~~~~
