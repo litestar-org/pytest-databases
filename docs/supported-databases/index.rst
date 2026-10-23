@@ -28,3 +28,4 @@ This section provides detailed information on the supported databases, including
    localstack
    pubsub
    rabbitmq
+   db2

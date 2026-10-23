@@ -85,6 +85,13 @@ Added
   ``rabbitmq_image`` (default ``rabbitmq:4.3-management``), ``rabbitmq_username``, ``rabbitmq_password``,
   ``rabbitmq_vhost``, ``xdist_rabbitmq_isolation_level`` (default ``database``: one broker, a virtual host per worker)
   and ``provide_rabbitmq_service``.
+* ``db2_service`` (``Db2Service`` with ``dsn``, ``connection_config``, ``exec_sql()`` and
+  ``create_worker_database()``), ``db2_image`` (default ``icr.io/db2_community/db2:12.1.5.0``, env ``DB2_IMAGE``),
+  ``db2_dbname``, ``db2_username``, ``db2_password``, ``db2_startup_timeout``, ``xdist_db2_isolation_level`` (default
+  ``database``: one container, a ``ptdb_<worker>`` database per worker), ``exec_db2_sql``, ``create_worker_database``,
+  ``validate_db2_database_name`` and ``provide_db2_service``. The container runs privileged. ``db2_4k_device_support``
+  (default ``True``, env ``DB2_4K_DEVICE_SUPPORT``) sets ``DB2_4K_DEVICE_SUPPORT=ON`` and ``DB2_DIRECT_IO=NO`` before
+  the first ``db2start`` so the database is created on storage with 4096-byte logical sectors.
 
 Changed
 ~~~~~~~
