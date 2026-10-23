@@ -1,10 +1,11 @@
-"""Helper utilities for hashing, pytest-xdist worker discovery, and container output."""
+"""Helper utilities for hashing, pytest-xdist worker discovery, container output, and port probes."""
 
 from __future__ import annotations
 
 import hashlib
 import os
 import platform
+import socket
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -17,6 +18,7 @@ __all__ = (
     "get_xdist_worker_id",
     "get_xdist_worker_num",
     "simple_string_hash",
+    "tcp_port_open",
 )
 
 
@@ -60,3 +62,24 @@ def get_cpu_architecture() -> Literal["x86_64", "arm", "unknown"]:
     if machine.startswith(("arm", "aarch")):
         return "arm"
     return "unknown"
+
+
+def tcp_port_open(host: str, port: int, timeout: float = 2.0) -> bool:
+    """Return whether a TCP connection to ``host:port`` can be opened from the test process.
+
+    Readiness checks that run inside the container do not prove that the published host port is forwarded yet
+    (rootless Podman, gvproxy, or Docker Desktop), so callers combine them with this probe.
+
+    Args:
+        host: Host name or IP address to connect to.
+        port: TCP port to connect to.
+        timeout: Connection timeout in seconds.
+
+    Returns:
+        True when the connection succeeds, otherwise False.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False

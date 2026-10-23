@@ -41,6 +41,12 @@ Added
   containers running after pytest exits, plus ``should_keep_containers(config)``.
 * ``gizmosql_duckdb_service`` and ``gizmosql_sqlite_service`` fixtures (``gizmosql_service`` stays the DuckDB
   service), ``GizmoSQLService.backend`` and ``connection_kwargs``, and ``exec_gizmosql``.
+* ``alloydb_omni_18_service``, ``alloydb_omni_18_connection`` and ``alloydb_omni_18_port`` (env
+  ``ALLOYDB_OMNI_18_PORT``).
+* ``exec_psql``, ``create_worker_database``, ``make_connection_string``, ``clone_template_database`` and
+  ``drop_database_force`` in ``pytest_databases.docker.postgres``, plus ``PostgresService.clone_template_database``
+  and ``PostgresService.drop_database_force``.
+* ``pytest_databases.helpers.tcp_port_open(host, port, timeout)``.
 
 Changed
 ~~~~~~~
@@ -72,6 +78,12 @@ Changed
   and matching the exact value; ``adbc-driver-flightsql`` is no longer imported by the plugin.
 * GizmoSQL container names include the backend (``gizmosql-duckdb``, ``gizmosql-sqlite``); under ``pytest-xdist``
   every worker still gets its own container per backend for both isolation levels.
+* Postgres-family services (``postgres_*``, ``pgvector_*``, ``paradedb_*``, ``alloydb_omni_*``) check readiness
+  with ``psql`` inside the container followed by a TCP probe of the published port, and create the per-worker
+  database with ``psql``; ``psycopg`` is no longer imported by the plugin.
+* Default ``alloydb_omni_image`` changed from ``google/alloydbomni:17`` to ``gcr.io/alloydb-omni/alloydbomni:18``.
+* ``alloydb_omni_15_service``, ``alloydb_omni_16_service`` and ``alloydb_omni_17_service`` pull from
+  ``gcr.io/alloydb-omni/alloydbomni:<version>`` instead of ``google/alloydbomni:<version>``.
 
 Deprecated
 ~~~~~~~~~~
@@ -80,6 +92,9 @@ Deprecated
   Removal in 1.0.0.
 * ``gizmosql_connection``; use ``gizmosql_service`` with its ``uri`` and ``connection_kwargs`` and open your own
   ADBC Flight SQL connection. Removal in 1.0.0.
+* Postgres-family ``*_connection`` fixtures (``postgres_connection``, ``postgres_<version>_connection``,
+  ``pgvector_*_connection``, ``paradedb_*_connection``, ``alloydb_omni_*_connection``); use the matching
+  ``*_service`` fixture and open your own ``psycopg`` connection. Removal in 1.0.0.
 
 Breaking
 ~~~~~~~~
