@@ -59,6 +59,19 @@ Changed
   ``database`` isolation, workers share one emulator and each gets ``emulator-test-database_<worker>``.
 * ``yugabyte_service`` readiness verifies the database inside the service container and probes the mapped port,
   instead of starting a second ``ysqlsh`` container with ``network_mode="host"``.
+* ``redis_service``, ``dragonfly_service``, ``keydb_service`` and ``valkey_service`` check readiness with a RESP
+  ``PING`` over a stdlib socket; the ``redis`` and ``valkey`` packages are no longer imported by the plugin.
+* Under ``pytest-xdist`` with the default ``database`` isolation, Redis-family services give each worker logical
+  database ``<worker> % 16`` and start an extra shared container (``<service>_shared_<n>``) for every 16 workers,
+  instead of using database ``<worker>`` in one container.
+* ``valkey_service`` under ``pytest-xdist`` with the default ``database`` isolation now shares one container and
+  gives each worker its own logical database (``ValkeyService.db``), instead of starting a container per worker.
+
+Deprecated
+~~~~~~~~~~
+
+* ``pytest_databases.docker.valkey.valkey_responsive``; use ``pytest_databases.docker.redis.redis_responsive``.
+  Removal in 1.0.0.
 
 Breaking
 ~~~~~~~~
