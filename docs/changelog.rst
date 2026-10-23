@@ -49,6 +49,8 @@ Added
 * ``pytest_databases.helpers.tcp_port_open(host, port, timeout)``.
 * ``ensure_azurite_container``, ``azurite_container_exists`` and ``build_shared_key_authorization`` in
   ``pytest_databases.docker.azure_blob`` for stdlib SharedKey-signed Azurite requests.
+* ``query_bigquery_emulator``, ``provide_bigquery_service`` and ``provide_bigquery_client`` in
+  ``pytest_databases.docker.bigquery``.
 
 Changed
 ~~~~~~~
@@ -88,6 +90,11 @@ Changed
   ``gcr.io/alloydb-omni/alloydbomni:<version>`` instead of ``google/alloydbomni:<version>``.
 * ``azure_blob_service`` checks readiness and creates its default container with stdlib HTTP requests signed with
   SharedKey; ``azure-storage-blob`` is no longer imported by the plugin.
+* ``bigquery_service`` checks readiness with a stdlib HTTP query against the emulator REST API; the Google Cloud
+  libraries are no longer imported by the plugin. ``bigquery_client`` now closes its client at teardown.
+* Under ``pytest-xdist`` with the default ``database`` isolation, ``bigquery_service`` starts one shared emulator and
+  gives each worker its own dataset (``BigQueryService.dataset`` = ``test-dataset_<worker>``), instead of one
+  emulator per worker with ``test-dataset``. Read the dataset from ``BigQueryService.dataset``.
 
 Deprecated
 ~~~~~~~~~~
@@ -101,6 +108,9 @@ Deprecated
   ``*_service`` fixture and open your own ``psycopg`` connection. Removal in 1.0.0.
 * ``azure_blob_container_client`` and ``azure_blob_async_container_client``; use ``azure_blob_service`` and build
   your own ``ContainerClient`` from ``connection_string``. Removal in 1.0.0.
+* ``bigquery_client``, ``BigQueryService.credentials``, ``BigQueryService.client_options`` and the
+  ``credentials`` argument of ``BigQueryService`` (now ignored); build ``AnonymousCredentials()`` and
+  ``ClientOptions(api_endpoint=service.endpoint)`` yourself. Removal in 1.0.0.
 
 Breaking
 ~~~~~~~~
