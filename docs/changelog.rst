@@ -39,6 +39,8 @@ Added
   it before the other readiness checks.
 * ``--keep-containers`` option and ``PYTEST_DATABASES_KEEP_CONTAINERS`` environment variable to leave session
   containers running after pytest exits, plus ``should_keep_containers(config)``.
+* ``gizmosql_duckdb_service`` and ``gizmosql_sqlite_service`` fixtures (``gizmosql_service`` stays the DuckDB
+  service), ``GizmoSQLService.backend`` and ``connection_kwargs``, and ``exec_gizmosql``.
 
 Changed
 ~~~~~~~
@@ -66,12 +68,18 @@ Changed
   instead of using database ``<worker>`` in one container.
 * ``valkey_service`` under ``pytest-xdist`` with the default ``database`` isolation now shares one container and
   gives each worker its own logical database (``ValkeyService.db``), instead of starting a container per worker.
+* ``gizmosql_service`` checks readiness by running ``SELECT 4242`` through ``gizmosql_client`` inside the container
+  and matching the exact value; ``adbc-driver-flightsql`` is no longer imported by the plugin.
+* GizmoSQL container names include the backend (``gizmosql-duckdb``, ``gizmosql-sqlite``); under ``pytest-xdist``
+  every worker still gets its own container per backend for both isolation levels.
 
 Deprecated
 ~~~~~~~~~~
 
 * ``pytest_databases.docker.valkey.valkey_responsive``; use ``pytest_databases.docker.redis.redis_responsive``.
   Removal in 1.0.0.
+* ``gizmosql_connection``; use ``gizmosql_service`` with its ``uri`` and ``connection_kwargs`` and open your own
+  ADBC Flight SQL connection. Removal in 1.0.0.
 
 Breaking
 ~~~~~~~~
