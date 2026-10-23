@@ -50,6 +50,7 @@
     "tests/test_gizmosql.py::test_plugin_imports_without_adbc_driver_flightsql",
     "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
     "tests/test_mssql.py::test_plugin_imports_without_pymssql",
+    "tests/test_postgres.py::test_plugin_imports_without_psycopg",
     "tests/test_redis.py::test_plugin_imports_without_redis",
     "tests/test_spanner.py::test_plugin_imports_without_google_cloud_spanner",
     "tests/test_valkey.py::test_plugin_imports_without_valkey"
@@ -156,9 +157,10 @@
       "source_globs": ["src/pytest_databases/docker/postgres.py"],
       "test_paths": ["tests/test_postgres.py"],
       "images": [
-        "google/alloydbomni:15",
-        "google/alloydbomni:16",
-        "google/alloydbomni:17",
+        "gcr.io/alloydb-omni/alloydbomni:15",
+        "gcr.io/alloydb-omni/alloydbomni:16",
+        "gcr.io/alloydb-omni/alloydbomni:17",
+        "gcr.io/alloydb-omni/alloydbomni:18",
         "paradedb/paradedb:latest-pg15",
         "paradedb/paradedb:latest-pg16",
         "paradedb/paradedb:latest-pg17",
