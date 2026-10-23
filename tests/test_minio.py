@@ -20,22 +20,22 @@ from pytest_databases.docker.minio import (
     xdist_minio_isolation_level,
 )
 from pytest_databases.types import ServiceContainer
+from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
-    from typing import Any
+    from collections.abc import Generator
     from urllib.request import Request
 
 
 def test_minio_chainguard_image_default() -> None:
     """Verify the Chainguard MinIO image default."""
     assert MINIO_IMAGE == "cgr.dev/chainguard/minio:latest"
-    assert _unwrap_fixture(minio_image)() == MINIO_IMAGE
+    assert unwrap_fixture(minio_image)() == MINIO_IMAGE
 
 
 def test_minio_default_bucket_name_isolates_xdist_workers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify minio_default_bucket_name suffixes the worker index under database and server isolation."""
-    bucket_fn = _unwrap_fixture(minio_default_bucket_name)
+    bucket_fn = unwrap_fixture(minio_default_bucket_name)
     monkeypatch.delenv("MINIO_DEFAULT_BUCKET_NAME", raising=False)
     monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
     assert bucket_fn("database") == "pytest-databases"
@@ -83,11 +83,11 @@ def test_minio_service_provisions_default_bucket_via_sigv4(monkeypatch: pytest.M
 
     with provide_minio_service(
         docker_service,
-        access_key=_unwrap_fixture(minio_access_key)(),
-        secret_key=_unwrap_fixture(minio_secret_key)(),
-        secure=_unwrap_fixture(minio_secure)(),
+        access_key=unwrap_fixture(minio_access_key)(),
+        secret_key=unwrap_fixture(minio_secret_key)(),
+        secure=unwrap_fixture(minio_secure)(),
         default_bucket_name="pytest-databases",
-        isolation_level=_unwrap_fixture(xdist_minio_isolation_level)(),
+        isolation_level=unwrap_fixture(xdist_minio_isolation_level)(),
     ) as service:
         assert service.endpoint == "127.0.0.1:39000"
         assert service.endpoint_url == "http://127.0.0.1:39000"
@@ -229,8 +229,3 @@ def test_isolation_two(minio_service: MinioService, minio_default_bucket_name: s
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
-
-
-def _unwrap_fixture(fixture_def: Any) -> Callable[..., Any]:
-    """Return the underlying callable wrapped by a pytest fixture definition."""
-    return fixture_def.__wrapped__

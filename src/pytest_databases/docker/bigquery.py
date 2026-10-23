@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.helpers import get_xdist_worker_num, resolve_legacy_platform
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
@@ -27,6 +27,7 @@ __all__ = (
     "BigQueryService",
     "bigquery_client",
     "bigquery_image",
+    "bigquery_platform",
     "bigquery_service",
     "platform",
     "provide_bigquery_client",
@@ -134,7 +135,7 @@ def provide_bigquery_service(
     docker_service: DockerService,
     isolation_level: XdistIsolationLevel,
     image: str,
-    platform_arch: str,
+    platform_arch: str | None,
 ) -> Generator[BigQueryService, None, None]:
     """Start and yield a BigQuery emulator service container.
 
@@ -239,8 +240,24 @@ def bigquery_image() -> str:
 
 
 @pytest.fixture(scope="session")
+def bigquery_platform(request: pytest.FixtureRequest) -> str | None:
+    """Return the container platform for the BigQuery emulator, which publishes x86_64 images only."""
+    return resolve_legacy_platform(request, "bigquery_platform", "linux/x86_64")
+
+
+@pytest.fixture(scope="session")
 def platform() -> str:
-    """Return the container platform architecture for the BigQuery emulator."""
+    """Return the legacy ``linux/x86_64`` platform string.
+
+    .. deprecated:: 0.20.0
+        Use ``bigquery_platform`` instead. ``platform`` will be removed in v1.0.0.
+    """
+    warnings.warn(
+        "The 'platform' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'mysql_platform', 'dolt_platform', or 'bigquery_platform' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return "linux/x86_64"
 
 
@@ -249,7 +266,7 @@ def bigquery_service(
     docker_service: DockerService,
     xdist_bigquery_isolation_level: XdistIsolationLevel,
     bigquery_image: str,
-    platform: str,
+    bigquery_platform: str | None,
 ) -> Generator[BigQueryService, None, None]:
     """Provide a session-scoped BigQuery emulator service.
 
@@ -260,7 +277,7 @@ def bigquery_service(
         docker_service,
         xdist_bigquery_isolation_level,
         bigquery_image,
-        platform,
+        bigquery_platform,
     ) as service:
         yield service
 

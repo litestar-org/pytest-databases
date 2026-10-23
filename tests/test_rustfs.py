@@ -23,27 +23,27 @@ from pytest_databases.docker.rustfs import (
     rustfs_secret_key,
 )
 from pytest_databases.types import ServiceContainer
+from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
-    from typing import Any
+    from collections.abc import Generator
     from urllib.request import Request
 
 
 def test_default_credentials_and_image_are_configured() -> None:
     """Verify RustFS default credentials and image fixture values."""
-    access_key = _unwrap_fixture(rustfs_access_key)()
-    secret_key = _unwrap_fixture(rustfs_secret_key)()
+    access_key = unwrap_fixture(rustfs_access_key)()
+    secret_key = unwrap_fixture(rustfs_secret_key)()
     assert access_key != "rustfsadmin"
     assert secret_key != "rustfsadmin"
     assert "pytest-databases" in access_key
     assert "pytest-databases" in secret_key
-    assert _unwrap_fixture(rustfs_image)() == RUSTFS_IMAGE
+    assert unwrap_fixture(rustfs_image)() == RUSTFS_IMAGE
 
 
 def test_rustfs_default_bucket_name_isolates_xdist_workers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify rustfs_default_bucket_name suffixes the worker index under database and server isolation."""
-    bucket_fn = _unwrap_fixture(rustfs_default_bucket_name)
+    bucket_fn = unwrap_fixture(rustfs_default_bucket_name)
     monkeypatch.delenv("RUSTFS_DEFAULT_BUCKET_NAME", raising=False)
     monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
     assert bucket_fn("database") == "pytest-databases"
@@ -387,8 +387,3 @@ def test_isolation_two(rustfs_service: RustfsService, rustfs_default_bucket_name
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
-
-
-def _unwrap_fixture(fixture_def: Any) -> Callable[..., Any]:
-    """Return the underlying callable wrapped by a pytest fixture definition."""
-    return fixture_def.__wrapped__

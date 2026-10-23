@@ -2534,6 +2534,7 @@ dev = [
     { name = "bump-my-version" },
     { name = "codespell" },
     { name = "coverage", extra = ["toml"] },
+    { name = "google-cloud-spanner" },
     { name = "mypy" },
     { name = "myst-parser" },
     { name = "pre-commit" },
@@ -2612,6 +2613,7 @@ lint = [
 ]
 test = [
     { name = "coverage", extra = ["toml"] },
+    { name = "google-cloud-spanner" },
     { name = "pytest" },
     { name = "pytest-cdist" },
     { name = "pytest-click" },
@@ -2647,6 +2649,7 @@ dev = [
     { name = "bump-my-version" },
     { name = "codespell" },
     { name = "coverage", extras = ["toml"], specifier = ">=6.2" },
+    { name = "google-cloud-spanner" },
     { name = "mypy" },
     { name = "myst-parser" },
     { name = "pre-commit" },
@@ -2717,6 +2720,7 @@ lint = [
 ]
 test = [
     { name = "coverage", extras = ["toml"], specifier = ">=6.2" },
+    { name = "google-cloud-spanner" },
     { name = "pytest" },
     { name = "pytest-cdist", specifier = ">=0.2" },
     { name = "pytest-click" },

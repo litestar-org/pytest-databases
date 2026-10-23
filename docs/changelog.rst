@@ -51,6 +51,20 @@ Added
   ``pytest_databases.docker.azure_blob`` for stdlib SharedKey-signed Azurite requests.
 * ``query_bigquery_emulator``, ``provide_bigquery_service`` and ``provide_bigquery_client`` in
   ``pytest_databases.docker.bigquery``.
+* ``elasticsearch_9_service`` with ``elasticsearch_7_image``, ``elasticsearch_8_image`` and ``elasticsearch_9_image``
+  (default ``elasticsearch:9.5.5``) fixtures, and ``provide_elasticsearch_service``.
+* ``mariadb_118_service`` (``mariadb:11.8``), ``mariadb_123_service`` (``mariadb:12.3``), ``mariadb_130_service``
+  (``mariadb:13.0``) and ``provide_mariadb_service``.
+* ``mysql_97_service`` (``mysql:9.7``) and ``provide_mysql_service``.
+* ``mssql_2022_service`` and ``mssql_2025_service`` with ``mssql_2022_image`` and ``mssql_2025_image`` (default
+  ``mcr.microsoft.com/mssql/server:2025-latest``), ``exec_sqlcmd`` (tries the ``mssql-tools18``, ``mssql-tools`` and
+  ``PATH`` ``sqlcmd`` binaries) and ``provide_mssql_service``.
+* ``xdist_oracle_isolation_level`` (default ``database``), ``oracle_user``, ``oracle_password`` and
+  ``oracle_system_password`` fixtures, ``ensure_oracle_user`` and ``provide_oracle_service``.
+* ``provide_cockroachdb_service``, ``provide_mongodb_service`` and ``provide_dolt_service``; ``dolt_image`` fixture
+  (default ``dolthub/dolt-sql-server:latest``).
+* ``mysql_platform``, ``dolt_platform`` and ``bigquery_platform`` fixtures. ``mysql_56_service`` /
+  ``mysql_57_service``, ``dolt_service`` and ``bigquery_service`` read their container platform from these.
 
 Changed
 ~~~~~~~
@@ -95,6 +109,20 @@ Changed
 * Under ``pytest-xdist`` with the default ``database`` isolation, ``bigquery_service`` starts one shared emulator and
   gives each worker its own dataset (``BigQueryService.dataset`` = ``test-dataset_<worker>``), instead of one
   emulator per worker with ``test-dataset``. Read the dataset from ``BigQueryService.dataset``.
+* Under ``pytest-xdist`` with the default ``database`` isolation, Oracle services start one shared container per
+  version and give each worker its own user, so ``OracleService.user`` is ``app_<worker>`` instead of ``app``. Set
+  ``xdist_oracle_isolation_level`` to ``server`` for the previous container per worker.
+* ``dolt_service`` and ``mysql_8_service`` / ``mysql_84_service`` / ``mysql_96_service`` run the native image
+  platform instead of ``linux/x86_64``. ``mysql_56_service`` and ``mysql_57_service`` keep ``linux/x86_64``.
+* MySQL and MariaDB services start with ``--performance-schema=ON``.
+* ``elasticsearch_service_memory_limit`` default changed from ``500m`` to ``1g`` and is now applied to the
+  Elasticsearch containers (0.19.0 always used ``1g``).
+* ``mssql_service`` reuses the ``mssql_2022_service`` container when ``mssql_image`` equals ``mssql_2022_image``,
+  and SQL Server services wait until the per-worker database is ``ONLINE``.
+* ``elasticsearch_service`` and ``oracle_startup_connection`` resolve again; in 0.19.0 they requested the undefined
+  fixtures ``elasticsearch8_service`` and ``oracle_23ai_startup_connection``.
+* The deprecated ``@contextmanager`` connection helpers warn with ``stacklevel=3``, which attributes the warning to
+  the fixture rather than ``contextlib``.
 
 Deprecated
 ~~~~~~~~~~
@@ -111,6 +139,20 @@ Deprecated
 * ``bigquery_client``, ``BigQueryService.credentials``, ``BigQueryService.client_options`` and the
   ``credentials`` argument of ``BigQueryService`` (now ignored); build ``AnonymousCredentials()`` and
   ``ClientOptions(api_endpoint=service.endpoint)`` yourself. Removal in 1.0.0.
+* ``cockroachdb_connection``; use ``cockroachdb_service`` and open your own ``psycopg`` connection. Removal in 1.0.0.
+* ``mongodb_connection`` and ``mongodb_database``; use ``mongodb_service`` and open your own ``pymongo`` client.
+  Each now emits a single warning. Removal in 1.0.0.
+* ``oracle_18c_connection``, ``oracle_23ai_connection``, ``oracle_startup_connection`` and ``oracle_responsive``;
+  use ``oracle_service`` (or the versioned services) and open your own ``oracledb`` connection. Removal in 1.0.0.
+* ``spanner_connection``, ``SpannerService.credentials``, ``SpannerService.client_options`` and the ``credentials``
+  argument of ``SpannerService`` (now ignored); build the client, ``AnonymousCredentials()`` and
+  ``ClientOptions(api_endpoint=service.endpoint)`` yourself. Removal in 1.0.0.
+* ``elasticsearch7_responsive`` and ``elasticsearch8_responsive``; the Elasticsearch services check readiness
+  without a client. Removal in 1.0.0.
+* The bare ``platform`` fixture and overriding it. A ``platform`` override defined outside ``pytest_databases`` is
+  still honored by the MySQL, Dolt and BigQuery services with one warning; override ``mysql_platform``,
+  ``dolt_platform`` or ``bigquery_platform`` instead. Removal in 1.0.0.
+* ``DockerServiceRegistry``; use the ``docker_service`` fixture. Removal in 1.0.0.
 
 Breaking
 ~~~~~~~~
@@ -134,6 +176,10 @@ Breaking
 * ``azure_blob_service`` creates the ``azure_blob_default_container_name`` container (``pytest-databases``) before
   yielding, so ``azure_blob_container_client.create_container()`` on the default container now raises
   ``ResourceExistsError``. Drop the call or guard it with ``exists()``.
+* The ``cockroachdb`` (``psycopg``), ``elasticsearch7``, ``elasticsearch8``, ``mongodb`` (``pymongo``), ``oracle``
+  (``oracledb``) and ``valkey`` extras no longer install a driver, because the services check readiness without
+  one. If you use the deprecated ``cockroachdb_connection``, ``mongodb_connection``, ``mongodb_database`` or
+  ``oracle_*_connection`` fixtures, install ``psycopg``, ``pymongo`` or ``oracledb`` directly.
 
 0.19.0 (2026-05-23)
 -------------------

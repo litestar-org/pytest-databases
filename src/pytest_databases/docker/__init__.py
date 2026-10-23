@@ -7,6 +7,7 @@ import re
 import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import time
 import timeit
+import warnings
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Any
 
@@ -59,7 +60,12 @@ def wait_until_responsive(
 
 
 class DockerServiceRegistry(AbstractContextManager):
-    """Manage Docker Compose services for a pytest worker."""
+    """Manage Docker Compose services for a pytest worker.
+
+    .. deprecated:: 0.20.0
+        Use :class:`pytest_databases._service.DockerService` through the ``docker_service`` fixture instead.
+        ``DockerServiceRegistry`` will be removed in v1.0.0.
+    """
 
     def __init__(
         self,
@@ -67,6 +73,12 @@ class DockerServiceRegistry(AbstractContextManager):
         compose_project_name: str = COMPOSE_PROJECT_NAME,
         before_start: Iterable[Callable[[], Any]] | None = None,
     ) -> None:
+        warnings.warn(
+            "DockerServiceRegistry is deprecated in v0.20.0 and will be removed in v1.0.0. "
+            "Use the 'docker_service' fixture instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._running_services: set[str] = set()
         self.docker_ip = self._get_docker_ip()
         self._base_command = ["docker-compose"] if USE_LEGACY_DOCKER_COMPOSE else ["docker", "compose"]

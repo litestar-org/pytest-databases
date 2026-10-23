@@ -124,6 +124,7 @@ lint = [
 ]
 test = [
   "coverage[toml]>=6.2",
+  "google-cloud-spanner",
   "pytest",
   "pytest-cov",
   "pytest-cdist>=0.2",

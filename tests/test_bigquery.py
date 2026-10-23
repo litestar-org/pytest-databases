@@ -17,6 +17,7 @@ from pytest_databases.docker.bigquery import (
     query_bigquery_emulator,
 )
 from pytest_databases.types import ServiceContainer
+from tests.conftest import assert_legacy_platform_handling
 
 
 def test_plugin_imports_without_google_cloud_bigquery(pytester: pytest.Pytester) -> None:
@@ -168,6 +169,18 @@ def test_provide_bigquery_service_isolation_modes(monkeypatch: pytest.MonkeyPatc
 
     assert captured == [("bigquery", False), ("bigquery_1", True)]
     assert ensured_datasets == ["test-dataset_1"]
+
+
+@pytest.mark.parametrize("mode", ["default", "override", "legacy"])
+def test_bigquery_platform_and_legacy_platform_fixture(pytester: pytest.Pytester, mode: str) -> None:
+    """Verify bigquery_platform defaults to x86_64, honors a legacy platform override, and the bare shim warns once."""
+    assert_legacy_platform_handling(
+        pytester,
+        "pytest_databases.docker.bigquery",
+        "bigquery_platform",
+        "linux/x86_64",
+        mode,
+    )
 
 
 def test_service_fixture(pytester: pytest.Pytester) -> None:

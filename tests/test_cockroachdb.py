@@ -1,12 +1,26 @@
+"""Tests for CockroachDB container service fixtures."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from pytest_databases.docker import cockroachdb
+from pytest_databases.docker.cockroachdb import (
+    CockroachDBService,
+    cockroachdb_connection,
+    cockroachdb_driver_opts,
+)
+from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
-    import pytest
+    from _pytest.pytester import Pytester
 
 
-def test_plugin_imports_without_psycopg(pytester: pytest.Pytester) -> None:
+def test_plugin_imports_without_psycopg(pytester: Pytester) -> None:
+    """Verify cockroachdb plugin imports cleanly without psycopg installed."""
     pytester.makepyfile("""
     import builtins
 
@@ -29,7 +43,39 @@ def test_plugin_imports_without_psycopg(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
-def test_service_fixture(pytester: pytest.Pytester) -> None:
+def test_cockroachdb_deprecated_connection_shim() -> None:
+    """Verify cockroachdb_connection emits DeprecationWarning and lazily connects with driver_opts."""
+    mock_psycopg = MagicMock()
+    mock_conn = MagicMock()
+    mock_psycopg.connect.return_value.__enter__.return_value = mock_conn
+    service = CockroachDBService(
+        host="127.0.0.1",
+        port=26257,
+        container=MagicMock(),
+        database="pytest_databases",
+        driver_opts={"sslmode": "disable"},
+    )
+    assert unwrap_fixture(cockroachdb_driver_opts)() == {"sslmode": "disable"}
+
+    with (
+        patch("importlib.import_module", return_value=mock_psycopg) as mock_import,
+        pytest.warns(DeprecationWarning, match="cockroachdb_connection") as record,
+    ):
+        conn_gen = unwrap_fixture(cockroachdb_connection)(service, service.driver_opts)
+        assert next(conn_gen) is mock_conn
+        with pytest.raises(StopIteration):
+            next(conn_gen)
+
+    assert len(record) == 1
+    assert record[0].filename == cockroachdb.__file__
+    mock_import.assert_called_once_with("psycopg")
+    mock_psycopg.connect.assert_called_once_with(
+        "postgresql://root@127.0.0.1:26257/pytest_databases?sslmode=disable",
+    )
+
+
+def test_service_fixture(pytester: Pytester) -> None:
+    """Verify cockroachdb_service executes SQL via the in-container cockroach CLI."""
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.cockroachdb"]
 
@@ -48,6 +94,7 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
         return [line.strip() for line in result.output.decode().splitlines() if line.strip()]
 
     def test(cockroachdb_service):
+        assert cockroachdb_service.driver_opts == {"sslmode": "disable"}
         rows = run_cockroach(cockroachdb_service, "SELECT 1")
         assert rows[-1] == "1"
         run_cockroach(cockroachdb_service, "CREATE TABLE IF NOT EXISTS simple_table (the_value INT)")
@@ -61,7 +108,8 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
-def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
+def test_xdist_isolate_database(pytester: Pytester) -> None:
+    """Verify cockroachdb_service isolates databases per pytest-xdist worker."""
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.cockroachdb"]
 
@@ -88,7 +136,8 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=2)
 
 
-def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
+def test_xdist_isolate_server(pytester: Pytester) -> None:
+    """Verify cockroachdb_service isolates server containers per pytest-xdist worker."""
     pytester.makepyfile("""
     import pytest
 

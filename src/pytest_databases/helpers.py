@@ -6,10 +6,13 @@ import hashlib
 import os
 import platform
 import socket
+import warnings
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    import pytest
 
 __all__ = (
     "exec_output_to_bytes",
@@ -83,3 +86,36 @@ def tcp_port_open(host: str, port: int, timeout: float = 2.0) -> bool:
             return True
     except OSError:
         return False
+
+
+def resolve_legacy_platform(request: pytest.FixtureRequest, replacement: str | None, default: str | None) -> str | None:
+    """Return a user override of the bare ``platform`` fixture, or ``default``.
+
+    Up to v0.19.0 the MySQL, Dolt, and BigQuery services requested a fixture named ``platform``. The
+    ``<backend>_platform`` fixtures replace it, and this function keeps a ``platform`` override defined
+    outside ``pytest_databases`` (for example in a ``conftest.py``) working until v1.0.0. When such an
+    override is visible from the requesting test, it emits one ``DeprecationWarning`` and returns the
+    override's value.
+
+    Args:
+        request: The ``request`` of the fixture that used to depend on ``platform``.
+        replacement: Fixture to override instead, or None when the image is multi-arch and needs no platform.
+        default: Value to return when ``platform`` is not overridden.
+
+    Returns:
+        The overriding ``platform`` value, or ``default``.
+    """
+    fixturedefs = request._fixturemanager.getfixturedefs("platform", request._pyfuncitem)
+    if not fixturedefs or fixturedefs[-1].func.__module__.startswith("pytest_databases."):
+        return default
+    guidance = (
+        f"Override '{replacement}' instead."
+        if replacement is not None
+        else "The image is multi-arch, so remove the override; it is ignored from v1.0.0."
+    )
+    warnings.warn(
+        f"Overriding the 'platform' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. {guidance}",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return request.getfixturevalue("platform")

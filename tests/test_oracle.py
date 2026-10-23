@@ -1,10 +1,217 @@
+"""Tests for Oracle database container service fixtures and per-worker schema isolation."""
+
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
+
 import pytest
+
+from pytest_databases.docker import oracle
+from pytest_databases.docker.oracle import (
+    OracleService,
+    ensure_oracle_user,
+    oracle_18c_connection,
+    oracle_23ai_connection,
+    oracle_startup_connection,
+    provide_oracle_service,
+)
+from pytest_databases.types import ServiceContainer
+from tests.conftest import unwrap_fixture
+
+if TYPE_CHECKING:
+    from pytest import MonkeyPatch
+
+pytest_plugins = ["pytest_databases.docker.oracle"]
+
+
+def test_plugin_imports_without_oracledb(pytester: pytest.Pytester) -> None:
+    """Ensure the Oracle module imports cleanly when oracledb is absent."""
+    pytester.makepyfile("""
+    import builtins
+    import importlib
+
+    def test_import() -> None:
+        original_import = builtins.__import__
+
+        def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name.partition(".")[0] in {"oracledb", "cx_Oracle"}:
+                raise ModuleNotFoundError(name)
+            return original_import(name, globals, locals, fromlist, level)
+
+        builtins.__import__ = blocked_import
+        try:
+            module = importlib.import_module("pytest_databases.docker.oracle")
+            assert module.OracleService
+        finally:
+            builtins.__import__ = original_import
+    """)
+
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
+    result.assert_outcomes(passed=1)
+
+
+def test_xdist_oracle_isolation_level_default(xdist_oracle_isolation_level: str) -> None:
+    """Ensure xdist_oracle_isolation_level defaults to database."""
+    assert xdist_oracle_isolation_level == "database"
+
+
+def test_oracle_database_isolation_naming_and_user() -> None:
+    """Ensure database isolation preserves shared name and assigns per-worker user."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_service = ServiceContainer(container=mock_container, host="127.0.0.1", port=1521)
+    mock_docker.run.return_value.__enter__.return_value = mock_service
+
+    with (
+        patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=2),
+        patch("pytest_databases.docker.oracle.ensure_oracle_user", return_value=True) as mock_ensure,
+        patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"1")),
+        provide_oracle_service(
+            docker_service=mock_docker,
+            image="gvenzl/oracle-free:23-slim-faststart",
+            name="oracle23ai",
+            service_name="FREEPDB1",
+            user="app",
+            password="secret",
+            system_password="sys-secret",
+            isolation_level="database",
+        ) as service,
+    ):
+        assert service.user == "app_2"
+        call_kwargs = mock_docker.run.call_args[1]
+        assert call_kwargs["name"] == "oracle23ai"
+        assert call_kwargs["transient"] is False
+        check_fn = call_kwargs["check"]
+        assert check_fn(mock_service) is True
+        mock_ensure.assert_called_once_with(
+            mock_container,
+            user="app_2",
+            password="secret",
+            service_name="FREEPDB1",
+            system_password="sys-secret",
+        )
+
+
+def test_oracle_server_isolation_naming_and_user() -> None:
+    """Ensure server isolation suffixes name and retains default user."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_service = ServiceContainer(container=mock_container, host="127.0.0.1", port=1521)
+    mock_docker.run.return_value.__enter__.return_value = mock_service
+
+    with (
+        patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=3),
+        patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"1")),
+        provide_oracle_service(
+            docker_service=mock_docker,
+            image="gvenzl/oracle-free:23-slim-faststart",
+            name="oracle23ai",
+            service_name="FREEPDB1",
+            user="app",
+            password="secret",
+            system_password="sys-secret",
+            isolation_level="server",
+        ) as service,
+    ):
+        assert service.user == "app"
+
+    call_kwargs = mock_docker.run.call_args[1]
+    assert call_kwargs["name"] == "oracle23ai_3"
+    assert call_kwargs["transient"] is True
+
+
+def test_ensure_oracle_user_invokes_sysdba() -> None:
+    """Ensure ensure_oracle_user connects as sysdba to create user."""
+    mock_container = MagicMock()
+    with patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"")) as mock_exec:
+        assert (
+            ensure_oracle_user(
+                container=mock_container,
+                user="app_1",
+                password="secret",
+                service_name="FREEPDB1",
+                system_password="sys-secret",
+            )
+            is True
+        )
+
+    mock_exec.assert_called_once()
+    _, kwargs = mock_exec.call_args
+    assert kwargs["user"] == "sys"
+    assert kwargs["password"] == "sys-secret"
+    assert kwargs["as_sysdba"] is True
+    assert kwargs["whenever_sqlerror"] == "CONTINUE"
+    assert "CREATE USER app_1" in kwargs["sql"]
+
+
+@pytest.fixture
+def fake_oracledb(monkeypatch: MonkeyPatch) -> MagicMock:
+    """Replace the lazy ``oracledb`` import with a mock whose connection returns ``1`` from ``dual``."""
+    fake_conn = MagicMock()
+    fake_cursor = MagicMock()
+    fake_cursor.fetchone.return_value = (1,)
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+    fake_conn.__enter__.return_value = fake_conn
+    fake_module = MagicMock()
+    fake_module.connect.return_value = fake_conn
+    monkeypatch.setattr(oracle, "_load_oracledb", lambda: fake_module)
+    return fake_module
+
+
+def test_oracle_responsive_emits_one_warning(fake_oracledb: MagicMock) -> None:
+    """Verify the deprecated oracle_responsive helper warns once at the caller and still probes."""
+    with pytest.warns(DeprecationWarning, match="oracle_responsive") as record:
+        assert oracle.oracle_responsive("127.0.0.1", 1521, "FREEPDB1", "app", "secret") is True
+
+    assert len(record) == 1
+    assert record[0].filename == __file__
+    fake_oracledb.connect.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("fixture_def", "fixture_name"),
+    [
+        (oracle_18c_connection, "oracle_18c_connection"),
+        (oracle_23ai_connection, "oracle_23ai_connection"),
+        (oracle_startup_connection, "oracle_startup_connection"),
+    ],
+)
+def test_deprecated_oracle_connection_fixtures_emit_one_warning(
+    fake_oracledb: MagicMock,
+    fixture_def: object,
+    fixture_name: str,
+) -> None:
+    """Verify each v0.19.0 Oracle connection fixture warns once, attributed to the fixture, and connects."""
+    service = OracleService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=1521,
+        user="app",
+        password="secret",
+        system_password="sys-secret",
+        service_name="FREEPDB1",
+    )
+    with pytest.warns(DeprecationWarning, match=fixture_name) as record:
+        conn_gen = unwrap_fixture(fixture_def)(service)
+        assert next(conn_gen) is fake_oracledb.connect.return_value
+        with pytest.raises(StopIteration):
+            next(conn_gen)
+
+    assert len(record) == 1
+    assert record[0].filename == oracle.__file__
+    fake_oracledb.connect.assert_called_once_with(
+        host="127.0.0.1",
+        port=1521,
+        user="app",
+        service_name="FREEPDB1",
+        password="secret",
+    )
 
 
 @pytest.fixture(scope="module")
 def oracle_test_helpers() -> str:
+    """Provide SQL*Plus execution helper code for pytester integration tests."""
     return """
     import shlex
 
@@ -36,6 +243,7 @@ def oracle_test_helpers() -> str:
     ],
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str, oracle_test_helpers: str) -> None:
+    """Run integration smoke tests against Oracle 18c and 23ai service fixtures."""
     pytester.makepyfile(f"""
     pytest_plugins = ["pytest_databases.docker.oracle"]
 
