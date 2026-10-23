@@ -64,6 +64,7 @@ pytest_plugins = ["pytest_databases.docker.postgres"]
 from pytest_databases.docker.postgres import PostgresService
 import psycopg
 
+
 def test_one(postgres_service: PostgresService) -> None:
     with psycopg.connect(
         f"postgresql://{postgres_service.user}:{postgres_service.password}@{postgres_service.host}:{postgres_service.port}/{postgres_service.database}",
