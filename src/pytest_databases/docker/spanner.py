@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import json
 import time
 import urllib.error
 import urllib.request
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -21,17 +23,18 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
     from pytest_databases.types import XdistIsolationLevel
 
-__all__ = (
+__all__ = [
     "SpannerService",
     "bootstrap_spanner_emulator",
     "provide_spanner_service",
+    "spanner_connection",
     "spanner_database_name",
     "spanner_image",
     "spanner_instance_name",
     "spanner_project",
     "spanner_service",
     "xdist_spanner_isolation_level",
-)
+]
 
 
 @dataclass
@@ -52,6 +55,30 @@ class SpannerService(ServiceContainer):
     def rest_endpoint(self) -> str:
         """HTTP REST endpoint for Cloud Spanner administration."""
         return f"{self.host}:{self.rest_port}"
+
+    @property
+    def credentials(self) -> Any:
+        """Deprecated AnonymousCredentials for Cloud Spanner emulator."""
+        warnings.warn(
+            "'SpannerService.credentials' is deprecated and will be removed in a future release. "
+            "Instantiate 'google.auth.credentials.AnonymousCredentials()' directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        credentials_mod = importlib.import_module("google.auth.credentials")
+        return credentials_mod.AnonymousCredentials()
+
+    @property
+    def client_options(self) -> Any:
+        """Deprecated ClientOptions for Cloud Spanner emulator."""
+        warnings.warn(
+            "'SpannerService.client_options' is deprecated and will be removed in a future release. "
+            "Instantiate 'google.api_core.client_options.ClientOptions(api_endpoint=service.endpoint)' directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        options_mod = importlib.import_module("google.api_core.client_options")
+        return options_mod.ClientOptions(api_endpoint=self.endpoint)
 
 
 def bootstrap_spanner_emulator(
@@ -74,9 +101,14 @@ def bootstrap_spanner_emulator(
     if isinstance(target_or_service, str) and isinstance(rest_port_or_container, int):
         host = target_or_service
         rest_port = rest_port_or_container
+    elif isinstance(target_or_service, SpannerService):
+        host = target_or_service.host
+        rest_port = target_or_service.rest_port or 9020
     else:
-        container = rest_port_or_container
-        host = "127.0.0.1"
+        container = (
+            target_or_service.container if isinstance(target_or_service, ServiceContainer) else rest_port_or_container
+        )
+        host = target_or_service.host if isinstance(target_or_service, ServiceContainer) else "127.0.0.1"
         binding = container.ports.get("9020/tcp") if container and hasattr(container, "ports") else None
         rest_port = int(binding[0]["HostPort"]) if binding else 9020
 
@@ -210,11 +242,51 @@ def spanner_service(
         yield service
 
 
+@pytest.fixture(autouse=False, scope="session")
+def spanner_connection(
+    spanner_service: SpannerService,
+) -> Generator[Any, None, None]:
+    """Provide a deprecated Cloud Spanner client connected to the emulator.
+
+    Yields:
+        Active google.cloud.spanner.Client instance.
+    """
+    warnings.warn(
+        "'spanner_connection' is deprecated and will be removed in a future release. "
+        "Use 'spanner_service' and instantiate your google.cloud.spanner.Client directly.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    spanner = importlib.import_module("google.cloud.spanner")
+    credentials_mod = importlib.import_module("google.auth.credentials")
+    options_mod = importlib.import_module("google.api_core.client_options")
+    client = spanner.Client(
+        project=spanner_service.project,
+        credentials=credentials_mod.AnonymousCredentials(),
+        client_options=options_mod.ClientOptions(api_endpoint=spanner_service.endpoint),
+    )
+    try:
+        yield client
+    finally:
+        client.close()
+
+
 def _send_spanner_request_with_retry(
     url: str,
     payload: dict[str, Any],
     max_attempts: int = 10,
 ) -> None:
+    """Send a JSON POST request to the Spanner REST API with retries for container readiness.
+
+    Args:
+        url: Target REST URL.
+        payload: Request payload dictionary.
+        max_attempts: Maximum retry attempts before raising.
+
+    Raises:
+        HTTPError: If the server returns an unexpected HTTP error code other than 409.
+        URLError: If the connection fails after max attempts.
+    """
     data = json.dumps(payload).encode("utf-8")
     for attempt in range(max_attempts):
         req = urllib.request.Request(
