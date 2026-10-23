@@ -1,34 +1,46 @@
+"""Helper utilities for hashing, pytest-xdist worker discovery, and container output."""
+
 from __future__ import annotations
 
 import hashlib
 import os
 import platform
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+__all__ = (
+    "exec_output_to_bytes",
+    "get_cpu_architecture",
+    "get_xdist_worker_count",
+    "get_xdist_worker_id",
+    "get_xdist_worker_num",
+    "simple_string_hash",
+)
+
+
+def exec_output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
+    """Normalize Docker ``exec_run`` output payloads into ``bytes``."""
+    if isinstance(output, bytes):
+        return output
+    if isinstance(output, str):
+        return output.encode()
+    return b"".join(output)
 
 
 def simple_string_hash(string_to_hash: str) -> str:
-    """Generates a short hash based on a string.
-
-    Args:
-      string_to_hash: The string to hash.
-
-    Returns:
-      A short hash string.
-    """
-
-    string_bytes = string_to_hash.encode("utf-8")
-    hasher = hashlib.sha256()
-    hasher.update(string_bytes)
-    digest = hasher.digest()
-    hex_string = digest.hex()
-    return hex_string[:12]
+    """Generate a deterministic 12-character SHA-256 hex digest prefix."""
+    return hashlib.sha256(string_to_hash.encode("utf-8")).hexdigest()[:12]
 
 
 def get_xdist_worker_id() -> str | None:
+    """Return the active ``pytest-xdist`` worker identifier, if any."""
     return os.getenv("PYTEST_XDIST_WORKER")
 
 
 def get_xdist_worker_num() -> int | None:
+    """Return the numeric ``pytest-xdist`` worker index, or ``None`` on master."""
     worker_id = get_xdist_worker_id()
     if worker_id is None or worker_id == "master":
         return None
@@ -36,42 +48,15 @@ def get_xdist_worker_num() -> int | None:
 
 
 def get_xdist_worker_count() -> int:
+    """Return the configured ``pytest-xdist`` worker count."""
     return int(os.getenv("PYTEST_XDIST_WORKER_COUNT", "0"))
 
 
 def get_cpu_architecture() -> Literal["x86_64", "arm", "unknown"]:
-    """Detects the CPU architecture.
-
-    This function utilizes Python's `platform` module to reliably determine
-    if the program is running on an x86-64 (also known as AMD64) or an ARM
-    (including aarch64/arm64) CPU architecture. It aims to be compatible
-    across all operating systems supported by Python (Windows, Linux, macOS).
-
-    Returns:
-        Literal['x86_64', 'arm', 'unknown']: A string representing the
-        detected architecture. It returns 'x86_64' for 64-bit x86
-        processors, 'arm' for ARM-based processors (both 32-bit and 64-bit),
-        and 'unknown' if the architecture is neither or cannot be
-        confidently determined.
-
-    Examples:
-        >>> # On an Intel-based Mac or typical Linux/Windows PC:
-        >>> # get_cpu_architecture()
-        'x86_64'
-        >>> # On an Apple Silicon Mac or Raspberry Pi 4:
-        >>> # get_cpu_architecture()
-        'arm'
-    """
-    machine: str = platform.machine().lower()
-
+    """Detect whether the host CPU architecture is ``x86_64``, ``arm``, or ``unknown``."""
+    machine = platform.machine().lower()
     if machine in {"x86_64", "amd64"}:
         return "x86_64"
     if machine.startswith(("arm", "aarch")):
         return "arm"
-    # Add checks for other potential identifiers if needed, though
-    # the above cover the vast majority of cases for these two archs.
-    # Consider checking platform.processor() as a fallback
-    # or other system-specific methods if higher reliability
-    # on obscure platforms is required. For most uses,
-    # platform.machine() is sufficient and standard.
     return "unknown"
