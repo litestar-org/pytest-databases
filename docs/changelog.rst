@@ -114,6 +114,14 @@ Added
   ``xdist_floci_isolation_level`` (default ``database``: one container per cloud), ``provide_floci_container``,
   ``check_floci_health``, ``ensure_gcs_bucket``, ``ensure_oci_bucket``, ``FLOCI_CONTAINER_PORTS`` and
   ``FLOCI_HEALTH_PATHS``.
+* ``snowflake_service`` (``SnowflakeService`` with ``endpoint``, ``connection_kwargs``, ``login()`` and ``query()``)
+  for the Embucket Snowflake-compatible emulator (default ``embucket/embucket:0.2.2``, env ``SNOWFLAKE_IMAGE``, port
+  ``3000``), the ``snowflake_image``, ``snowflake_user``, ``snowflake_password``, ``snowflake_account``,
+  ``snowflake_database``, ``snowflake_schema``, ``snowflake_warehouse``, ``snowflake_role`` and
+  ``xdist_snowflake_isolation_level`` (default ``database``: one container, a ``public_<worker>`` schema per worker)
+  fixtures, and ``provide_snowflake_service``, ``check_snowflake_health``, ``login_snowflake_emulator`` and
+  ``query_snowflake_emulator``. ``query()`` logs in as ``snowflake_user`` and runs in ``snowflake_database`` /
+  ``snowflake_schema``.
 
 Changed
 ~~~~~~~
