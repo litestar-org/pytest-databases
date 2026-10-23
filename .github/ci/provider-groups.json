@@ -51,6 +51,7 @@
     "tests/test_cockroachdb.py::test_plugin_imports_without_psycopg",
     "tests/test_db2.py::test_plugin_imports_without_db2_clients",
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
+    "tests/test_floci.py::test_plugin_imports_without_cloud_sdks",
     "tests/test_gizmosql.py::test_plugin_imports_without_adbc_driver_flightsql",
     "tests/test_localstack.py::test_plugin_imports_without_aws_clients",
     "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
@@ -123,6 +124,17 @@
         "elasticsearch:9.5.5"
       ],
       "docs_globs": ["docs/supported-databases/elasticsearch.rst"]
+    },
+    "floci": {
+      "source_globs": ["src/pytest_databases/docker/floci.py"],
+      "test_paths": ["tests/test_floci.py"],
+      "images": [
+        "floci/floci-az:0.16.0",
+        "floci/floci-gcp:0.12.0",
+        "floci/floci-oci:0.6.0",
+        "floci/floci:2.4.0"
+      ],
+      "docs_globs": ["docs/supported-databases/floci.rst"]
     },
     "gizmosql": {
       "source_globs": ["src/pytest_databases/docker/gizmosql.py"],

@@ -102,6 +102,18 @@ Added
   ``extract_adb_wallet``, ``parse_tnsnames``, ``rewrite_tnsnames`` and ``rewrite_sqlnet_ora``.
   ``oracle_adb_filesystemio_options`` (default ``NONE``, env ``ORACLE_ADB_FILESYSTEMIO_OPTIONS``) rewrites the server
   parameter file before the database starts so the instance opens on storage with 4096-byte logical sectors.
+* Floci cloud emulators in ``pytest_databases.docker.floci``: ``floci_aws_service`` (``FlociAWSService``, image
+  ``floci/floci:2.4.0``, port ``4566``), ``floci_az_service`` (``FlociAzureService`` with ``blob_endpoint``,
+  ``floci/floci-az:0.16.0``, port ``4577``), ``floci_gcp_service`` (``FlociGCPService`` with ``ensure_bucket()``,
+  ``storage_emulator_host`` and ``pubsub_emulator_host``, ``floci/floci-gcp:0.12.0``, port ``4588``) and
+  ``floci_oci_service`` (``FlociOCIService`` with ``ensure_bucket()``, ``floci/floci-oci:0.6.0``, port ``4599``), with
+  ``floci_<cloud>_image`` fixtures (env ``FLOCI_AWS_IMAGE``, ``FLOCI_AZ_IMAGE``, ``FLOCI_GCP_IMAGE``,
+  ``FLOCI_OCI_IMAGE``), ``floci_aws_region``, ``floci_aws_access_key``, ``floci_aws_secret_key``,
+  ``floci_az_account_name``, ``floci_az_account_key``, ``floci_gcp_project``, ``floci_oci_namespace`` (default
+  ``floci-local``), ``floci_oci_region``, ``floci_oci_compartment_id``, ``floci_resource_prefix``,
+  ``xdist_floci_isolation_level`` (default ``database``: one container per cloud), ``provide_floci_container``,
+  ``check_floci_health``, ``ensure_gcs_bucket``, ``ensure_oci_bucket``, ``FLOCI_CONTAINER_PORTS`` and
+  ``FLOCI_HEALTH_PATHS``.
 
 Changed
 ~~~~~~~
