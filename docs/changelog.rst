@@ -47,6 +47,8 @@ Added
   ``drop_database_force`` in ``pytest_databases.docker.postgres``, plus ``PostgresService.clone_template_database``
   and ``PostgresService.drop_database_force``.
 * ``pytest_databases.helpers.tcp_port_open(host, port, timeout)``.
+* ``ensure_azurite_container``, ``azurite_container_exists`` and ``build_shared_key_authorization`` in
+  ``pytest_databases.docker.azure_blob`` for stdlib SharedKey-signed Azurite requests.
 
 Changed
 ~~~~~~~
@@ -84,6 +86,8 @@ Changed
 * Default ``alloydb_omni_image`` changed from ``google/alloydbomni:17`` to ``gcr.io/alloydb-omni/alloydbomni:18``.
 * ``alloydb_omni_15_service``, ``alloydb_omni_16_service`` and ``alloydb_omni_17_service`` pull from
   ``gcr.io/alloydb-omni/alloydbomni:<version>`` instead of ``google/alloydbomni:<version>``.
+* ``azure_blob_service`` checks readiness and creates its default container with stdlib HTTP requests signed with
+  SharedKey; ``azure-storage-blob`` is no longer imported by the plugin.
 
 Deprecated
 ~~~~~~~~~~
@@ -95,6 +99,8 @@ Deprecated
 * Postgres-family ``*_connection`` fixtures (``postgres_connection``, ``postgres_<version>_connection``,
   ``pgvector_*_connection``, ``paradedb_*_connection``, ``alloydb_omni_*_connection``); use the matching
   ``*_service`` fixture and open your own ``psycopg`` connection. Removal in 1.0.0.
+* ``azure_blob_container_client`` and ``azure_blob_async_container_client``; use ``azure_blob_service`` and build
+  your own ``ContainerClient`` from ``connection_string``. Removal in 1.0.0.
 
 Breaking
 ~~~~~~~~
@@ -115,6 +121,9 @@ Breaking
   workers). Read the bucket from the fixture instead of hard-coding it.
 * A failure to create the MinIO or RustFS default bucket now raises ``RuntimeError`` during fixture setup instead of
   being ignored.
+* ``azure_blob_service`` creates the ``azure_blob_default_container_name`` container (``pytest-databases``) before
+  yielding, so ``azure_blob_container_client.create_container()`` on the default container now raises
+  ``ResourceExistsError``. Drop the call or guard it with ``exists()``.
 
 0.19.0 (2026-05-23)
 -------------------
