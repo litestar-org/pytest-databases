@@ -9,8 +9,10 @@ from pytest_databases._service import (
     ContainerService,
     DockerService,
     derive_session_owner_id,
+    should_keep_containers,
     stop_all_containers,
     stop_owned_containers,
+    wait_for_container_health,
 )
 from pytest_databases.runtime import (
     ContainerRuntimeConfig,
@@ -19,7 +21,7 @@ from pytest_databases.runtime import (
     RuntimeType,
 )
 
-__all__ = [
+__all__ = (
     "MANAGED_LABEL",
     "OWNER_LABEL",
     "SERVICE_LABEL",
@@ -30,6 +32,8 @@ __all__ = [
     "RuntimeResolutionError",
     "RuntimeType",
     "derive_session_owner_id",
+    "should_keep_containers",
     "stop_all_containers",
     "stop_owned_containers",
-]
+    "wait_for_container_health",
+)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import hashlib
 import os
@@ -15,6 +16,7 @@ import filelock
 import pytest
 from docker.errors import APIError, DockerException, ImageNotFound
 
+from pytest_databases.docker import TRUE_VALUES
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.runtime import (
     ContainerRuntimeConfig,
@@ -49,14 +51,18 @@ __all__ = (
     "get_docker_host",
     "pytest_addoption",
     "pytest_sessionfinish",
+    "should_keep_containers",
     "stop_all_containers",
     "stop_owned_containers",
+    "wait_for_container_health",
 )
 
 OWNER_LABEL = "pytest_databases.owner"
 SERVICE_LABEL = "pytest_databases.service"
 MANAGED_LABEL = "pytest_databases"
 _RUNTIME_STASH_KEY = pytest.StashKey[ContainerRuntimeConfig]()
+_REGISTERED_ATEXIT_OWNERS: set[str] = set()
+_COMPLETED_SESSION_OWNERS: set[str] = set()
 
 
 class ContainerService(AbstractContextManager):
@@ -79,7 +85,7 @@ class ContainerService(AbstractContextManager):
 
     @property
     def owner_id(self) -> str:
-        """The deterministic session owner identifier."""
+        """Deterministic session owner identifier."""
         return self._owner_id
 
     def container_name(self, service_name: str) -> str:
@@ -111,15 +117,20 @@ class ContainerService(AbstractContextManager):
         }
 
     def __enter__(self) -> Self:
+        _COMPLETED_SESSION_OWNERS.discard(self._owner_id)
         ctrl_file = _get_ctrl_file(self._session)
+        keep = should_keep_containers(self._session.config)
         if self._is_xdist:
             with filelock.FileLock(ctrl_file.with_suffix(".lock")):
                 if not ctrl_file.exists():
                     ctrl_file.write_text(self._owner_id, encoding="utf-8")
-                    self._stop_owned_containers()
+                    if not keep:
+                        self._stop_owned_containers()
         else:
             ctrl_file.write_text(self._owner_id, encoding="utf-8")
-            self._stop_owned_containers()
+            if not keep:
+                self._stop_owned_containers()
+            _register_atexit_cleanup(self._owner_id, self._runtime_config, self._session.config)
         return self
 
     def __exit__(
@@ -129,8 +140,9 @@ class ContainerService(AbstractContextManager):
         __exc_value: BaseException | None,
         __traceback: TracebackType | None,
     ) -> None:
-        if not self._is_xdist:
+        if not self._is_xdist and not should_keep_containers(self._session.config):
             self._stop_owned_containers()
+            _COMPLETED_SESSION_OWNERS.add(self._owner_id)
 
     def resolve_service_host(self, container_host: str = "127.0.0.1") -> str:
         """Resolve the reachable host for container port communication.
@@ -240,7 +252,7 @@ class ContainerService(AbstractContextManager):
         container_port: int,
         name: str,
         container_host: str = "127.0.0.1",
-        command: str | None = None,
+        command: str | list[str] | None = None,
         env: dict[str, Any] | None = None,
         exec_after_start: str | list[str] | None = None,
         check: Callable[[ServiceContainer], bool] | None = None,
@@ -249,12 +261,21 @@ class ContainerService(AbstractContextManager):
         pause: float = 0.1,
         transient: bool = False,
         ulimits: list[Ulimit] | None = None,
-        shm_size: int | None = None,
+        shm_size: int | str | None = None,
         mem_limit: str | None = None,
         platform: str | None = None,
         protocol: str = "tcp",
         host_port: int | None = None,
         extra_ports: dict[int, int | None] | None = None,
+        *,
+        wait_for_health: bool = False,
+        entrypoint: str | list[str] | None = None,
+        privileged: bool = False,
+        ipc_mode: str | None = None,
+        cap_add: list[str] | None = None,
+        devices: list[str] | None = None,
+        hostname: str | None = None,
+        volumes: dict[str, dict[str, str]] | list[str] | None = None,
     ) -> Generator[ServiceContainer, None, None]:
         """Start and manage an ephemeral container service lifecycle.
 
@@ -272,23 +293,49 @@ class ContainerService(AbstractContextManager):
             pause: Sleep interval between polling attempts.
             transient: Whether to remove container on context exit.
             ulimits: Custom ulimits for the container.
-            shm_size: Shared memory size in bytes.
+            shm_size: Shared memory size in bytes or size string.
             mem_limit: Memory limit string.
             platform: Target container platform.
             protocol: Port protocol (tcp, udp, or both).
             host_port: Optional fixed host port binding.
             extra_ports: Additional internal-to-host port mappings to expose.
+            wait_for_health: Whether to poll native container health status until healthy.
+            entrypoint: Optional container entrypoint override.
+            privileged: Whether to run the container in privileged mode.
+            ipc_mode: Optional IPC namespace mode (for example ``"host"``).
+            cap_add: Optional list of Linux capabilities to add (for example ``["SYS_ADMIN"]``).
+            devices: Optional list of host device mappings (for example ``["/dev/fuse"]``).
+            hostname: Optional container hostname override.
+            volumes: Optional host-to-container volume mappings or volume binding specs.
 
         Yields:
             A ServiceContainer handle with host and port bindings.
         """
-        if check is None and wait_for_log is None:
-            msg = "Must set at least check or wait_for_log"
+        if check is None and wait_for_log is None and not wait_for_health:
+            msg = "Must set at least check, wait_for_log, or wait_for_health"
             raise ValueError(msg)
 
         platform_kwarg: dict[str, Any] = {}
         if platform is not None:
             platform_kwarg["platform"] = platform
+
+        extra_run_kwargs: dict[str, Any] = {}
+        if shm_size is not None:
+            extra_run_kwargs["shm_size"] = shm_size
+        if entrypoint is not None:
+            extra_run_kwargs["entrypoint"] = entrypoint
+        if privileged:
+            extra_run_kwargs["privileged"] = True
+        if ipc_mode is not None:
+            extra_run_kwargs["ipc_mode"] = ipc_mode
+        if cap_add is not None:
+            extra_run_kwargs["cap_add"] = cap_add
+        if devices is not None:
+            extra_run_kwargs["devices"] = devices
+        if hostname is not None:
+            extra_run_kwargs["hostname"] = hostname
+        if volumes is not None:
+            extra_run_kwargs["volumes"] = volumes
 
         service_name = f"pytest_databases_{name}"
         lock = (
@@ -313,6 +360,7 @@ class ContainerService(AbstractContextManager):
                     ulimits=ulimits,
                     mem_limit=mem_limit,
                     **platform_kwarg,
+                    **extra_run_kwargs,
                 )
 
                 for i in range(10):
@@ -340,7 +388,15 @@ class ContainerService(AbstractContextManager):
             port=host_port_val,
         )
 
-        _wait_for_readiness(service, service_name, wait_for_log, check, timeout, pause)
+        _wait_for_readiness(
+            service,
+            service_name,
+            wait_for_log,
+            check,
+            timeout,
+            pause,
+            wait_for_health=wait_for_health,
+        )
 
         if exec_after_start:
             container.exec_run(exec_after_start)
@@ -348,7 +404,7 @@ class ContainerService(AbstractContextManager):
         try:
             yield service
         finally:
-            if transient:
+            if transient and not should_keep_containers(self._session.config):
                 try:
                     container.stop()
                     container.remove(force=True)
@@ -398,11 +454,31 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help="Container runtime to use for database containers (auto, docker, podman).",
     )
+    parser.addoption(
+        "--keep-containers",
+        action="store_true",
+        default=False,
+        help="Keep database containers running after the pytest session finishes.",
+    )
     parser.addini(
         "container_runtime",
         help="Default container runtime (auto, docker, podman).",
         default=None,
     )
+
+
+def should_keep_containers(config: pytest.Config | None = None) -> bool:
+    """Determine whether session-managed containers should be retained on exit.
+
+    Args:
+        config: Optional pytest configuration to inspect for ``--keep-containers``.
+
+    Returns:
+        ``True`` if ``PYTEST_DATABASES_KEEP_CONTAINERS`` is set to a truthy value or ``--keep-containers`` is active.
+    """
+    if os.getenv("PYTEST_DATABASES_KEEP_CONTAINERS", "").strip() in TRUE_VALUES:
+        return True
+    return config is not None and config.getoption("--keep-containers", default=False) is True
 
 
 def derive_session_owner_id(rootpath: Path, namespace: str | None = None) -> str:
@@ -480,6 +556,55 @@ def stop_all_containers(client: DockerClient) -> None:
         except APIError as exc:
             if exc.status_code not in {404, 409}:
                 raise
+
+
+def wait_for_container_health(
+    container: Container,
+    service_name: str,
+    timeout: int,
+    pause: float,
+) -> None:
+    """Poll native Docker or Podman ``State.Health.Status`` until ``healthy``.
+
+    Args:
+        container: The container instance to inspect.
+        service_name: Service identifier for error messages.
+        timeout: Maximum wait time in seconds.
+        pause: Sleep interval between polling attempts.
+
+    Raises:
+        RuntimeError: If the image has no ``HEALTHCHECK``, or the container reports ``unhealthy``, exits, or
+            times out.
+    """
+    started = time.time()
+    last_status = "unknown"
+    last_health: dict[str, Any] = {}
+    while time.time() - started < timeout:
+        _check_container_alive(container, service_name)
+        health = container.attrs.get("State", {}).get("Health")
+        if not health:
+            msg = (
+                f"Service {service_name!r} was started with wait_for_health=True, but image "
+                f"{container.attrs.get('Config', {}).get('Image', '<unknown>')!r} defines no HEALTHCHECK."
+            )
+            raise RuntimeError(msg)
+        last_health = health
+        last_status = str(health.get("Status", "unknown"))
+        if last_status == "healthy":
+            return
+        if last_status == "unhealthy":
+            msg = (
+                f"Service {service_name!r} container became unhealthy.\nHealthcheck logs:\n{_format_health_log(health)}"
+            )
+            raise RuntimeError(msg)
+        time.sleep(pause)
+
+    msg = (
+        f"Service {service_name!r} container healthcheck did not become healthy within {timeout}s "
+        f"(last status: {last_status!r}).\n"
+        f"Healthcheck logs:\n{_format_health_log(last_health)}"
+    )
+    raise RuntimeError(msg)
 
 
 @pytest.fixture(scope="session")
@@ -583,7 +708,11 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[
         return (yield)
     finally:
         ctrl_file = _get_ctrl_file(session)
-        if not hasattr(session.config, "workerinput") and ctrl_file.exists():
+        if (
+            not hasattr(session.config, "workerinput")
+            and ctrl_file.exists()
+            and not should_keep_containers(session.config)
+        ):
             _cleanup_session_containers(session, ctrl_file)
 
 
@@ -621,6 +750,7 @@ def _cleanup_session_containers(session: pytest.Session, ctrl_file: Path) -> Non
         return
     try:
         stop_owned_containers(client, owner_id)
+        _COMPLETED_SESSION_OWNERS.add(owner_id)
     except DockerException as exc:
         warnings.warn(f"pytest-databases could not clean up session containers: {exc}", RuntimeWarning, stacklevel=1)
     finally:
@@ -721,6 +851,20 @@ def _check_container_alive(container: Container, service_name: str) -> None:
         raise RuntimeError(msg)
 
 
+def _format_health_log(health: dict[str, Any]) -> str:
+    """Format the most recent container healthcheck log entries for diagnostics."""
+    log_entries = health.get("Log")
+    if not isinstance(log_entries, list) or not log_entries:
+        return "<no healthcheck logs available>"
+    formatted: list[str] = []
+    for entry in log_entries[-5:]:
+        if isinstance(entry, dict):
+            code = entry.get("ExitCode", "?")
+            output = str(entry.get("Output", "")).strip()
+            formatted.append(f"[exit={code}] {output}")
+    return "\n".join(formatted) if formatted else "<no healthcheck logs available>"
+
+
 def _wait_for_readiness(
     service: ServiceContainer,
     service_name: str,
@@ -728,8 +872,10 @@ def _wait_for_readiness(
     check: Callable[[ServiceContainer], bool] | None,
     timeout: int,
     pause: float,
+    *,
+    wait_for_health: bool = False,
 ) -> None:
-    """Wait until a service passes its log check or check callable.
+    """Wait until a service passes its native healthcheck, log check, and check callable.
 
     Args:
         service: The service container instance.
@@ -738,8 +884,17 @@ def _wait_for_readiness(
         check: Callable readiness check.
         timeout: Maximum seconds to wait.
         pause: Seconds between polling attempts.
+        wait_for_health: Whether to poll native container health status first.
     """
     started = time.time()
+    if wait_for_health:
+        wait_for_container_health(
+            service.container,
+            service_name,
+            timeout=timeout,
+            pause=pause,
+        )
+
     if wait_for_log:
         log_bytes = wait_for_log.encode() if isinstance(wait_for_log, str) else wait_for_log
         while time.time() - started < timeout:
@@ -760,6 +915,39 @@ def _wait_for_readiness(
         else:
             msg = f"Service {service_name!r} failed to come online"
             raise ValueError(msg)
+
+
+def _register_atexit_cleanup(
+    owner_id: str,
+    runtime_config: ContainerRuntimeConfig | None,
+    session_config: pytest.Config,
+) -> None:
+    """Register an interpreter-exit fallback that stops this session's containers.
+
+    Registered only when not running under ``pytest-xdist``, where the session's own container service runs in this
+    process. It does nothing when the session already cleaned up or ``--keep-containers`` is active. Runtime and
+    connection errors are ignored because the interpreter is shutting down.
+
+    Args:
+        owner_id: Session owner identifier.
+        runtime_config: Runtime resolved for the session, if any.
+        session_config: The pytest configuration.
+    """
+    if owner_id in _REGISTERED_ATEXIT_OWNERS:
+        return
+    _REGISTERED_ATEXIT_OWNERS.add(owner_id)
+
+    def _cleanup() -> None:
+        if owner_id in _COMPLETED_SESSION_OWNERS or should_keep_containers(session_config):
+            return
+        with contextlib.suppress(DockerException, RuntimeResolutionError, OSError):
+            client = runtime_config.create_client() if runtime_config is not None else get_docker_client()
+            try:
+                stop_owned_containers(client, owner_id)
+            finally:
+                client.close()
+
+    atexit.register(_cleanup)
 
 
 def _get_base_tmp_path(tmp_path_factory: pytest.TempPathFactory) -> Path:

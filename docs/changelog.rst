@@ -31,6 +31,14 @@ Added
 * ``xdist_spanner_isolation_level`` (default ``database``), ``spanner_project``, ``spanner_instance_name`` and
   ``spanner_database_name`` fixtures, ``SpannerService.rest_port`` / ``rest_endpoint``,
   ``provide_spanner_service`` and ``bootstrap_spanner_emulator(host, rest_port, ...)``.
+* Keyword-only ``ContainerService.run`` arguments ``wait_for_health``, ``entrypoint``, ``privileged``,
+  ``ipc_mode``, ``cap_add``, ``devices``, ``hostname`` and ``volumes``, forwarded to the container runtime;
+  ``command`` also accepts a list.
+* ``wait_for_container_health(container, service_name, timeout, pause)``, which waits for ``State.Health.Status`` to
+  become ``healthy`` and fails at once when the image defines no ``HEALTHCHECK``. ``run(wait_for_health=True)`` uses
+  it before the other readiness checks.
+* ``--keep-containers`` option and ``PYTEST_DATABASES_KEEP_CONTAINERS`` environment variable to leave session
+  containers running after pytest exits, plus ``should_keep_containers(config)``.
 
 Changed
 ~~~~~~~
@@ -42,6 +50,10 @@ Changed
   request skips TLS certificate verification.
 * Containers start with a dynamic host port retry when the runtime reports the port is already in use, and a
   container that exits during startup fails the fixture at once with its last log lines.
+* ``ContainerService.run(shm_size=...)`` is now passed to the container runtime (it was accepted and ignored) and
+  also accepts size strings such as ``"2g"``.
+* Without ``pytest-xdist``, an interpreter-exit hook stops the session's containers if pytest exits before its
+  normal teardown.
 * ``spanner_service`` creates the emulator instance and database through the emulator REST API (port 9020) instead of
   running the ``gcr.io/google.com/cloudsdktool/cloud-sdk:slim`` image. Under ``pytest-xdist`` with the default
   ``database`` isolation, workers share one emulator and each gets ``emulator-test-database_<worker>``.
