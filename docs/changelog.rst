@@ -14,6 +14,23 @@ Added
 * ``minio_image`` (default ``cgr.dev/chainguard/minio:latest``) and ``rustfs_image`` (default
   ``rustfs/rustfs:latest``) fixtures; overriding them changes the image ``minio_service`` / ``rustfs_service`` start.
 * Python 3.14 and 3.15 classifiers.
+* Podman support. The runtime is resolved from ``PYTEST_DATABASES_CONTAINER_RUNTIME_ENDPOINT``, ``DOCKER_HOST``,
+  ``CONTAINER_HOST``, the current Docker context, the default Docker socket, Podman connection files, and the
+  rootless and rootful Podman sockets, preferring Docker in ``auto`` mode.
+* ``--container-runtime`` option and ``container_runtime`` ini setting (``auto``, ``docker`` or ``podman``); the
+  ``PYTEST_DATABASES_CONTAINER_RUNTIME`` environment variable sets the same choice.
+* ``container_runtime``, ``container_client`` and ``container_service`` fixtures. ``docker_client`` and
+  ``docker_service`` remain as aliases, and ``DockerService`` is an alias of ``ContainerService``.
+* ``ContainerRuntimeConfig``, ``RuntimeType``, ``RuntimeCandidate``, ``RuntimeResolutionError``,
+  ``derive_session_owner_id``, ``stop_owned_containers``, ``stop_all_containers`` and the ``MANAGED_LABEL``,
+  ``OWNER_LABEL`` and ``SERVICE_LABEL`` constants exported from ``pytest_databases``.
+* ``PYTEST_DATABASES_NAMESPACE`` environment variable, appended to the session owner ID so concurrent runs from the
+  same checkout do not share containers.
+* ``ContainerService.run_container``, ``resolve_port``, ``get_internal_network_ip`` and the ``extra_ports``
+  argument of ``ContainerService.run``.
+* ``xdist_spanner_isolation_level`` (default ``database``), ``spanner_project``, ``spanner_instance_name`` and
+  ``spanner_database_name`` fixtures, ``SpannerService.rest_port`` / ``rest_endpoint``,
+  ``provide_spanner_service`` and ``bootstrap_spanner_emulator(host, rest_port, ...)``.
 
 Changed
 ~~~~~~~
@@ -23,6 +40,11 @@ Changed
   test process. The ``minio/mc:latest`` and ``rustfs/rc:latest`` helper containers (run with
   ``network_mode="host"``) are no longer pulled or started. With ``minio_secure`` / ``rustfs_secure`` enabled the
   request skips TLS certificate verification.
+* Containers start with a dynamic host port retry when the runtime reports the port is already in use, and a
+  container that exits during startup fails the fixture at once with its last log lines.
+* ``spanner_service`` creates the emulator instance and database through the emulator REST API (port 9020) instead of
+  running the ``gcr.io/google.com/cloudsdktool/cloud-sdk:slim`` image. Under ``pytest-xdist`` with the default
+  ``database`` isolation, workers share one emulator and each gets ``emulator-test-database_<worker>``.
 * ``yugabyte_service`` readiness verifies the database inside the service container and probes the mapped port,
   instead of starting a second ``ysqlsh`` container with ``network_mode="host"``.
 
@@ -31,6 +53,15 @@ Breaking
 
 * ``requires-python`` raised from ``>=3.9`` to ``>=3.11``. Python 3.9 and 3.10 are no longer supported.
 * The ``all`` optional extra has been removed; install the specific provider extras or client packages directly.
+* Container names changed from ``pytest_databases_<service>`` to ``pytest_databases_<service>_<owner>``, where
+  ``<owner>`` is derived from the pytest root path (plus ``PYTEST_DATABASES_NAMESPACE``). Scripts that address
+  containers by the old name must filter on the ``pytest_databases.service`` label instead.
+* Container labels changed from the list ``["pytest_databases"]`` to a mapping with ``pytest_databases``,
+  ``pytest_databases.owner`` and ``pytest_databases.service`` keys.
+* Session start and end only remove containers carrying this session's ``pytest_databases.owner`` label, instead
+  of every container labelled ``pytest_databases``. Use ``stop_all_containers`` for the previous behavior.
+* ``get_docker_host()`` returns the endpoint of the resolved runtime instead of parsing ``docker context ls``, and
+  raises ``RuntimeResolutionError`` when no Docker or Podman endpoint is reachable.
 * Under ``pytest-xdist`` with the default ``database`` isolation, ``minio_default_bucket_name`` and
   ``rustfs_default_bucket_name`` are now ``pytest-databases-<worker>`` (previously ``pytest-databases`` for all
   workers). Read the bucket from the fixture instead of hard-coding it.
