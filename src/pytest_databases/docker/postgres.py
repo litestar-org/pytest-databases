@@ -126,7 +126,7 @@ def _provide_postgres_service(
             ) as conn:
                 db_open = conn.execute("SELECT 1").fetchone()
                 return bool(db_open is not None and db_open[0] == 1)
-        except Exception:  # noqa: BLE001
+        except Exception:  # ruff: ignore[blind-except]
             return False
 
     worker_num = get_xdist_worker_num()
@@ -147,7 +147,7 @@ def _provide_postgres_service(
         env={
             "POSTGRES_PASSWORD": password,
         },
-        exec_after_start=f"psql -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
+        exec_after_start=f"psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE {db_name};'",
         transient=xdist_postgres_isolate == "server",
         host_port=host_port,
     ) as service:

@@ -3,6 +3,40 @@ Changelog
 
 All notable changes to this project will be documented in this file.
 
+0.20.0 (unreleased)
+-------------------
+
+Added
+~~~~~
+
+* ``MinioService.endpoint_url`` and ``RustfsService.endpoint_url`` (``http://`` or ``https://`` per ``secure``),
+  and ``MinioService.ensure_bucket(name)`` / ``RustfsService.ensure_bucket(name)`` to create extra buckets.
+* ``minio_image`` (default ``cgr.dev/chainguard/minio:latest``) and ``rustfs_image`` (default
+  ``rustfs/rustfs:latest``) fixtures; overriding them changes the image ``minio_service`` / ``rustfs_service`` start.
+* Python 3.14 and 3.15 classifiers.
+
+Changed
+~~~~~~~
+
+* Default MinIO image changed from ``quay.io/minio/minio`` to ``cgr.dev/chainguard/minio:latest``.
+* ``minio_service`` and ``rustfs_service`` create the default bucket with an AWS SigV4-signed HTTP ``PUT`` from the
+  test process. The ``minio/mc:latest`` and ``rustfs/rc:latest`` helper containers (run with
+  ``network_mode="host"``) are no longer pulled or started. With ``minio_secure`` / ``rustfs_secure`` enabled the
+  request skips TLS certificate verification.
+* ``yugabyte_service`` readiness verifies the database inside the service container and probes the mapped port,
+  instead of starting a second ``ysqlsh`` container with ``network_mode="host"``.
+
+Breaking
+~~~~~~~~
+
+* ``requires-python`` raised from ``>=3.9`` to ``>=3.11``. Python 3.9 and 3.10 are no longer supported.
+* The ``all`` optional extra has been removed; install the specific provider extras or client packages directly.
+* Under ``pytest-xdist`` with the default ``database`` isolation, ``minio_default_bucket_name`` and
+  ``rustfs_default_bucket_name`` are now ``pytest-databases-<worker>`` (previously ``pytest-databases`` for all
+  workers). Read the bucket from the fixture instead of hard-coding it.
+* A failure to create the MinIO or RustFS default bucket now raises ``RuntimeError`` during fixture setup instead of
+  being ignored.
+
 0.19.0 (2026-05-23)
 -------------------
 

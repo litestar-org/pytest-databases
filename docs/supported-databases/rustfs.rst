@@ -25,7 +25,10 @@ Configuration
 * ``RUSTFS_ACCESS_KEY``: Access key for RustFS (default: "pytest-databases-rustfs")
 * ``RUSTFS_SECRET_KEY``: Secret key for RustFS (default: "pytest-databases-rustfs-secret")
 * ``RUSTFS_SECURE``: Whether to use HTTPS (default: "false")
-* ``RUSTFS_DEFAULT_BUCKET_NAME``: The default bucket to create (default: "pytest-databases")
+* ``RUSTFS_DEFAULT_BUCKET_NAME``: The default bucket to create (default: "pytest-databases", suffixed with the worker number under ``pytest-xdist``)
+
+The fixture creates the default bucket with a signed S3 ``PUT`` request before yielding. Use
+``RustfsService.endpoint_url`` as the S3 endpoint and ``RustfsService.ensure_bucket(name)`` to create more buckets.
 
 .. note::
 
@@ -48,12 +51,9 @@ Using ``boto3``:
     pytest_plugins = ["pytest_databases.docker.rustfs"]
 
     def test_with_boto3(rustfs_service: RustfsService, rustfs_default_bucket_name: str) -> None:
-        scheme = "https" if rustfs_service.secure else "http"
-        endpoint_url = f"{scheme}://{rustfs_service.endpoint}"
-
         s3 = boto3.client(
             "s3",
-            endpoint_url=endpoint_url,
+            endpoint_url=rustfs_service.endpoint_url,
             aws_access_key_id=rustfs_service.access_key,
             aws_secret_access_key=rustfs_service.secret_key,
             config=Config(signature_version="s3v4"),
@@ -68,6 +68,7 @@ Using ``boto3``:
 Available Fixtures
 ------------------
 
+* ``rustfs_image``: The RustFS container image (default: ``rustfs/rustfs:latest``).
 * ``rustfs_access_key``: The access key for RustFS (default: "pytest-databases-rustfs").
 * ``rustfs_secret_key``: The secret key for RustFS (default: "pytest-databases-rustfs-secret").
 * ``rustfs_secure``: Whether to use HTTPS for RustFS (default: "false").

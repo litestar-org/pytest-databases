@@ -10,12 +10,12 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[minio]
+   pip install pytest-databases
 
 Docker Image
 ------------
 
-`Official MinIO Docker Image <https://quay.io/minio/minio>`_
+`Chainguard MinIO Docker Image <https://images.chainguard.dev/directory/image/minio/overview>`_
 
 Configuration
 -------------
@@ -23,6 +23,10 @@ Configuration
 * ``MINIO_ACCESS_KEY``: Access key for MinIO (default: "minio")
 * ``MINIO_SECRET_KEY``: Secret key for MinIO (default: "minio123")
 * ``MINIO_SECURE``: Whether to use HTTPS (default: "false")
+* ``MINIO_DEFAULT_BUCKET_NAME``: The default bucket to create (default: "pytest-databases", suffixed with the worker number under ``pytest-xdist``)
+
+The fixture creates the default bucket with a signed S3 ``PUT`` request before yielding. Use
+``MinioService.endpoint_url`` as the S3 endpoint and ``MinioService.ensure_bucket(name)`` to create more buckets.
 
 Usage Example
 -------------
@@ -45,18 +49,23 @@ Usage Example
         client.make_bucket("test-bucket")
         assert client.bucket_exists("test-bucket")
 
-    def test(minio_client: Minio) -> None:
-        minio_client.make_bucket("test-bucket")
-        assert minio_client.bucket_exists("test-bucket")
+    def test_default_bucket(minio_service: MinioService, minio_default_bucket_name: str) -> None:
+        client = Minio(
+            endpoint=minio_service.endpoint,
+            access_key=minio_service.access_key,
+            secret_key=minio_service.secret_key,
+            secure=minio_service.secure,
+        )
+        assert client.bucket_exists(minio_default_bucket_name)
 
 Available Fixtures
 ------------------
 
+* ``minio_image``: The MinIO container image (default: ``cgr.dev/chainguard/minio:latest``).
 * ``minio_access_key``: The access key for MinIO defaults to os.getenv("MINIO_ACCESS_KEY", "minio").
 * ``minio_secret_key``: The secret key for MinIO defaults to os.getenv("MINIO_SECRET_KEY", "minio123").
 * ``minio_secure``: Whether to use HTTPS for MinIO defaults to os.getenv("MINIO_SECURE", "false").
 * ``minio_service``: A fixture that provides a MinIO service.
-* ``minio_client``: A fixture that provides a MinIO client.
 * ``minio_default_bucket_name``: A fixture that provides the default bucket name.
 
 Service API

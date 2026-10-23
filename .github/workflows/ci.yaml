@@ -5,158 +5,309 @@ on:
     branches:
       - main
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: test-${{ github.head_ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHONUNBUFFERED: "1"
   FORCE_COLOR: "1"
 
 jobs:
-  test:
-    name: Python ${{ matrix.python-version }} - ${{ matrix.cdist-group }}/3
+  select:
+    name: Select provider tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      mode: ${{ steps.select.outputs.mode }}
+      providers: ${{ steps.select.outputs.providers }}
+      run_compatibility: ${{ steps.select.outputs.run_compatibility }}
+      run_docs: ${{ steps.select.outputs.run_docs }}
+      run_provider_tests: ${{ steps.select.outputs.run_provider_tests }}
+      run_quality: ${{ steps.select.outputs.run_quality }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Select provider scope
+        id: select
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          LABEL_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+        run: |
+          args=(--github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
+          full_reason=""
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            full_reason="nightly schedule"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            full_reason="manual workflow dispatch"
+          elif [[ "$LABEL_FULL" == "true" ]]; then
+            full_reason="ci:full label"
+          elif [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            full_reason="unavailable push base"
+          fi
+          if [[ -n "$full_reason" ]]; then
+            args+=(--full --full-reason "$full_reason")
+          else
+            args+=(--base-ref "$BASE_SHA" --head-ref "$HEAD_SHA")
+          fi
+          uv run --frozen --python 3.12 python -m scripts.ci.select_provider_tests "${args[@]}"
+
+  compatibility:
+    name: Clientless compatibility / Python ${{ matrix.python-version }} (${{ matrix.pytest-spec }})
+    if: needs.select.outputs.run_compatibility == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: ${{ matrix.python-version == '3.15' }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-        cdist-group: [1, 2, 3]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        pytest-spec: ["pytest>=9"]
+        include:
+          - python-version: "3.12"
+            pytest-spec: "pytest>=7,<8"
+          - python-version: "3.12"
+            pytest-spec: "pytest>=8,<9"
 
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: ${{ matrix.python-version }}
+          persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
-      - name: Intall dependencies
-        run: uv sync --frozen --all-extras
+      - name: Install Python
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: uv python install "$PYTHON_VERSION"
 
-      # Pre-pull docker images with retry to absorb transient registry failures
-      # (MCR WAF blocks on mcr.microsoft.com, Docker Hub anonymous rate limits)
-      # before pytest starts spawning fixture subprocesses. Pull in parallel
-      # (-P 6) - sequential pulls of ~30 images cost 10+ min on a runner.
-      - name: Pre-pull docker images
+      - name: Install clientless test dependencies
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+          PYTEST_SPEC: ${{ matrix.pytest-spec }}
         run: |
-          set -u
-          images=(
-            "mcr.microsoft.com/azure-storage/azurite"
-            "mcr.microsoft.com/mssql/server:2022-latest"
-            "dolthub/dolt-sql-server:latest"
-            "postgres:11" "postgres:12" "postgres:13" "postgres:14"
-            "postgres:15" "postgres:16" "postgres:17" "postgres:18"
-            "pgvector/pgvector:pg15"
-            "paradedb/paradedb:0.21.5-pg16"
-            "google/alloydbomni:16"
-            "mysql:5.6" "mysql:5.7" "mysql:8"
-            "mariadb:11.3"
-            "gvenzl/oracle-free:23-slim-faststart"
-            "gvenzl/oracle-xe:18-slim-faststart"
-            "redis:latest"
-            "valkey/valkey:latest"
-            "mongo:latest"
-            "cockroachdb/cockroach:latest"
-            "software.yugabyte.com/yugabytedb/yugabyte:latest"
-            "quay.io/minio/minio"
-            "minio/mc:latest"
-            "rustfs/rustfs:latest"
-            "rustfs/rc:latest"
-            "gcr.io/cloud-spanner-emulator/emulator:latest"
-            "ghcr.io/goccy/bigquery-emulator:latest"
-            "gizmodata/gizmosql:latest"
-          )
-          printf '%s\n' "${images[@]}" | xargs -n1 -P6 -I{} bash -c '
-            image="$1"
-            for attempt in 1 2 3 4 5; do
-              if docker pull --quiet "$image"; then
-                exit 0
-              fi
-              [ "$attempt" -lt 5 ] && sleep $((attempt * attempt * 5))
-            done
-            echo "::warning::Failed to pull $image after 5 attempts"
-          ' _ {}
+          uv sync --frozen --no-dev --group test --python "$PYTHON_VERSION"
+          if [[ "$PYTEST_SPEC" != "pytest>=9" ]]; then
+            uv pip install "$PYTEST_SPEC"
+          fi
 
-      - if: matrix.python-version == '3.12'
-        name: Run tests with coverage tracking
-        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
+      - name: Run clientless compatibility tests
+        run: uv run --no-sync python -m scripts.ci.run_tests --compatibility
 
-      - if: matrix.python-version != '3.12'
-        name: Run tests without tracking coverage
-        run: uv run pytest --cdist-group=${{ matrix.cdist-group }}/3 -k "not elasticsearch"
-
-      - if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v7
+  quality:
+    name: Quality
+    if: needs.select.outputs.run_quality == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: coverage-xml
-          path: coverage.xml
+          persist-credentials: false
 
-      - if: matrix.python-version == '3.12'
-        name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v7.0.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --dev --python 3.12
+
+      - name: Run lint, type checks, and security checks
+        run: make lint
+
+      - name: Run CI selector unit tests
+        run: uv run --no-sync pytest tests/test_ci_provider_groups.py -o addopts=""
+
+  docs:
+    name: Documentation
+    if: needs.select.outputs.run_docs == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --dev --python 3.12
+
+      - name: Build documentation
+        run: make docs
+
+  provider:
+    name: Provider / ${{ matrix.provider }} / Python ${{ matrix.python-version }}
+    if: needs.select.outputs.run_provider_tests == 'true'
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: ${{ matrix.python-version == '3.15' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install Python
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: uv python install "$PYTHON_VERSION"
+
+      - name: Install dependencies
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: uv sync --frozen --all-extras --dev --python "$PYTHON_VERSION"
+
+      - name: Pull provider images
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: uv run --no-sync python -m scripts.ci.pull_images --provider "$PROVIDER"
+
+      - name: Run provider tests with coverage
+        if: matrix.python-version == '3.12'
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: uv run --no-sync python -m scripts.ci.run_tests --provider "$PROVIDER" --coverage
+
+      - name: Run provider tests
+        if: matrix.python-version != '3.12'
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: uv run --no-sync python -m scripts.ci.run_tests --provider "$PROVIDER"
+
+      - name: Name raw coverage data
+        if: matrix.python-version == '3.12'
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: mv .coverage ".coverage.$PROVIDER"
+
+      - name: Upload raw coverage data
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-data-${{ matrix.provider }}
+          path: .coverage.${{ matrix.provider }}
+          include-hidden-files: true
+
+  coverage:
+    name: Coverage
+    if: needs.select.outputs.run_provider_tests == 'true' && needs.provider.result == 'success'
+    needs: [select, provider]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install coverage dependencies
+        run: uv sync --frozen --no-dev --group test --python 3.12
+
+      - name: Download raw coverage data
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: coverage-data-*
+          path: coverage-data
+          merge-multiple: true
+
+      - name: Combine coverage data
+        run: |
+          uv run --no-sync coverage combine coverage-data
+          uv run --no-sync coverage xml
+
+      - name: Upload coverage report to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: litestar-org/pytest-databases
+          files: coverage.xml
+          fail_ci_if_error: false
 
-  # run elasticsearch in a separate step. it's too slow
-  test_elasticsearch:
+  ci-required:
+    name: CI required
+    if: ${{ !cancelled() }}
+    needs: [select, quality, compatibility, docs, provider, coverage]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: 3.9
+          persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
-      - name: Intall dependencies
-        run: uv sync --frozen --all-extras
+      - name: Install Python
+        run: uv python install 3.12
 
-      - name: Pre-pull docker images
-        run: |
-          set -u
-          for image in "elasticsearch:7.17.19" "elasticsearch:8.13.0"; do
-            for attempt in 1 2 3 4 5; do
-              if docker pull --quiet "$image"; then
-                break
-              fi
-              [ "$attempt" -eq 5 ] && echo "::warning::Failed to pull $image" || sleep $((attempt * attempt * 5))
-            done
-          done
-
-      - name: Run tests with coverage tracking
-        run: uv run pytest -k elasticsearch
-
-  # sonar:
-  #   needs:
-  #     - test
-  #     - test_elasticsearch
-  #   if: github.event.pull_request.head.repo.fork == false && github.repository_owner == 'litestar-org'
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Check out repository
-  #       uses: actions/checkout@v7
-  #       with:
-  #         fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
-  #     - name: Download Artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         name: coverage-xml
-
-  #     - name: Fix coverage file for sonarcloud
-  #       run: sed -i "s/home\/runner\/work\/pytest-databases\/pytest-databases/github\/workspace/g" coverage.xml
-
-  #     - name: SonarCloud Scan
-  #       uses: sonarsource/sonarcloud-github-action@master
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Validate required job results
+        env:
+          SELECT_RESULT: ${{ needs.select.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          PROVIDER_RESULT: ${{ needs.provider.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+          EXPECT_QUALITY: ${{ needs.select.outputs.run_quality }}
+          EXPECT_COMPATIBILITY: ${{ needs.select.outputs.run_compatibility }}
+          EXPECT_DOCS: ${{ needs.select.outputs.run_docs }}
+          EXPECT_PROVIDER: ${{ needs.select.outputs.run_provider_tests }}
+          EXPECT_COVERAGE: ${{ needs.select.outputs.run_provider_tests }}
+        run: >-
+          uv run --no-sync --python 3.12 python -m scripts.ci.check_required_jobs
+          --select "$SELECT_RESULT"
+          --quality "$QUALITY_RESULT"
+          --compatibility "$COMPATIBILITY_RESULT"
+          --docs "$DOCS_RESULT"
+          --provider "$PROVIDER_RESULT"
+          --coverage "$COVERAGE_RESULT"
+          --expect-quality "$EXPECT_QUALITY"
+          --expect-compatibility "$EXPECT_COMPATIBILITY"
+          --expect-docs "$EXPECT_DOCS"
+          --expect-provider "$EXPECT_PROVIDER"
+          --expect-coverage "$EXPECT_COVERAGE"
