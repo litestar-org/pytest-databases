@@ -65,6 +65,10 @@ Added
   (default ``dolthub/dolt-sql-server:latest``).
 * ``mysql_platform``, ``dolt_platform`` and ``bigquery_platform`` fixtures. ``mysql_56_service`` /
   ``mysql_57_service``, ``dolt_service`` and ``bigquery_service`` read their container platform from these.
+* ``redpanda_service`` (``RedpandaService`` with ``bootstrap_servers`` and ``topic_prefix``), ``redpanda_image``
+  (default ``docker.redpanda.com/redpandadata/redpanda:v26.1.13``, env ``REDPANDA_IMAGE``), ``redpanda_port`` (env
+  ``REDPANDA_PORT``), ``xdist_redpanda_isolation_level`` (default ``database``), ``provide_redpanda_service`` and
+  ``fetch_kafka_brokers``. The broker advertises the host port the runtime maps.
 
 Changed
 ~~~~~~~
