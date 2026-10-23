@@ -1,13 +1,17 @@
-"""Helper utilities for hashing, pytest-xdist worker discovery, container output, and port probes."""
+"""Helper utilities for hashing, pytest-xdist worker discovery, container output, and port and HTTP probes."""
 
 from __future__ import annotations
 
 import hashlib
+import http.client
+import json
 import os
 import platform
 import socket
+import urllib.error
+import urllib.request
 import warnings
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -20,9 +24,13 @@ __all__ = (
     "get_xdist_worker_count",
     "get_xdist_worker_id",
     "get_xdist_worker_num",
+    "http_get_json",
+    "http_get_ok",
     "simple_string_hash",
     "tcp_port_open",
 )
+
+_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def exec_output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
@@ -88,6 +96,41 @@ def tcp_port_open(host: str, port: int, timeout: float = 2.0) -> bool:
         return False
 
 
+def http_get_ok(url: str, *, timeout: float = 2.0) -> bool:
+    """Return whether an HTTP ``GET`` of ``url`` answers with status 200.
+
+    Connection errors, timeouts, HTTP error statuses, and malformed responses count as not ready. HTTP error
+    responses are closed so probes that run in a loop do not leak sockets.
+
+    Args:
+        url: URL to request.
+        timeout: Socket timeout in seconds.
+
+    Returns:
+        True when the response status is 200, otherwise False.
+    """
+    return _http_get(url, timeout=timeout) is not None
+
+
+def http_get_json(url: str, *, timeout: float = 2.0) -> Any | None:
+    """Return the decoded JSON body of an HTTP ``GET`` of ``url`` that answers with status 200.
+
+    Args:
+        url: URL to request.
+        timeout: Socket timeout in seconds.
+
+    Returns:
+        The decoded JSON document, or None when the request fails, the status is not 200, or the body is not JSON.
+    """
+    body = _http_get(url, timeout=timeout)
+    if body is None:
+        return None
+    try:
+        return json.loads(body)
+    except ValueError:
+        return None
+
+
 def resolve_legacy_platform(request: pytest.FixtureRequest, replacement: str | None, default: str | None) -> str | None:
     """Return a user override of the bare ``platform`` fixture, or ``default``.
 
@@ -119,3 +162,24 @@ def resolve_legacy_platform(request: pytest.FixtureRequest, replacement: str | N
         stacklevel=2,
     )
     return request.getfixturevalue("platform")
+
+
+def _http_get(url: str, *, timeout: float) -> bytes | None:
+    """Return the body of an HTTP ``GET`` of ``url`` when it answers with status 200, otherwise None.
+
+    Raises:
+        ValueError: If ``url`` is not an ``http://`` or ``https://`` URL.
+    """
+    if not url.startswith(("http://", "https://")):
+        msg = f"Only http:// and https:// URLs can be probed, got {url!r}"
+        raise ValueError(msg)
+    try:
+        with _DIRECT_OPENER.open(url, timeout=timeout) as response:
+            if response.status != 200:
+                return None
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        return None
+    except (OSError, http.client.HTTPException):
+        return None

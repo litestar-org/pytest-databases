@@ -69,6 +69,14 @@ Added
   (default ``docker.redpanda.com/redpandadata/redpanda:v26.1.13``, env ``REDPANDA_IMAGE``), ``redpanda_port`` (env
   ``REDPANDA_PORT``), ``xdist_redpanda_isolation_level`` (default ``database``), ``provide_redpanda_service`` and
   ``fetch_kafka_brokers``. The broker advertises the host port the runtime maps.
+* ``localstack_service`` (``LocalStackService`` with ``endpoint_url``, credentials, ``resource_prefix`` and
+  ``exec_aws_cli()``), ``provide_localstack_service`` and the ``localstack_image``, ``localstack_auth_token``,
+  ``localstack_region``, ``localstack_access_key``, ``localstack_secret_key``, ``localstack_services``,
+  ``localstack_resource_prefix`` and ``xdist_localstack_isolation_level`` fixtures (each with a ``LOCALSTACK_*``
+  environment variable). The default image is MiniStack (``ministackorg/ministack:latest``); set
+  ``LOCALSTACK_IMAGE`` and ``LOCALSTACK_AUTH_TOKEN`` for a LocalStack image.
+* ``pytest_databases.helpers.http_get_ok(url, *, timeout)`` and ``http_get_json(url, *, timeout)`` HTTP readiness
+  probes.
 
 Changed
 ~~~~~~~
