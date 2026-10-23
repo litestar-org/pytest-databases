@@ -56,6 +56,7 @@
     "tests/test_oracle.py::test_plugin_imports_without_oracledb",
     "tests/test_postgres.py::test_plugin_imports_without_psycopg",
     "tests/test_pubsub.py::test_plugin_imports_without_google_cloud_pubsub",
+    "tests/test_rabbitmq.py::test_plugin_imports_without_amqp_clients",
     "tests/test_redis.py::test_plugin_imports_without_redis",
     "tests/test_redpanda.py::test_plugin_imports_without_kafka_clients",
     "tests/test_spanner.py::test_plugin_imports_without_google_cloud_spanner",
@@ -222,6 +223,12 @@
         "gcr.io/google.com/cloudsdktool/google-cloud-cli:577.0.0-emulators"
       ],
       "docs_globs": ["docs/supported-databases/pubsub.rst"]
+    },
+    "rabbitmq": {
+      "source_globs": ["src/pytest_databases/docker/rabbitmq.py"],
+      "test_paths": ["tests/test_rabbitmq.py"],
+      "images": ["rabbitmq:4.3-management"],
+      "docs_globs": ["docs/supported-databases/rabbitmq.rst"]
     },
     "redis": {
       "source_globs": ["src/pytest_databases/docker/redis.py"],
