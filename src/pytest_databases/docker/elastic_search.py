@@ -31,7 +31,7 @@ def _check_cluster_health(host: str, port: int, *, timeout: float = 2.0) -> bool
         headers={"Accept": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             if response.status != 200:
                 return False
             payload = json.loads(response.read().decode("utf-8"))
