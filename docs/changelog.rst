@@ -77,6 +77,10 @@ Added
   ``LOCALSTACK_IMAGE`` and ``LOCALSTACK_AUTH_TOKEN`` for a LocalStack image.
 * ``pytest_databases.helpers.http_get_ok(url, *, timeout)`` and ``http_get_json(url, *, timeout)`` HTTP readiness
   probes.
+* ``pubsub_service`` (``PubSubService`` with ``project``, ``emulator_host`` and ``endpoint``), ``pubsub_image``
+  (default ``gcr.io/google.com/cloudsdktool/google-cloud-cli:577.0.0-emulators``, env ``PUBSUB_IMAGE``),
+  ``pubsub_project``, ``xdist_pubsub_isolation_level`` (default ``database``: one emulator, a project per worker) and
+  ``provide_pubsub_service``.
 
 Changed
 ~~~~~~~
