@@ -1,8 +1,10 @@
+"""Build documentation output directory and redirect landing page."""
+
 from __future__ import annotations
 
 import argparse
 import shutil
-import subprocess  # noqa: S404
+import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -31,15 +33,15 @@ parser.add_argument("output")
 
 @contextmanager
 def checkout(branch: str) -> Generator[None, None, None]:
-    subprocess.run(["git", "checkout", branch], check=True)  # noqa: S607
+    subprocess.run(["git", "checkout", branch], check=True)
     try:
         yield
     finally:
-        subprocess.run(["git", "checkout", "-"], check=True)  # noqa: S607
+        subprocess.run(["git", "checkout", "-"], check=True)
 
 
 def build(output_dir: str) -> None:
-    subprocess.run(["make", "docs"], check=True)  # noqa: S607
+    subprocess.run(["make", "docs"], check=True)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)

@@ -11,21 +11,22 @@ repos:
       - id: check-merge-conflict
       - id: check-xml
       - id: check-yaml
-        args: ["--unsafe"] # needed for !! tags in mkdocs.yml
+        args: ["--unsafe"]
       - id: debug-statements
       - id: end-of-file-fixer
       - id: mixed-line-ending
-        args: ["--fix=auto"] # replace 'auto' with 'lf' to enforce Linux/Mac line endings or 'crlf' for Windows
+        args: ["--fix=auto"]
 
-  # Ruff replaces black, flake8, autoflake and isort
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: "v0.15.14" # make sure this is always consistent with hatch configs
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
     hooks:
-      - id: ruff
+      - id: ruff-check
+        args: [--fix, --config, ./pyproject.toml]
+      - id: ruff-format
         args: [--config, ./pyproject.toml]
 
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.3
     hooks:
-      - id: prettier
-        exclude: templates|migrations|scripts|docs|dist|.venv|public
+      - id: codespell
+        additional_dependencies: ["tomli"]

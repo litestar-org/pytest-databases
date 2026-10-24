@@ -24,3 +24,10 @@ This section provides detailed information on the supported databases, including
    azure_blob_storage
    minio
    rustfs
+   redpanda
+   localstack
+   pubsub
+   rabbitmq
+   db2
+   floci
+   snowflake

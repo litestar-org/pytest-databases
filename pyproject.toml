@@ -47,6 +47,8 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
@@ -59,21 +61,46 @@ Issues = "https://github.com/litestar-org/pytest-databases/issues"
 Source = "https://github.com/litestar-org/pytest-databases"
 
 [project.optional-dependencies]
+all = [
+  "adbc-driver-flightsql",
+  "azure-storage-blob",
+  "google-cloud-bigquery",
+  "psycopg>=3",
+  "pyarrow",
+  "redis",
+]
+alloydb = []
+azure = ["azure-storage-blob"]
+azure-blob = ["azure-storage-blob"]
 azure-storage = ["azure-storage-blob"]
 bigquery = ["google-cloud-bigquery"]
 cockroachdb = []
+db2 = []
+dolt = []
 dragonfly = ["redis"]
+elasticsearch = []
 elasticsearch7 = []
 elasticsearch8 = []
+elasticsearch9 = []
+floci = []
+gcs = []
 gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 keydb = ["redis"]
+localstack = []
 mariadb = []
+minio = []
 mongodb = []
 mssql = []
 mysql = []
+oci = []
 oracle = []
 postgres = ["psycopg>=3"]
+pubsub = []
+rabbitmq = []
 redis = ["redis"]
+redpanda = []
+rustfs = []
+snowflake = []
 spanner = []
 valkey = []
 yugabyte = []
@@ -106,6 +133,7 @@ doc = [
 ]
 extra = ["psycopg[binary,pool]"]
 lint = [
+  "codespell",
   "mypy",
   "ruff",
   "pyright",
@@ -118,10 +146,10 @@ lint = [
   "types-redis",
   "types-pymysql",
   "slotscheck",
+  "zizmor>=1.23.1; python_version >= \"3.10\"",
 ]
 test = [
   "coverage[toml]>=6.2",
-  "google-cloud-spanner",
   "pytest",
   "pytest-cov",
   "pytest-cdist>=0.2",
@@ -175,16 +203,18 @@ strict-imports = false
 
 [tool.codespell]
 ignore-words-list = "alog"
-skip = 'uv.lock, package-lock.json'
+skip = 'uv.lock, package-lock.json, docs/_build'
 
 [tool.pyright]
-exclude = ["scripts", "docs"]
-include = ["src/pytest_databases", "tests"]
+exclude = ["docs"]
+include = ["src/pytest_databases", "tests", "scripts/ci"]
+reportMissingImports = "none"
+reportMissingModuleSource = "none"
 
 
 [tool.mypy]
 disallow_untyped_defs = false
-files = ["src/pytest_databases", "tests"]
+files = ["src/pytest_databases", "tests", "scripts/ci"]
 follow_imports = "normal"                 # "silent" for not following
 ignore_missing_imports = true
 pretty = true
@@ -210,8 +240,18 @@ module = ["docutils.nodes.*"]
 
 
 [[tool.mypy.overrides]]
+disable_error_code = ["import-untyped"]
 ignore_missing_imports = true
-module = ["pyodbc", "google.auth.*", "google.cloud.*", "google.protobuf.*", "googleapiclient", "googleapiclient.*"]
+module = [
+  "pyodbc",
+  "redis",
+  "redis.*",
+  "google.auth.*",
+  "google.cloud.*",
+  "google.protobuf.*",
+  "googleapiclient",
+  "googleapiclient.*",
+]
 
 [tool.ruff]
 exclude = [
@@ -237,7 +277,7 @@ exclude = [
   '__pycache__',
 ]
 fix = true
-include = ["src/**/*.py", "src/**/*.pyi", "tests/**/*.py", "tests/**/*.pyi"]
+include = ["src/**/*.py", "src/**/*.pyi", "tests/**/*.py", "tests/**/*.pyi", "scripts/**/*.py"]
 line-length = 120
 lint.fixable = ["ALL"]
 lint.ignore = [
@@ -256,7 +296,7 @@ lint.ignore = [
   "PLC1901", # empty string comparisons
   "PLW2901", # `for` loop variable overwritten
   "SIM114",  # Combine `if` branches using logical `or` operator
-  "E203",    # Whitespace before :, needed for black compatability and also `ruff format`
+  "E203",    # Whitespace before :, needed for black compatibility and also `ruff format`
   "ISC001",  # causes unexpected behaviour with formatter
   "E501",    # pycodestyle line too long, handled by black
   "D100",    # pydocstyle - missing docstring in public module
@@ -315,14 +355,14 @@ lint.select = ["ALL"]
 # Allow unused variables when underscore-prefixed.
 lint.dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 preview = true                                                    # preview features & checks, use with caution
-src = ["src", "tests/", "docs/"]
+src = ["src", "tests/", "docs/", "scripts/"]
 target-version = "py39"
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff.lint.isort]
-known-first-party = ["pytest_databases", "tests"]
+known-first-party = ["pytest_databases", "tests", "scripts"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -337,6 +377,8 @@ docstring-code-line-length = 60
 "__main__.py" = ["E402"]
 "docs/*" = ["S404", "INP001"]
 "examples/*" = ["T201"]
+"scripts/**/*" = ["S404", "S607"]
+"src/pytest_databases/docker/*" = ["S310"]
 # Tests can use magic values, assertions, and relative imports
 "tests/**/*" = [
   "PLR2004",
