@@ -2,17 +2,50 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pytest_databases.docker import oracle
 from pytest_databases.docker.oracle import (
+    OracleService,
     ensure_oracle_user,
+    open_oracle_connection,
     provide_oracle_service,
 )
 from pytest_databases.types import ServiceContainer
 
+if TYPE_CHECKING:
+    from pytest import MonkeyPatch
+
 pytest_plugins = ["pytest_databases.docker.oracle"]
+
+
+def test_plugin_imports_without_oracledb(pytester: pytest.Pytester) -> None:
+    """Ensure the Oracle module imports cleanly when oracledb is absent."""
+    pytester.makepyfile("""
+    import builtins
+    import importlib
+
+    def test_import() -> None:
+        original_import = builtins.__import__
+
+        def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name.partition(".")[0] in {"oracledb", "cx_Oracle"}:
+                raise ModuleNotFoundError(name)
+            return original_import(name, globals, locals, fromlist, level)
+
+        builtins.__import__ = blocked_import
+        try:
+            module = importlib.import_module("pytest_databases.docker.oracle")
+            assert module.OracleService
+        finally:
+            builtins.__import__ = original_import
+    """)
+
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
+    result.assert_outcomes(passed=1)
 
 
 def test_xdist_oracle_isolation_level_default(xdist_oracle_isolation_level: str) -> None:
@@ -109,8 +142,40 @@ def test_ensure_oracle_user_invokes_sysdba() -> None:
     assert "CREATE USER app_1" in kwargs["sql"]
 
 
+def test_deprecated_oracle_connection_helpers_emit_warnings(monkeypatch: MonkeyPatch) -> None:
+    """Verify deprecated oracle_responsive and open_oracle_connection emit DeprecationWarning."""
+    fake_conn = MagicMock()
+    fake_cursor = MagicMock()
+    fake_cursor.fetchone.return_value = (1,)
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+    fake_conn.__enter__.return_value = fake_conn
+
+    fake_oracledb = MagicMock()
+    fake_oracledb.connect.return_value = fake_conn
+    monkeypatch.setattr(oracle, "_load_oracledb", lambda: fake_oracledb)
+
+    with pytest.deprecated_call(match="oracle_responsive"):
+        assert oracle.oracle_responsive("127.0.0.1", 1521, "FREEPDB1", "app", "secret") is True
+
+    service = OracleService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=1521,
+        user="app",
+        password="secret",
+        system_password="sys-secret",
+        service_name="FREEPDB1",
+    )
+    with (
+        pytest.deprecated_call(match="oracle_23ai_connection"),
+        open_oracle_connection(service, "oracle_23ai_connection") as conn,
+    ):
+        assert conn is fake_conn
+
+
 @pytest.fixture(scope="module")
 def oracle_test_helpers() -> str:
+    """Provide SQL*Plus execution helper code for pytester integration tests."""
     return """
     import shlex
 
@@ -142,6 +207,7 @@ def oracle_test_helpers() -> str:
     ],
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str, oracle_test_helpers: str) -> None:
+    """Run integration smoke tests against Oracle 18c and 23ai service fixtures."""
     pytester.makepyfile(f"""
     pytest_plugins = ["pytest_databases.docker.oracle"]
 

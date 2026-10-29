@@ -1,79 +1,57 @@
+"""MongoDB container service fixtures."""
+
 from __future__ import annotations
 
 import contextlib
+import importlib
+import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
+    from collections.abc import Generator
 
     from docker.models.containers import Container
 
     from pytest_databases._service import DockerService
 
-
-def _output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
-    if isinstance(output, bytes):
-        return output
-    if isinstance(output, str):
-        return output.encode()
-    return b"".join(output)
-
-
-def _exec_mongosh(
-    container: Container,
-    eval_script: str,
-    *,
-    user: str,
-    password: str,
-    database: str | None = None,
-) -> tuple[int, bytes]:
-    cmd = [
-        "mongosh",
-        "--quiet",
-        "--host",
-        "localhost",
-        "--port",
-        "27017",
-        "-u",
-        user,
-        "-p",
-        password,
-        "--authenticationDatabase",
-        "admin",
-    ]
-    if database is not None:
-        cmd.append(database)
-    cmd.extend(["--eval", eval_script])
-    result = container.exec_run(cmd)
-    exit_code = result.exit_code if result.exit_code is not None else -1
-    return exit_code, _output_to_bytes(result.output)
+__all__ = (
+    "MongoDBService",
+    "mongodb_connection",
+    "mongodb_database",
+    "mongodb_image",
+    "mongodb_service",
+    "provide_mongodb_service",
+    "xdist_mongodb_isolation_level",
+)
 
 
 @dataclass
 class MongoDBService(ServiceContainer):
+    """Service handle for a running MongoDB container."""
+
     username: str
     password: str
     database: str
 
 
-@pytest.fixture(scope="session")
-def xdist_mongodb_isolation_level() -> XdistIsolationLevel:
-    return "database"
-
-
 @contextlib.contextmanager
-def _provide_mongodb_service(
+def provide_mongodb_service(
     docker_service: DockerService,
     image: str,
     name: str,
     isolation_level: XdistIsolationLevel,
 ) -> Generator[MongoDBService, None, None]:
+    """Start and manage a MongoDB container service.
+
+    Yields:
+        Active MongoDBService instance.
+    """
     username = "mongo_user"
     password = "mongo_password"
     default_database_name = "pytest_db"
@@ -120,8 +98,15 @@ def _provide_mongodb_service(
         )
 
 
+@pytest.fixture(scope="session")
+def xdist_mongodb_isolation_level() -> XdistIsolationLevel:
+    """Return the pytest-xdist isolation level for MongoDB."""
+    return "database"
+
+
 @pytest.fixture(autouse=False, scope="session")
 def mongodb_image() -> str:
+    """Return the MongoDB container image."""
     return "mongo:latest"
 
 
@@ -131,5 +116,85 @@ def mongodb_service(
     xdist_mongodb_isolation_level: XdistIsolationLevel,
     mongodb_image: str,
 ) -> Generator[MongoDBService, None, None]:
-    with _provide_mongodb_service(docker_service, mongodb_image, "mongodb", xdist_mongodb_isolation_level) as service:
+    """Provide a running MongoDB container service.
+
+    Yields:
+        Active MongoDBService instance.
+    """
+    with provide_mongodb_service(docker_service, mongodb_image, "mongodb", xdist_mongodb_isolation_level) as service:
         yield service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def mongodb_connection(mongodb_service: MongoDBService) -> Generator[Any, None, None]:
+    """Provide a deprecated pymongo MongoClient connected to MongoDB.
+
+    Yields:
+        Active pymongo MongoClient instance.
+    """
+    warnings.warn(
+        "'mongodb_connection' is deprecated and will be removed in a future release. "
+        "Use 'mongodb_service' and instantiate your pymongo client directly.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    pymongo = importlib.import_module("pymongo")
+    client = pymongo.MongoClient(
+        host=mongodb_service.host,
+        port=mongodb_service.port,
+        username=mongodb_service.username,
+        password=mongodb_service.password,
+    )
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+@pytest.fixture(autouse=False, scope="function")
+def mongodb_database(
+    mongodb_connection: Any,
+    mongodb_service: MongoDBService,
+) -> Generator[Any, None, None]:
+    """Provide a deprecated pymongo Database instance for testing.
+
+    Yields:
+        Active pymongo Database instance.
+    """
+    warnings.warn(
+        "'mongodb_database' is deprecated and will be removed in a future release. "
+        "Use 'mongodb_service' and instantiate your pymongo client directly.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    yield mongodb_connection[mongodb_service.database]
+
+
+def _exec_mongosh(
+    container: Container,
+    eval_script: str,
+    *,
+    user: str,
+    password: str,
+    database: str | None = None,
+) -> tuple[int, bytes]:
+    cmd = [
+        "mongosh",
+        "--quiet",
+        "--host",
+        "localhost",
+        "--port",
+        "27017",
+        "-u",
+        user,
+        "-p",
+        password,
+        "--authenticationDatabase",
+        "admin",
+    ]
+    if database is not None:
+        cmd.append(database)
+    cmd.extend(["--eval", eval_script])
+    result = container.exec_run(cmd)
+    exit_code = result.exit_code if result.exit_code is not None else -1
+    return exit_code, exec_output_to_bytes(result.output)
