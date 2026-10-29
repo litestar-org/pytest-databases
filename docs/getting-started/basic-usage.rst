@@ -1,19 +1,20 @@
 Basic Usage
 ===========
 
-Once a plugin is enabled (e.g., PostgreSQL), you can use its fixtures directly in your tests. There are typically two main types of fixtures:
+Once a provider plugin is enabled (for example ``pytest_databases.docker.postgres``), inject its ``*_service`` fixture into your tests or application fixtures.
 
-1.  **Service Fixture** (e.g., `postgres_service`): Provides details about the running database service (host, port, credentials, etc.). Useful for connecting with your own client.
-2.  **Connection Fixture** (e.g., `postgres_connection`): Provides a ready-to-use connection object (where applicable) to the database service.
+Service Fixtures (Recommended)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Service fixtures start and verify the container and return a typed ``ServiceContainer`` handle with connection metadata (``host``, ``port``, credentials, database name, and endpoints) that you pass to your own driver, connection pool, or ORM:
 
 .. code-block:: python
 
-   # Assuming you have installed pytest-databases[postgres] and enabled the plugin
-   # Also assuming a client like psycopg is installed: pip install psycopg
    import psycopg
    from pytest_databases.docker.postgres import PostgresService
 
-   # Example using the Service Fixture
+   pytest_plugins = ["pytest_databases.docker.postgres"]
+
    def test_connection_with_service_details(postgres_service: PostgresService) -> None:
        conn_str = (
            f"postgresql://{postgres_service.user}:{postgres_service.password}@"
@@ -23,12 +24,3 @@ Once a plugin is enabled (e.g., PostgreSQL), you can use its fixtures directly i
            with conn.cursor() as cursor:
                cursor.execute("SELECT 1")
                assert cursor.fetchone() == (1,)
-
-   # Example using the Connection Fixture
-   def test_with_direct_connection(postgres_connection) -> None:
-      # postgres_connection is often a configured client or connection object
-      with postgres_connection.cursor() as cursor:
-          cursor.execute("CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY, name TEXT);")
-          cursor.execute("INSERT INTO users (id, name) VALUES (1, 'Alice');")
-          cursor.execute("SELECT name FROM users WHERE id = 1;")
-          assert cursor.fetchone() == ('Alice',)

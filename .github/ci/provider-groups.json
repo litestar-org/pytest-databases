@@ -1,0 +1,304 @@
+{
+  "schema_version": 1,
+  "supported_python_versions": ["3.11", "3.12", "3.13", "3.14", "3.15"],
+  "shared_all_provider_paths": [
+    "src/pytest_databases/__init__.py",
+    "src/pytest_databases/_service.py",
+    "src/pytest_databases/docker/__init__.py",
+    "src/pytest_databases/helpers.py",
+    "src/pytest_databases/runtime.py",
+    "src/pytest_databases/types.py",
+    "tests/conftest.py"
+  ],
+  "provider_scoped_dependency_paths": ["pyproject.toml", "uv.lock"],
+  "docs_only_globs": [
+    "*.md",
+    "*.rst",
+    "docs/**",
+    "scripts/build_docs.py",
+    "scripts/convert_docs.sh"
+  ],
+  "metadata_only_globs": [
+    ".editorconfig",
+    ".git-blame-ignore-revs",
+    ".github/CODEOWNERS",
+    ".github/dependabot.yaml",
+    ".github/release.yml",
+    ".github/workflows/cd.yaml",
+    ".github/workflows/docs.yml",
+    ".github/workflows/pr-title.yaml",
+    ".github/workflows/release.yaml",
+    ".gitignore",
+    ".pre-commit-config.yaml",
+    ".sourcery.yaml",
+    ".vscode/**",
+    "CODEOWNERS",
+    "LICENSE",
+    "Makefile",
+    "scripts/__init__.py",
+    "scripts/install-hatch.sh",
+    "sonar-project.properties",
+    "src/pytest_databases/__metadata__.py",
+    "src/pytest_databases/py.typed",
+    "tests/__init__.py",
+    "tests/test_ci_*.py",
+    "tools/scripts/**"
+  ],
+  "compatibility_test_paths": [
+    "tests/test_azure_blob.py::test_plugin_imports_without_azure_storage_blob",
+    "tests/test_bigquery.py::test_plugin_imports_without_google_cloud_bigquery",
+    "tests/test_cockroachdb.py::test_plugin_imports_without_psycopg",
+    "tests/test_db2.py::test_plugin_imports_without_db2_clients",
+    "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
+    "tests/test_floci.py::test_plugin_imports_without_cloud_sdks",
+    "tests/test_gizmosql.py::test_plugin_imports_without_adbc_driver_flightsql",
+    "tests/test_localstack.py::test_plugin_imports_without_aws_clients",
+    "tests/test_mongodb.py::test_plugin_imports_without_pymongo",
+    "tests/test_mssql.py::test_plugin_imports_without_pymssql",
+    "tests/test_oracle.py::test_plugin_imports_without_oracledb",
+    "tests/test_postgres.py::test_plugin_imports_without_psycopg",
+    "tests/test_pubsub.py::test_plugin_imports_without_google_cloud_pubsub",
+    "tests/test_rabbitmq.py::test_plugin_imports_without_amqp_clients",
+    "tests/test_redis.py::test_plugin_imports_without_redis",
+    "tests/test_redpanda.py::test_plugin_imports_without_kafka_clients",
+    "tests/test_snowflake.py::test_plugin_imports_without_snowflake_clients",
+    "tests/test_spanner.py::test_plugin_imports_without_google_cloud_spanner",
+    "tests/test_valkey.py::test_plugin_imports_without_valkey"
+  ],
+  "providers": {
+    "azure_blob": {
+      "source_globs": ["src/pytest_databases/docker/azure_blob.py"],
+      "test_paths": ["tests/test_azure_blob.py"],
+      "images": ["mcr.microsoft.com/azure-storage/azurite"],
+      "docs_globs": ["docs/supported-databases/azure_blob_storage.rst"]
+    },
+    "bigquery": {
+      "source_globs": ["src/pytest_databases/docker/bigquery.py"],
+      "test_paths": ["tests/test_bigquery.py"],
+      "images": ["ghcr.io/goccy/bigquery-emulator:latest"],
+      "docs_globs": ["docs/supported-databases/bigquery.rst"]
+    },
+    "cockroachdb": {
+      "source_globs": ["src/pytest_databases/docker/cockroachdb.py"],
+      "test_paths": ["tests/test_cockroachdb.py"],
+      "images": ["cockroachdb/cockroach:latest"],
+      "docs_globs": ["docs/supported-databases/cockroachdb.rst"]
+    },
+    "db2": {
+      "source_globs": ["src/pytest_databases/docker/db2.py"],
+      "test_paths": ["tests/test_db2.py"],
+      "images": ["icr.io/db2_community/db2:latest"],
+      "docs_globs": ["docs/supported-databases/db2.rst"]
+    },
+    "runtime": {
+      "source_globs": [
+        ".github/workflows/ci.yaml",
+        "scripts/ci/__init__.py",
+        "scripts/ci/check_required_jobs.py",
+        "scripts/ci/pull_images.py",
+        "scripts/ci/run_tests.py",
+        "scripts/ci/select_provider_tests.py",
+        "src/pytest_databases/_service.py"
+      ],
+      "test_paths": [
+        "tests/test_docker_service.py",
+        "tests/test_runtime.py",
+        "tests/test_service_host_port.py",
+        "tests/test_service_ownership.py"
+      ],
+      "images": ["busybox:latest"],
+      "docs_globs": ["docs/getting-started/**"]
+    },
+    "dolt": {
+      "source_globs": ["src/pytest_databases/docker/dolt.py"],
+      "test_paths": ["tests/test_dolt.py"],
+      "images": ["dolthub/dolt-sql-server:latest"],
+      "docs_globs": ["docs/supported-databases/dolt.rst"]
+    },
+    "elasticsearch": {
+      "source_globs": ["src/pytest_databases/docker/elastic_search.py"],
+      "test_paths": ["tests/test_elasticsearch.py"],
+      "images": [
+        "elasticsearch:7.17.19",
+        "elasticsearch:8.13.0",
+        "elasticsearch:9.5.5"
+      ],
+      "docs_globs": ["docs/supported-databases/elasticsearch.rst"]
+    },
+    "floci": {
+      "source_globs": ["src/pytest_databases/docker/floci.py"],
+      "test_paths": ["tests/test_floci.py"],
+      "images": [
+        "floci/floci-az:latest",
+        "floci/floci-gcp:latest",
+        "floci/floci-oci:latest",
+        "floci/floci:latest"
+      ],
+      "docs_globs": ["docs/supported-databases/floci.rst"]
+    },
+    "gizmosql": {
+      "source_globs": ["src/pytest_databases/docker/gizmosql.py"],
+      "test_paths": ["tests/test_gizmosql.py"],
+      "images": ["gizmodata/gizmosql:latest"],
+      "docs_globs": ["docs/supported-databases/gizmosql.rst"]
+    },
+    "localstack": {
+      "source_globs": ["src/pytest_databases/docker/localstack.py"],
+      "test_paths": ["tests/test_localstack.py"],
+      "images": ["ministackorg/ministack:latest"],
+      "docs_globs": ["docs/supported-databases/localstack.rst"]
+    },
+    "mariadb": {
+      "source_globs": ["src/pytest_databases/docker/mariadb.py"],
+      "test_paths": ["tests/test_mariadb.py"],
+      "images": [
+        "mariadb:11.3",
+        "mariadb:11.4",
+        "mariadb:11.8",
+        "mariadb:12.2",
+        "mariadb:12.3",
+        "mariadb:13.0"
+      ],
+      "docs_globs": ["docs/supported-databases/mariadb.rst"]
+    },
+    "minio": {
+      "source_globs": ["src/pytest_databases/docker/minio.py"],
+      "test_paths": ["tests/test_minio.py"],
+      "images": [
+        "cgr.dev/chainguard/minio-client:latest",
+        "cgr.dev/chainguard/minio:latest"
+      ],
+      "docs_globs": ["docs/supported-databases/minio.rst"]
+    },
+    "mongodb": {
+      "source_globs": ["src/pytest_databases/docker/mongodb.py"],
+      "test_paths": ["tests/test_mongodb.py"],
+      "images": ["mongo:latest"],
+      "docs_globs": ["docs/supported-databases/mongodb.rst"]
+    },
+    "mssql": {
+      "source_globs": ["src/pytest_databases/docker/mssql.py"],
+      "test_paths": ["tests/test_mssql.py"],
+      "images": [
+        "mcr.microsoft.com/mssql/server:2022-latest",
+        "mcr.microsoft.com/mssql/server:2025-latest"
+      ],
+      "docs_globs": ["docs/supported-databases/sqlserver.rst"]
+    },
+    "mysql": {
+      "source_globs": ["src/pytest_databases/docker/mysql.py"],
+      "test_paths": ["tests/test_mysql.py"],
+      "images": [
+        "mysql:5.6",
+        "mysql:5.7",
+        "mysql:8",
+        "mysql:8.4",
+        "mysql:9.6",
+        "mysql:9.7"
+      ],
+      "docs_globs": ["docs/supported-databases/mysql.rst"]
+    },
+    "oracle": {
+      "source_globs": ["src/pytest_databases/docker/oracle.py"],
+      "test_paths": ["tests/test_oracle.py"],
+      "images": [
+        "gvenzl/oracle-free:23-slim-faststart",
+        "gvenzl/oracle-xe:18-slim-faststart"
+      ],
+      "docs_globs": ["docs/supported-databases/oracle.rst"]
+    },
+    "postgres": {
+      "source_globs": ["src/pytest_databases/docker/postgres.py"],
+      "test_paths": ["tests/test_postgres.py"],
+      "images": [
+        "gcr.io/alloydb-omni/alloydbomni:15",
+        "gcr.io/alloydb-omni/alloydbomni:16",
+        "gcr.io/alloydb-omni/alloydbomni:17",
+        "gcr.io/alloydb-omni/alloydbomni:18",
+        "paradedb/paradedb:latest-pg15",
+        "paradedb/paradedb:latest-pg16",
+        "paradedb/paradedb:latest-pg17",
+        "paradedb/paradedb:latest-pg18",
+        "pgvector/pgvector:pg13",
+        "pgvector/pgvector:pg14",
+        "pgvector/pgvector:pg15",
+        "pgvector/pgvector:pg16",
+        "pgvector/pgvector:pg17",
+        "pgvector/pgvector:pg18",
+        "postgres:11",
+        "postgres:12",
+        "postgres:13",
+        "postgres:14",
+        "postgres:15",
+        "postgres:16",
+        "postgres:17",
+        "postgres:18"
+      ],
+      "docs_globs": ["docs/supported-databases/postgres.rst"]
+    },
+    "pubsub": {
+      "source_globs": ["src/pytest_databases/docker/pubsub.py"],
+      "test_paths": ["tests/test_pubsub.py"],
+      "images": [
+        "gcr.io/google.com/cloudsdktool/google-cloud-cli:577.0.0-emulators"
+      ],
+      "docs_globs": ["docs/supported-databases/pubsub.rst"]
+    },
+    "rabbitmq": {
+      "source_globs": ["src/pytest_databases/docker/rabbitmq.py"],
+      "test_paths": ["tests/test_rabbitmq.py"],
+      "images": ["rabbitmq:4.3-management"],
+      "docs_globs": ["docs/supported-databases/rabbitmq.rst"]
+    },
+    "redis": {
+      "source_globs": ["src/pytest_databases/docker/redis.py"],
+      "test_paths": ["tests/test_redis.py"],
+      "images": [
+        "docker.dragonflydb.io/dragonflydb/dragonfly",
+        "eqalpha/keydb",
+        "redis:latest",
+        "valkey/valkey"
+      ],
+      "docs_globs": ["docs/supported-databases/redis.rst"]
+    },
+    "redpanda": {
+      "source_globs": ["src/pytest_databases/docker/redpanda.py"],
+      "test_paths": ["tests/test_redpanda.py"],
+      "images": ["docker.redpanda.com/redpandadata/redpanda:v26.1.13"],
+      "docs_globs": ["docs/supported-databases/redpanda.rst"]
+    },
+    "rustfs": {
+      "source_globs": ["src/pytest_databases/docker/rustfs.py"],
+      "test_paths": ["tests/test_rustfs.py"],
+      "images": ["rustfs/rc:latest", "rustfs/rustfs:latest"],
+      "docs_globs": ["docs/supported-databases/rustfs.rst"]
+    },
+    "snowflake": {
+      "source_globs": ["src/pytest_databases/docker/snowflake.py"],
+      "test_paths": ["tests/test_snowflake.py"],
+      "images": ["embucket/embucket:latest"],
+      "docs_globs": ["docs/supported-databases/snowflake.rst"]
+    },
+    "spanner": {
+      "source_globs": ["src/pytest_databases/docker/spanner.py"],
+      "test_paths": ["tests/test_spanner.py"],
+      "images": [
+        "gcr.io/cloud-spanner-emulator/emulator:latest",
+        "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+      ],
+      "docs_globs": ["docs/supported-databases/spanner.rst"]
+    },
+    "valkey": {
+      "source_globs": ["src/pytest_databases/docker/valkey.py"],
+      "test_paths": ["tests/test_valkey.py"],
+      "images": ["valkey/valkey:latest"],
+      "docs_globs": ["docs/supported-databases/valkey.rst"]
+    },
+    "yugabyte": {
+      "source_globs": ["src/pytest_databases/docker/yugabyte.py"],
+      "test_paths": ["tests/test_yugabyte.py"],
+      "images": ["software.yugabyte.com/yugabytedb/yugabyte:latest"],
+      "docs_globs": ["docs/supported-databases/yugabyte.rst"]
+    }
+  }
+}
