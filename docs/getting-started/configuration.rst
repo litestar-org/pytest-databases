@@ -69,6 +69,8 @@ Services expose a session-scoped ``xdist_<backend>_isolation_level`` fixture tha
   virtual host, or resource prefix, depending on the service.
 * ``"server"``: each worker starts its own transient container.
 
+SAP SQL Anywhere is the exception: it supports only ``"server"``, which is also its default.
+
 Override the fixture in ``conftest.py`` to change the level:
 
 .. code-block:: python

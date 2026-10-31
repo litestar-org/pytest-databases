@@ -64,6 +64,8 @@
     "tests/test_redpanda.py::test_plugin_imports_without_kafka_clients",
     "tests/test_snowflake.py::test_plugin_imports_without_snowflake_clients",
     "tests/test_spanner.py::test_plugin_imports_without_google_cloud_spanner",
+    "tests/test_sqlanywhere.py::test_plugin_imports_without_sqlanydb",
+    "tests/test_sybase.py::test_plugin_imports_without_sybase_clients",
     "tests/test_valkey.py::test_plugin_imports_without_valkey"
   ],
   "providers": {
@@ -286,6 +288,18 @@
         "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
       ],
       "docs_globs": ["docs/supported-databases/spanner.rst"]
+    },
+    "sqlanywhere": {
+      "source_globs": ["src/pytest_databases/docker/sqlanywhere.py"],
+      "test_paths": ["tests/test_sqlanywhere.py"],
+      "images": ["jaschweder/sybase:latest"],
+      "docs_globs": ["docs/supported-databases/sqlanywhere.rst"]
+    },
+    "sybase": {
+      "source_globs": ["src/pytest_databases/docker/sybase.py"],
+      "test_paths": ["tests/test_sybase.py"],
+      "images": ["datagrip/sybase:16.0"],
+      "docs_globs": ["docs/supported-databases/sybase.rst"]
     },
     "valkey": {
       "source_globs": ["src/pytest_databases/docker/valkey.py"],

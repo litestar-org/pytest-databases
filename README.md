@@ -50,6 +50,8 @@ Ready-made database and cloud emulator fixtures for your pytest tests.
 - **Google Cloud Pub/Sub**: Cloud Pub/Sub emulator
 - **RabbitMQ**: RabbitMQ 4.3 with the management plugin
 - **Floci**: Floci emulators for AWS, Azure, GCP, and OCI, one container per cloud
+- **SAP ASE (Sybase)**: SAP Adaptive Server Enterprise 16.0 (`datagrip/sybase:16.0`)
+- **SAP SQL Anywhere**: SQL Anywhere 16 (`jaschweder/sybase:latest`)
 
 ## Installation
 

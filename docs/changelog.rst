@@ -122,6 +122,20 @@ Added
   fixtures, and ``provide_snowflake_service``, ``check_snowflake_health``, ``login_snowflake_emulator`` and
   ``query_snowflake_emulator``. ``query()`` logs in as ``snowflake_user`` and runs in ``snowflake_database`` /
   ``snowflake_schema``.
+* ``sybase_service`` (``SybaseService`` with ``connection_config``, ``dsn``, ``exec_sql()`` and
+  ``create_worker_database()``) for SAP ASE (default ``datagrip/sybase:16.0``, env ``SYBASE_IMAGE``, port ``5000``),
+  the ``sybase_image``, ``sybase_user``, ``sybase_password``, ``sybase_database``, ``sybase_startup_timeout`` and
+  ``xdist_sybase_isolation_level`` (default ``database``: one container and a ``<sybase_database>_<worker>``
+  database per worker, ``pytestdb_<worker>`` when ``sybase_database`` is ``master``) fixtures, and
+  ``provide_sybase_service``, ``exec_isql``, ``create_worker_database`` and ``validate_sybase_database_name``.
+* ``sqlanywhere_service`` (``SQLAnywhereService`` with ``connection_config``, ``dsn`` and ``exec_sql()``) for SAP SQL
+  Anywhere (default ``jaschweder/sybase:latest``, env ``SQLANYWHERE_IMAGE``, port ``2638``), the
+  ``sqlanywhere_image``, ``sqlanywhere_user``, ``sqlanywhere_password``, ``sqlanywhere_database``,
+  ``sqlanywhere_server``, ``sqlanywhere_startup_timeout`` and ``xdist_sqlanywhere_isolation_level`` (default and only
+  supported value ``server``: one container per worker) fixtures, the ``sqlanywhere_client_libs`` fixture (extracts
+  the native client libraries and sets ``SQLANY16`` / ``SQLANY_API_DLL`` for the session), and
+  ``provide_sqlanywhere_service``, ``exec_dbisql``, ``extract_sqlanywhere_client_libs`` and
+  ``sqlanywhere_client_environment``.
 
 Changed
 ~~~~~~~
