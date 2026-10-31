@@ -136,6 +136,14 @@ Added
   the native client libraries and sets ``SQLANY16`` / ``SQLANY_API_DLL`` for the session), and
   ``provide_sqlanywhere_service``, ``exec_dbisql``, ``extract_sqlanywhere_client_libs`` and
   ``sqlanywhere_client_environment``.
+* ``"template"`` value for ``xdist_postgres_isolation_level`` (typed ``PostgresXdistIsolationLevel``): one container,
+  a template database built once under a file lock, and the service database cloned from it with
+  ``CREATE DATABASE ... TEMPLATE``, with or without ``pytest-xdist``, for every PostgreSQL family service. Fixtures
+  ``postgres_template_name``, ``postgres_template_setup`` (SQL statements, ``.sql`` paths, or a callable),
+  ``postgres_template_fingerprint_sources``, ``postgres_template_lock_dir`` and ``postgres_template_options``
+  (``PostgresTemplateOptions``); the setup SQL and file contents are hashed into the template name
+  (``pytest_databases_template_<digest>``). ``PostgresService.ensure_template()``,
+  ``create_worker_database_from_template()``, ``sweep_worker_databases()`` and ``compute_fingerprint()``.
 
 Changed
 ~~~~~~~

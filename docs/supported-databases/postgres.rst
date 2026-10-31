@@ -39,6 +39,73 @@ Usage Example
         finally:
             postgres_service.drop_database_force(cloned_db)
 
+Template Database Acceleration
+------------------------------
+
+Suites with heavy migrations or seed data can build the schema once and clone it for each test database. PostgreSQL
+creates the clone with ``CREATE DATABASE ... TEMPLATE``, a file-level copy of the template database, so no
+migration runs again.
+
+Set ``xdist_postgres_isolation_level`` to ``"template"`` and return the schema from ``postgres_template_setup``. The
+first process to reach the container builds the template under a file lock; every other worker waits and clones it.
+The service database (``pytest_databases``, or ``pytest_databases_<worker>`` under ``pytest-xdist``) is a fresh
+clone, with or without ``pytest-xdist``. Every PostgreSQL family service (versioned PostgreSQL, pgvector, ParadeDB,
+AlloyDB Omni) honors these fixtures.
+
+.. code-block:: python
+
+    import pytest
+    from pytest_databases.docker.postgres import PostgresService
+    from pytest_databases.types import PostgresXdistIsolationLevel
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+
+    @pytest.fixture(scope="session")
+    def xdist_postgres_isolation_level() -> PostgresXdistIsolationLevel:
+        return "template"
+
+
+    @pytest.fixture(scope="session")
+    def postgres_template_setup() -> list[str]:
+        return [
+            "CREATE TABLE users (id serial PRIMARY KEY, name text)",
+            "INSERT INTO users (name) VALUES ('alice'), ('bob')",
+        ]
+
+
+    def test_worker_database(postgres_service: PostgresService) -> None:
+        assert postgres_service.database.startswith("pytest_databases")
+
+``postgres_template_setup`` accepts SQL statements, ``pathlib.Path`` objects pointing at ``.sql`` files, or a callable
+that receives a :class:`~pytest_databases.docker.postgres.PostgresService` pointed at the staging database. The SQL
+text and file contents are hashed into the template name (``pytest_databases_template_<digest>``), so a changed
+schema builds a new template even when the container is reused with ``--keep-containers``. A callable cannot be
+hashed; return its inputs (migration directories, files, or a version string) from
+``postgres_template_fingerprint_sources`` so they become part of the name.
+
+The same helpers are available on :class:`~pytest_databases.docker.postgres.PostgresService` for custom fixtures:
+
+.. code-block:: python
+
+    from pytest_databases.docker.postgres import PostgresService
+
+
+    def test_custom_template(postgres_service: PostgresService) -> None:
+        template = postgres_service.ensure_template(
+            "app_template",
+            setup_sql="CREATE TABLE items (id serial PRIMARY KEY)",
+        )
+        worker_db = postgres_service.create_worker_database_from_template(template, "items_test")
+        try:
+            assert worker_db == "items_test"
+        finally:
+            postgres_service.drop_database_force(worker_db)
+
+``sweep_worker_databases(prefix)`` drops every non-template database whose name starts with ``prefix`` (``_`` is
+matched literally, ``*_staging`` databases are kept). It also drops databases that other workers are still using, so
+call it only at the end of a session.
+
 Available Fixtures
 ------------------
 
@@ -47,6 +114,11 @@ Available Fixtures
 * ``postgres_password``: The PostgreSQL password.
 * ``postgres_image``: The Docker image to use for PostgreSQL (defaults to ``"postgres:18"``).
 * ``postgres_port``: Optional host-side port pin (default ``None``, override via ``POSTGRES_PORT`` env).
+* ``postgres_template_name``: Template name prefix for ``"template"`` isolation (``None`` means ``"pytest_databases_template"``).
+* ``postgres_template_setup``: SQL statements, ``.sql`` paths, or a callable that builds the template (default ``None``).
+* ``postgres_template_fingerprint_sources``: Extra strings, bytes, files, or directories hashed into the template name (default ``()``).
+* ``postgres_template_lock_dir``: Directory for the template lock file (``None`` means the system temp directory).
+* ``postgres_template_options``: A :class:`~pytest_databases.docker.postgres.PostgresTemplateOptions` combining the four fixtures above; every family service requests it.
 * ``postgres_service``: A fixture that provides a :class:`~pytest_databases.docker.postgres.PostgresService` instance.
 * ``postgres_connection``: Deprecated fixture that yields a ``psycopg.Connection``.
 

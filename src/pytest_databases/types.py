@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from docker.models.containers import Container
 
-__all__ = ("ServiceContainer", "XdistIsolationLevel")
+__all__ = ("PostgresXdistIsolationLevel", "ServiceContainer", "XdistIsolationLevel")
 
 
 @dataclasses.dataclass
@@ -21,3 +21,4 @@ class ServiceContainer:
 
 
 XdistIsolationLevel = Literal["database", "server"]
+PostgresXdistIsolationLevel = Literal["database", "server", "template"]

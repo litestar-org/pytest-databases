@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import os
-import re
 import time
 import warnings
 from contextlib import contextmanager
@@ -13,11 +12,19 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from pytest_databases._postgres_templates import (
+    DEFAULT_TEMPLATE_NAME,
+    PostgresTemplateSupport,
+    make_connection_string,
+    split_template_setup,
+    validate_identifier,
+)
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num, tcp_port_open
-from pytest_databases.types import ServiceContainer, XdistIsolationLevel
+from pytest_databases.types import PostgresXdistIsolationLevel, ServiceContainer
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator, Sequence
+    from pathlib import Path
 
     from docker.models.containers import Container
     from psycopg import Connection
@@ -26,6 +33,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     "PostgresService",
+    "PostgresTemplateOptions",
     "alloydb_omni_15_connection",
     "alloydb_omni_15_port",
     "alloydb_omni_15_service",
@@ -115,35 +123,63 @@ __all__ = (
     "postgres_password",
     "postgres_port",
     "postgres_service",
+    "postgres_template_fingerprint_sources",
+    "postgres_template_lock_dir",
+    "postgres_template_name",
+    "postgres_template_options",
+    "postgres_template_setup",
     "postgres_user",
     "provide_postgres_connection",
     "provide_postgres_service",
     "xdist_postgres_isolation_level",
 )
 
-IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
-
 
 @dataclasses.dataclass
-class PostgresService(ServiceContainer):
-    """Connection metadata and lifecycle helpers for a PostgreSQL-compatible container service."""
+class PostgresService(ServiceContainer, PostgresTemplateSupport):
+    """Connection metadata and lifecycle helpers for a PostgreSQL-compatible container service.
+
+    Template helpers (:meth:`ensure_template`, :meth:`create_worker_database_from_template`,
+    :meth:`sweep_worker_databases`, :meth:`clone_template_database`, :meth:`drop_database_force`) run ``psql``
+    inside the container.
+    """
 
     database: str
     password: str
     user: str
 
-    def clone_template_database(self, target_db: str, *, source_db: str | None = None) -> str:
-        """Clone ``source_db`` (defaults to ``self.database``) into ``target_db``."""
-        return clone_template_database(self, target_db=target_db, source_db=source_db)
+    def _run_sql(self, database: str, sql: str, *, tuples_only: bool = False) -> tuple[int, bytes]:
+        """Execute ``sql`` against ``database`` with ``psql`` inside the container.
 
-    def drop_database_force(self, db_name: str) -> None:
-        """Terminate active backends and drop ``db_name`` if it exists."""
-        drop_database_force(self, db_name=db_name)
+        Returns:
+            The ``psql`` exit code and output.
+        """
+        return exec_psql(
+            self.container,
+            user=self.user,
+            password=self.password,
+            database=database,
+            sql=sql,
+            tuples_only=tuples_only,
+        )
 
 
-def make_connection_string(host: str, port: int, user: str, password: str, database: str) -> str:
-    """Format a libpq connection string for PostgreSQL."""
-    return f"dbname={database} user={user} host={host} port={port} password={password}"
+@dataclasses.dataclass(frozen=True)
+class PostgresTemplateOptions:
+    """Template database settings used when the isolation level is ``"template"``.
+
+    ``name`` is the template name prefix (None means ``"pytest_databases_template"``). ``setup`` is a callable
+    receiving the staging :class:`PostgresService`, or SQL statements / ``.sql`` file paths whose text and contents are
+    hashed into the template name. ``fingerprint_sources`` adds strings, bytes, files, or directories to that digest
+    (use it to version a setup callable). ``lock_dir`` holds the cross-worker lock file (None means the system temp
+    directory) and ``lock_timeout`` is the number of seconds to wait for it.
+    """
+
+    name: str | None = None
+    setup: Callable[[PostgresService], object] | str | Path | Sequence[str | Path] | None = None
+    lock_dir: Path | str | None = None
+    lock_timeout: float = 180.0
+    fingerprint_sources: Sequence[str | bytes | Path] = ()
 
 
 def exec_psql(
@@ -155,7 +191,11 @@ def exec_psql(
     sql: str,
     tuples_only: bool = False,
 ) -> tuple[int, bytes]:
-    """Execute a SQL statement via ``psql`` over the container TCP loopback interface."""
+    """Execute a SQL statement via ``psql`` over the container TCP loopback interface.
+
+    Returns:
+        The ``psql`` exit code and output.
+    """
     cmd = ["psql", "-v", "ON_ERROR_STOP=1", "-h", "localhost", "-p", "5432", "-U", user, "-d", database]
     if tuples_only:
         cmd.extend(["-tAc", sql])
@@ -172,8 +212,12 @@ def create_worker_database(
     password: str,
     db_name: str,
 ) -> None:
-    """Create and verify a PostgreSQL database inside the container."""
-    safe_db = _validate_identifier(db_name)
+    """Create and verify a PostgreSQL database inside the container.
+
+    Raises:
+        RuntimeError: If ``CREATE DATABASE`` keeps failing or the verification query fails.
+    """
+    safe_db = validate_identifier(db_name)
     last_output = b""
     for _ in range(10):
         exit_code, output = exec_psql(
@@ -211,34 +255,12 @@ def clone_template_database(
     target_db: str,
     source_db: str | None = None,
 ) -> str:
-    """Clone ``source_db`` into ``target_db`` using PostgreSQL ``CREATE DATABASE ... TEMPLATE``."""
-    safe_source = _validate_identifier(source_db or service.database)
-    safe_target = _validate_identifier(target_db)
-    terminate_sql = (
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-        f"WHERE datname = '{safe_source}' AND pid <> pg_backend_pid();"
-    )
-    exec_psql(
-        service.container,
-        user=service.user,
-        password=service.password,
-        database="postgres",
-        sql=terminate_sql,
-    )
-    exit_code, output = exec_psql(
-        service.container,
-        user=service.user,
-        password=service.password,
-        database="postgres",
-        sql=f'CREATE DATABASE "{safe_target}" TEMPLATE "{safe_source}";',
-    )
-    if exit_code != 0:
-        msg = (
-            f"Failed to clone template database {safe_source!r} to {safe_target!r}: "
-            f"{output.decode(errors='replace').strip()}"
-        )
-        raise RuntimeError(msg)
-    return safe_target
+    """Clone ``source_db`` into ``target_db`` using PostgreSQL ``CREATE DATABASE ... TEMPLATE``.
+
+    Returns:
+        The name of the created database.
+    """
+    return service.clone_template_database(target_db, source_db=source_db)
 
 
 def drop_database_force(
@@ -247,32 +269,11 @@ def drop_database_force(
     db_name: str,
 ) -> None:
     """Terminate active backends and drop ``db_name`` if it exists."""
-    safe_db = _validate_identifier(db_name)
-    terminate_sql = (
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-        f"WHERE datname = '{safe_db}' AND pid <> pg_backend_pid();"
-    )
-    exec_psql(
-        service.container,
-        user=service.user,
-        password=service.password,
-        database="postgres",
-        sql=terminate_sql,
-    )
-    exit_code, output = exec_psql(
-        service.container,
-        user=service.user,
-        password=service.password,
-        database="postgres",
-        sql=f'DROP DATABASE IF EXISTS "{safe_db}";',
-    )
-    if exit_code != 0:
-        msg = f"Failed to drop database {safe_db!r}: {output.decode(errors='replace').strip()}"
-        raise RuntimeError(msg)
+    service.drop_database_force(db_name)
 
 
 @pytest.fixture(scope="session")
-def xdist_postgres_isolation_level() -> XdistIsolationLevel:
+def xdist_postgres_isolation_level() -> PostgresXdistIsolationLevel:
     """Return the default pytest-xdist isolation level for PostgreSQL services."""
     return "database"
 
@@ -357,15 +358,18 @@ def provide_postgres_service(
     host: str,
     user: str,
     password: str,
-    xdist_postgres_isolate: XdistIsolationLevel,
+    xdist_postgres_isolate: PostgresXdistIsolationLevel,
     host_port: int | None = None,
     timeout: int = 60,
     pause: float = 0.5,
+    template: PostgresTemplateOptions | None = None,
 ) -> Generator[PostgresService, None, None]:
     """Start and validate a PostgreSQL-compatible container service.
 
     Readiness runs ``SELECT 1`` through ``psql`` inside the container and then opens a TCP connection to the
-    published host port.
+    published host port. With ``xdist_postgres_isolate="template"`` the template described by ``template`` is built
+    once per container and the service database (``pytest_databases`` or ``pytest_databases_<worker>``) is cloned
+    from it, with or without xdist.
 
     Yields:
         A configured :class:`PostgresService` instance.
@@ -405,12 +409,33 @@ def provide_postgres_service(
         transient=xdist_postgres_isolate == "server",
         host_port=host_port,
     ) as service:
-        create_worker_database(
-            service.container,
-            user=user,
-            password=password,
-            db_name=db_name,
-        )
+        if xdist_postgres_isolate == "template":
+            options = template or PostgresTemplateOptions()
+            setup_fn, setup_sql = split_template_setup(options.setup)
+            admin = PostgresService(
+                host=service.host,
+                port=service.port,
+                container=service.container,
+                database="postgres",
+                user=user,
+                password=password,
+            )
+            template_name = admin.ensure_template(
+                options.name or DEFAULT_TEMPLATE_NAME,
+                setup_fn=setup_fn,
+                setup_sql=setup_sql,
+                fingerprint_sources=options.fingerprint_sources,
+                lock_dir=options.lock_dir,
+                lock_timeout=options.lock_timeout,
+            )
+            admin.create_worker_database_from_template(template_name, db_name)
+        else:
+            create_worker_database(
+                service.container,
+                user=user,
+                password=password,
+                db_name=db_name,
+            )
         yield PostgresService(
             host=service.host,
             port=service.port,
@@ -454,11 +479,12 @@ def provide_postgres_connection(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_11_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_11_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a PostgreSQL 11 service.
 
@@ -474,6 +500,7 @@ def postgres_11_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_11_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -481,11 +508,12 @@ def postgres_11_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_12_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_12_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a PostgreSQL 12 service.
 
@@ -501,6 +529,7 @@ def postgres_12_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_12_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -508,11 +537,12 @@ def postgres_12_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_13_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_13_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a PostgreSQL 13 service.
 
@@ -528,6 +558,7 @@ def postgres_13_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_13_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -535,11 +566,12 @@ def postgres_13_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_14_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_14_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a PostgreSQL 14 service.
 
@@ -555,6 +587,7 @@ def postgres_14_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_14_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -562,11 +595,12 @@ def postgres_14_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_15_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_15_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a PostgreSQL 15 service.
 
@@ -582,6 +616,7 @@ def postgres_15_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_15_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -589,11 +624,12 @@ def postgres_15_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_16_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_16_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a PostgreSQL 16 service.
 
@@ -609,6 +645,7 @@ def postgres_16_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_16_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -616,11 +653,12 @@ def postgres_16_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_17_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_17_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a PostgreSQL 17 service.
 
@@ -636,6 +674,7 @@ def postgres_17_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_17_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -643,11 +682,12 @@ def postgres_17_service(
 @pytest.fixture(autouse=False, scope="session")
 def postgres_18_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_18_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a PostgreSQL 18 service.
 
@@ -663,6 +703,7 @@ def postgres_18_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_18_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -778,14 +819,55 @@ def postgres_image() -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
+def postgres_template_name() -> str | None:
+    """Return the template name prefix for ``"template"`` isolation (None means ``"pytest_databases_template"``)."""
+    return None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_template_setup() -> Callable[[PostgresService], object] | str | Path | Sequence[str | Path] | None:
+    """Return the template setup: a callable receiving the staging service, or SQL statements / ``.sql`` paths."""
+    return None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_template_lock_dir() -> Path | str | None:
+    """Return the directory for template lock files (None means the system temp directory)."""
+    return None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_template_fingerprint_sources() -> Sequence[str | bytes | Path]:
+    """Return extra strings, bytes, files, or directories folded into the template name digest."""
+    return ()
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_template_options(
+    postgres_template_name: str | None,
+    postgres_template_setup: Callable[[PostgresService], object] | str | Path | Sequence[str | Path] | None,
+    postgres_template_lock_dir: Path | str | None,
+    postgres_template_fingerprint_sources: Sequence[str | bytes | Path],
+) -> PostgresTemplateOptions:
+    """Combine the ``postgres_template_*`` fixtures; every PostgreSQL family service uses it."""
+    return PostgresTemplateOptions(
+        name=postgres_template_name,
+        setup=postgres_template_setup,
+        lock_dir=postgres_template_lock_dir,
+        fingerprint_sources=postgres_template_fingerprint_sources,
+    )
+
+
+@pytest.fixture(autouse=False, scope="session")
 def postgres_service(
     docker_service: DockerService,
     postgres_image: str,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     postgres_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide the default PostgreSQL service.
 
@@ -801,6 +883,7 @@ def postgres_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -870,11 +953,12 @@ def pgvector_18_port() -> int | None:
 def pgvector_service(
     docker_service: DockerService,
     pgvector_image: str,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     pgvector_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide the default pgvector service.
 
@@ -890,6 +974,7 @@ def pgvector_service(
         user=postgres_user,
         password=postgres_password,
         host_port=pgvector_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -897,11 +982,12 @@ def pgvector_service(
 @pytest.fixture(autouse=False, scope="session")
 def pgvector_13_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     pgvector_13_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a pgvector PG13 service.
 
@@ -917,6 +1003,7 @@ def pgvector_13_service(
         user=postgres_user,
         password=postgres_password,
         host_port=pgvector_13_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -924,11 +1011,12 @@ def pgvector_13_service(
 @pytest.fixture(autouse=False, scope="session")
 def pgvector_14_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     pgvector_14_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a pgvector PG14 service.
 
@@ -944,6 +1032,7 @@ def pgvector_14_service(
         user=postgres_user,
         password=postgres_password,
         host_port=pgvector_14_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -951,11 +1040,12 @@ def pgvector_14_service(
 @pytest.fixture(autouse=False, scope="session")
 def pgvector_15_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     pgvector_15_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a pgvector PG15 service.
 
@@ -971,6 +1061,7 @@ def pgvector_15_service(
         user=postgres_user,
         password=postgres_password,
         host_port=pgvector_15_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -978,11 +1069,12 @@ def pgvector_15_service(
 @pytest.fixture(autouse=False, scope="session")
 def pgvector_16_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     pgvector_16_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a pgvector PG16 service.
 
@@ -998,6 +1090,7 @@ def pgvector_16_service(
         user=postgres_user,
         password=postgres_password,
         host_port=pgvector_16_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1005,11 +1098,12 @@ def pgvector_16_service(
 @pytest.fixture(autouse=False, scope="session")
 def pgvector_17_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     pgvector_17_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a pgvector PG17 service.
 
@@ -1025,6 +1119,7 @@ def pgvector_17_service(
         user=postgres_user,
         password=postgres_password,
         host_port=pgvector_17_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1032,11 +1127,12 @@ def pgvector_17_service(
 @pytest.fixture(autouse=False, scope="session")
 def pgvector_18_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     pgvector_18_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a pgvector PG18 service.
 
@@ -1052,6 +1148,7 @@ def pgvector_18_service(
         user=postgres_user,
         password=postgres_password,
         host_port=pgvector_18_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1187,11 +1284,12 @@ def paradedb_18_port() -> int | None:
 def paradedb_service(
     docker_service: DockerService,
     paradedb_image: str,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     paradedb_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide the default ParadeDB service.
 
@@ -1207,6 +1305,7 @@ def paradedb_service(
         user=postgres_user,
         password=postgres_password,
         host_port=paradedb_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1214,11 +1313,12 @@ def paradedb_service(
 @pytest.fixture(autouse=False, scope="session")
 def paradedb_15_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     paradedb_15_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a ParadeDB PG15 service.
 
@@ -1234,6 +1334,7 @@ def paradedb_15_service(
         user=postgres_user,
         password=postgres_password,
         host_port=paradedb_15_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1241,11 +1342,12 @@ def paradedb_15_service(
 @pytest.fixture(autouse=False, scope="session")
 def paradedb_16_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     paradedb_16_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a ParadeDB PG16 service.
 
@@ -1261,6 +1363,7 @@ def paradedb_16_service(
         user=postgres_user,
         password=postgres_password,
         host_port=paradedb_16_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1268,11 +1371,12 @@ def paradedb_16_service(
 @pytest.fixture(autouse=False, scope="session")
 def paradedb_17_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     paradedb_17_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a ParadeDB PG17 service.
 
@@ -1288,6 +1392,7 @@ def paradedb_17_service(
         user=postgres_user,
         password=postgres_password,
         host_port=paradedb_17_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1295,11 +1400,12 @@ def paradedb_17_service(
 @pytest.fixture(autouse=False, scope="session")
 def paradedb_18_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     paradedb_18_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide a ParadeDB PG18 service.
 
@@ -1315,6 +1421,7 @@ def paradedb_18_service(
         user=postgres_user,
         password=postgres_password,
         host_port=paradedb_18_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1424,11 +1531,12 @@ def alloydb_omni_18_port() -> int | None:
 def alloydb_omni_service(
     docker_service: DockerService,
     alloydb_omni_image: str,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     alloydb_omni_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide the default AlloyDB Omni service.
 
@@ -1444,6 +1552,7 @@ def alloydb_omni_service(
         user=postgres_user,
         password=postgres_password,
         host_port=alloydb_omni_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1451,11 +1560,12 @@ def alloydb_omni_service(
 @pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_15_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     alloydb_omni_15_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide an AlloyDB Omni 15 service.
 
@@ -1471,6 +1581,7 @@ def alloydb_omni_15_service(
         user=postgres_user,
         password=postgres_password,
         host_port=alloydb_omni_15_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1478,11 +1589,12 @@ def alloydb_omni_15_service(
 @pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_16_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     alloydb_omni_16_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide an AlloyDB Omni 16 service.
 
@@ -1498,6 +1610,7 @@ def alloydb_omni_16_service(
         user=postgres_user,
         password=postgres_password,
         host_port=alloydb_omni_16_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1505,11 +1618,12 @@ def alloydb_omni_16_service(
 @pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_17_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     alloydb_omni_17_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide an AlloyDB Omni 17 service.
 
@@ -1525,6 +1639,7 @@ def alloydb_omni_17_service(
         user=postgres_user,
         password=postgres_password,
         host_port=alloydb_omni_17_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1532,11 +1647,12 @@ def alloydb_omni_17_service(
 @pytest.fixture(autouse=False, scope="session")
 def alloydb_omni_18_service(
     docker_service: DockerService,
-    xdist_postgres_isolation_level: XdistIsolationLevel,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_host: str,
     postgres_user: str,
     postgres_password: str,
     alloydb_omni_18_port: int | None,
+    postgres_template_options: PostgresTemplateOptions,
 ) -> Generator[PostgresService, None, None]:
     """Provide an AlloyDB Omni 18 service.
 
@@ -1552,6 +1668,7 @@ def alloydb_omni_18_service(
         user=postgres_user,
         password=postgres_password,
         host_port=alloydb_omni_18_port,
+        template=postgres_template_options,
     ) as service:
         yield service
 
@@ -1625,11 +1742,3 @@ def _env_port(var_name: str) -> int | None:
     """Return an integer port from environment variable ``var_name`` if set."""
     value = os.environ.get(var_name)
     return int(value) if value else None
-
-
-def _validate_identifier(identifier: str) -> str:
-    """Validate that a PostgreSQL database identifier is safe for SQL interpolation."""
-    if not IDENTIFIER_PATTERN.match(identifier):
-        msg = f"Invalid PostgreSQL database identifier: {identifier!r}"
-        raise ValueError(msg)
-    return identifier

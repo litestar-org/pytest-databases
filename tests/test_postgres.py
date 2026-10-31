@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import socket
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,6 +13,7 @@ import pytest
 from pytest_databases.docker import postgres as postgres_mod
 from pytest_databases.docker.postgres import (
     PostgresService,
+    PostgresTemplateOptions,
     clone_template_database,
     drop_database_force,
     make_connection_string,
@@ -19,6 +21,10 @@ from pytest_databases.docker.postgres import (
     provide_postgres_service,
 )
 from pytest_databases.helpers import tcp_port_open
+from tests.conftest import unwrap_fixture
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_plugin_imports_without_psycopg(pytester: pytest.Pytester) -> None:
@@ -45,16 +51,32 @@ def test_import() -> None:
     result.assert_outcomes(passed=1)
 
 
-def test_make_connection_string() -> None:
-    """Verify ``make_connection_string`` formats a standard libpq DSN."""
+@pytest.mark.parametrize(
+    ("password", "expected"),
+    [
+        pytest.param(
+            "secret",
+            "dbname=pytest_databases user=postgres host=127.0.0.1 port=5432 password=secret",
+            id="plain",
+        ),
+        pytest.param("", "dbname=pytest_databases user=postgres host=127.0.0.1 port=5432", id="empty-omitted"),
+        pytest.param(
+            "it's a \\secret",
+            "dbname=pytest_databases user=postgres host=127.0.0.1 port=5432 password='it\\'s a \\\\secret'",
+            id="quoted",
+        ),
+    ],
+)
+def test_make_connection_string(password: str, expected: str) -> None:
+    """Verify ``make_connection_string`` quotes libpq values that need it and omits empty ones."""
     dsn = make_connection_string(
         host="127.0.0.1",
         port=5432,
         user="postgres",
-        password="secret",
+        password=password,
         database="pytest_databases",
     )
-    assert dsn == "dbname=pytest_databases user=postgres host=127.0.0.1 port=5432 password=secret"
+    assert dsn == expected
 
 
 def test_alloydb_omni_gcr_images(pytester: pytest.Pytester) -> None:
@@ -114,6 +136,10 @@ def test_template_database_invalid_identifier_raises() -> None:
         clone_template_database(service, target_db="bad; DROP DATABASE postgres;--")
     with pytest.raises(ValueError, match="Invalid PostgreSQL database identifier"):
         drop_database_force(service, db_name="bad-name")
+    with pytest.raises(ValueError, match="Invalid PostgreSQL database identifier"):
+        drop_database_force(service, db_name="trailing_newline\n")
+    with pytest.raises(ValueError, match="Invalid PostgreSQL database identifier"):
+        drop_database_force(service, db_name="x" * 64)
 
 
 def test_deprecated_postgres_connection_warns(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -414,3 +440,278 @@ def _pick_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+class RecordingContainer:
+    """Fake container that records every ``psql`` statement and answers from a callback."""
+
+    def __init__(self, respond: Any = None) -> None:
+        self.statements: list[tuple[str, str]] = []
+        self._respond = respond
+
+    def exec_run(self, cmd: list[str], environment: dict[str, str]) -> Any:
+        database = cmd[cmd.index("-d") + 1]
+        sql = cmd[-1]
+        self.statements.append((database, sql))
+        if self._respond is not None:
+            return self._respond(database, sql)
+        return SimpleNamespace(exit_code=0, output=b"1\n" if sql == "SELECT 1" else b"")
+
+
+def _template_service(container: RecordingContainer) -> PostgresService:
+    return PostgresService(
+        host="127.0.0.1",
+        port=5432,
+        container=container,  # type: ignore[arg-type]
+        database="postgres",
+        user="postgres",
+        password="super-secret",
+    )
+
+
+def _no_template_yet(database: str, sql: str) -> Any:
+    if "datistemplate = true" in sql:
+        return SimpleNamespace(exit_code=0, output=b"")
+    return SimpleNamespace(exit_code=0, output=b"1\n" if sql == "SELECT 1" else b"")
+
+
+def test_compute_fingerprint(tmp_path: Path) -> None:
+    """Verify ``compute_fingerprint`` is deterministic for text and tracks directory contents."""
+    fp1 = PostgresService.compute_fingerprint("CREATE TABLE t1 (id int);")
+    assert fp1 == PostgresService.compute_fingerprint("CREATE TABLE t1 (id int);")
+    assert fp1 != PostgresService.compute_fingerprint("CREATE TABLE t2 (id int);")
+    assert len(fp1) == 12
+
+    (tmp_path / "01_init.sql").write_text("CREATE TABLE users (id int);")
+    (tmp_path / "02_seed.sql").write_text("INSERT INTO users VALUES (1);")
+    dir_fp1 = PostgresService.compute_fingerprint(tmp_path)
+    assert dir_fp1 == PostgresService.compute_fingerprint(tmp_path)
+    (tmp_path / "03_more.sql").write_text("INSERT INTO users VALUES (2);")
+    assert PostgresService.compute_fingerprint(tmp_path) != dir_fp1
+
+
+def test_ensure_template_fast_path(tmp_path: Path) -> None:
+    """Verify ``ensure_template`` reuses an existing template without staging anything."""
+    container = RecordingContainer(lambda _database, _sql: SimpleNamespace(exit_code=0, output=b"1\n"))
+
+    assert _template_service(container).ensure_template("my_template", lock_dir=tmp_path) == "my_template"
+    assert container.statements == [
+        ("postgres", "SELECT 1 FROM pg_database WHERE datname = 'my_template' AND datistemplate = true;")
+    ]
+
+
+def test_ensure_template_lifecycle(tmp_path: Path) -> None:
+    """Verify ``ensure_template`` builds in staging, runs SQL then the callable, marks, and renames."""
+    container = RecordingContainer(_no_template_yet)
+    service = _template_service(container)
+    staged: list[str] = []
+    setup_sql = "CREATE TABLE test_table (id serial);"
+
+    template = service.ensure_template(
+        "my_template",
+        setup_fn=lambda staging_svc: staged.append(staging_svc.database),
+        setup_sql=setup_sql,
+        lock_dir=tmp_path,
+    )
+
+    digest = PostgresService.compute_fingerprint(setup_sql.encode())
+    assert template == f"my_template_{digest}"
+    staging = f"{template}_staging"
+    assert staged == [staging]
+    executed = [sql for _, sql in container.statements]
+    ordered = [
+        f'CREATE DATABASE "{staging}";',
+        setup_sql,
+        f'ALTER DATABASE "{staging}" WITH is_template = true allow_connections = false;',
+        f'ALTER DATABASE "{staging}" RENAME TO "{template}";',
+    ]
+    positions = [executed.index(sql) for sql in ordered]
+    assert positions == sorted(positions)
+    assert (staging, setup_sql) in container.statements
+    assert list(tmp_path.glob("pytest_databases_tpl_127_0_0_1_5432_*.lock"))
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "same"),
+    [
+        pytest.param("CREATE TABLE a (id int);", "CREATE TABLE a (id int);", True, id="unchanged-sql"),
+        pytest.param("CREATE TABLE a (id int);", "CREATE TABLE b (id int);", False, id="changed-sql"),
+    ],
+)
+def test_ensure_template_name_tracks_setup_sql(tmp_path: Path, first: str, second: str, same: bool) -> None:
+    """Verify a changed ``setup_sql`` produces a new template name instead of reusing a stale template."""
+    service = _template_service(RecordingContainer(_no_template_yet))
+
+    first_name = service.ensure_template(setup_sql=first, lock_dir=tmp_path)
+    second_name = service.ensure_template(setup_sql=second, lock_dir=tmp_path)
+
+    assert first_name.startswith("pytest_databases_template_")
+    assert (first_name == second_name) is same
+
+
+def test_ensure_template_hashes_setup_file_contents(tmp_path: Path) -> None:
+    """Verify ``.sql`` paths are executed by content and their content is part of the template name."""
+    container = RecordingContainer(_no_template_yet)
+    service = _template_service(container)
+    script = tmp_path / "schema.sql"
+    script.write_text("CREATE TABLE from_file (id int);")
+
+    first = service.ensure_template(setup_sql=[script], lock_dir=tmp_path)
+    script.write_text("CREATE TABLE from_file (id bigint);")
+    second = service.ensure_template(setup_sql=[script], lock_dir=tmp_path)
+
+    assert first != second
+    assert (f"{first}_staging", "CREATE TABLE from_file (id int);") in container.statements
+    assert (f"{second}_staging", "CREATE TABLE from_file (id bigint);") in container.statements
+
+
+def test_ensure_template_drops_staging_when_setup_fails(tmp_path: Path) -> None:
+    """Verify a failing setup statement raises and drops the half-built staging database."""
+
+    def respond(database: str, sql: str) -> Any:
+        if sql.startswith("CREATE TABLE"):
+            return SimpleNamespace(exit_code=1, output=b"ERROR: syntax error")
+        return _no_template_yet(database, sql)
+
+    container = RecordingContainer(respond)
+
+    with pytest.raises(RuntimeError, match="syntax error"):
+        _template_service(container).ensure_template("tpl", setup_sql="CREATE TABLE broken (", lock_dir=tmp_path)
+
+    drops = [sql for _, sql in container.statements if sql.startswith("DROP DATABASE")]
+    assert drops[-1].startswith('DROP DATABASE IF EXISTS "tpl_') and drops[-1].endswith('_staging";')
+
+
+def test_create_worker_database_from_template_sends_single_create() -> None:
+    """Verify the clone is one ``CREATE DATABASE ... TEMPLATE`` statement with no follow-up ``ALTER``."""
+    container = RecordingContainer()
+
+    worker_db = _template_service(container).create_worker_database_from_template("app_template", "worker_0")
+
+    assert worker_db == "worker_0"
+    executed = [sql for _, sql in container.statements]
+    assert 'CREATE DATABASE "worker_0" TEMPLATE "app_template";' in executed
+    assert not any(sql.startswith("ALTER DATABASE") for sql in executed)
+    assert container.statements[-1] == ("worker_0", "SELECT 1")
+
+
+def test_sweep_worker_databases_escapes_prefix_and_skips_staging() -> None:
+    """Verify the sweep treats ``_`` literally, skips staging and own databases, and drops the rest."""
+
+    def respond(database: str, sql: str) -> Any:
+        if sql.startswith("SELECT datname FROM pg_database"):
+            return SimpleNamespace(exit_code=0, output=b"worker_1\nworker_2\npostgres\n")
+        return SimpleNamespace(exit_code=0, output=b"")
+
+    container = RecordingContainer(respond)
+
+    assert _template_service(container).sweep_worker_databases(prefix="worker_") == ["worker_1", "worker_2"]
+
+    query = container.statements[0][1]
+    assert "LIKE 'worker\\_%' ESCAPE '\\'" in query
+    assert "NOT LIKE '%\\_staging' ESCAPE '\\'" in query
+    assert "datistemplate = false" in query
+    executed = [sql for _, sql in container.statements]
+    assert 'DROP DATABASE IF EXISTS "worker_1";' in executed
+    assert 'DROP DATABASE IF EXISTS "worker_2";' in executed
+    assert 'DROP DATABASE IF EXISTS "postgres";' not in executed
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "expected_db"),
+    [pytest.param(None, "pytest_databases", id="no-xdist"), pytest.param(1, "pytest_databases_1", id="xdist")],
+)
+def test_provide_postgres_service_template_isolation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, worker_num: int | None, expected_db: str
+) -> None:
+    """Verify ``"template"`` isolation builds the configured template and clones the service database from it."""
+    container = RecordingContainer(_no_template_yet)
+    fake_service = SimpleNamespace(host="127.0.0.1", port=5432, container=container)
+    run_ctx = MagicMock()
+    run_ctx.__enter__.return_value = fake_service
+    run_ctx.__exit__.return_value = False
+    docker_service = MagicMock()
+    docker_service.run.return_value = run_ctx
+    monkeypatch.setattr(postgres_mod, "get_xdist_worker_num", lambda: worker_num)
+    setup_sql = "CREATE TABLE users (id int);"
+
+    with provide_postgres_service(
+        docker_service,
+        image="postgres:18",
+        name="postgres",
+        host="127.0.0.1",
+        user="postgres",
+        password="super-secret",
+        xdist_postgres_isolate="template",
+        template=PostgresTemplateOptions(name="my_custom_tpl", setup=setup_sql, lock_dir=tmp_path),
+    ) as service:
+        assert service.database == expected_db
+
+    template = f"my_custom_tpl_{PostgresService.compute_fingerprint(setup_sql.encode())}"
+    executed = [sql for _, sql in container.statements]
+    assert f'CREATE DATABASE "{expected_db}" TEMPLATE "{template}";' in executed
+    assert (f"{template}_staging", setup_sql) in container.statements
+    assert docker_service.run.call_args.kwargs["transient"] is False
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [name for name in postgres_mod.__all__ if name.endswith("_service") and name != "provide_postgres_service"],
+)
+def test_family_services_forward_template_options(fixture_name: str) -> None:
+    """Verify every PostgreSQL family service fixture requests ``postgres_template_options``."""
+    parameters = inspect.signature(unwrap_fixture(getattr(postgres_mod, fixture_name))).parameters
+    assert "postgres_template_options" in parameters, fixture_name
+
+
+def test_family_services_template_count() -> None:
+    """Verify all PostgreSQL family service fixtures remain covered."""
+    service_fixtures = [
+        name for name in postgres_mod.__all__ if name.endswith("_service") and name != "provide_postgres_service"
+    ]
+    assert len(service_fixtures) == 26
+
+
+def test_xdist_isolate_template(pytester: pytest.Pytester) -> None:
+    """Verify ``"template"`` isolation clones a seeded template into a separate database for each worker."""
+    pytester.makepyfile(f"""
+import pytest
+from pytest_databases.docker.postgres import PostgresService
+
+pytest_plugins = ["pytest_databases.docker.postgres"]
+
+@pytest.fixture(scope="session")
+def xdist_postgres_isolation_level():
+    return "template"
+
+@pytest.fixture(scope="session")
+def postgres_template_setup():
+    return [
+        "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL)",
+        "INSERT INTO users (name) VALUES ('alice'), ('bob')",
+    ]
+
+{POSTGRES_TEST_HELPERS}
+
+def _check(service: PostgresService) -> None:
+    assert run_psql(service, "SELECT current_database()", tuples_only=True) == service.database
+    assert run_psql(service, "SELECT count(*) FROM users", tuples_only=True) == "2"
+    run_psql(service, "INSERT INTO users (name) VALUES ('carol')")
+    assert run_psql(service, "SELECT count(*) FROM users", tuples_only=True) == "3"
+    templates = run_psql(
+        service,
+        "SELECT datname FROM pg_database WHERE datistemplate AND starts_with(datname, 'pytest_databases_template_')",
+        database="postgres",
+        tuples_only=True,
+    )
+    assert len(templates.splitlines()) == 1, templates
+
+def test_one(postgres_service: PostgresService) -> None:
+    _check(postgres_service)
+
+def test_two(postgres_service: PostgresService) -> None:
+    _check(postgres_service)
+""")
+
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
+    result.assert_outcomes(passed=2)

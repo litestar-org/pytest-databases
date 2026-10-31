@@ -68,6 +68,9 @@ Services expose a session-scoped ``xdist_<backend>_isolation_level`` fixture tha
 * ``"database"`` (the default): workers share one container and each worker gets its own database, schema, bucket,
   virtual host, or resource prefix, depending on the service.
 * ``"server"``: each worker starts its own transient container.
+* ``"template"`` (PostgreSQL family only, typed as ``PostgresXdistIsolationLevel``): workers share one container; a
+  template database is built once and each worker database is cloned from it with file-level template cloning
+  (``CREATE DATABASE ... TEMPLATE``). See :doc:`../supported-databases/postgres`.
 
 SAP SQL Anywhere is the exception: it supports only ``"server"``, which is also its default.
 
