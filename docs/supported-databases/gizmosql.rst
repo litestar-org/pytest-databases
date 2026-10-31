@@ -13,7 +13,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[gizmosql]
+   pip install pytest-databases
 
 Usage Example
 -------------

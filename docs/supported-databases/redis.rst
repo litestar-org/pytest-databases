@@ -8,7 +8,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[redis]
+   pip install pytest-databases
 
 Readiness is verified directly over a Python stdlib TCP socket using the RESP protocol without requiring ``redis`` at container startup or pulling a sidecar container.
 

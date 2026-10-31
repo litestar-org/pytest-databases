@@ -8,9 +8,9 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[mongodb]
+   pip install pytest-databases
 
-The ``mongodb`` extra is kept as a compatibility group. The fixture provides a running MongoDB service and validates
+The fixture provides a running MongoDB service and validates
 availability with MongoDB's bundled ``mongosh`` client. Install the MongoDB client library that your application
 already uses (for example, `PyMongo <https://pymongo.readthedocs.io/>`_).
 
@@ -52,6 +52,6 @@ Service API
 -----------
 
 .. automodule:: pytest_databases.docker.mongodb
-   :members: MongoDBService, _provide_mongodb_service
+   :members:
    :undoc-members:
    :show-inheritance:

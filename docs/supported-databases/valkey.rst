@@ -8,9 +8,9 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[valkey] valkey
+   pip install pytest-databases valkey
 
-The ``valkey`` Python client is no longer pulled by ``pytest-databases[valkey]``. Readiness is verified over a Python stdlib TCP socket using the RESP protocol, so install your own client alongside ``pytest-databases``.
+The ``valkey`` extra no longer installs the ``valkey`` client. Readiness is verified over a Python stdlib TCP socket using the RESP protocol, so install your own client alongside ``pytest-databases``.
 
 Usage Example
 -------------
