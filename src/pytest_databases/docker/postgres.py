@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import importlib
 import os
 import re
+import tempfile
 import time
 import warnings
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import filelock
 import pytest
 
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator, Sequence
 
     from docker.models.containers import Container
     from psycopg import Connection
@@ -43,8 +47,11 @@ __all__ = [
     "alloydb_omni_port",
     "alloydb_omni_service",
     "clone_template_database",
+    "compute_schema_fingerprint",
     "create_worker_database",
+    "create_worker_database_from_template",
     "drop_database_force",
+    "ensure_template_database",
     "exec_psql",
     "make_connection_string",
     "paradedb_15_connection",
@@ -115,9 +122,13 @@ __all__ = [
     "postgres_password",
     "postgres_port",
     "postgres_service",
+    "postgres_template_lock_dir",
+    "postgres_template_name",
+    "postgres_template_setup",
     "postgres_user",
     "provide_postgres_connection",
     "provide_postgres_service",
+    "sweep_worker_databases",
     "xdist_postgres_isolation_level",
 ]
 
@@ -139,6 +150,48 @@ class PostgresService(ServiceContainer):
     def drop_database_force(self, db_name: str) -> None:
         """Terminate active backends and drop ``db_name`` if it exists."""
         drop_database_force(self, db_name=db_name)
+
+    def ensure_template(
+        self,
+        template_name: str,
+        *,
+        setup_fn: Callable[[PostgresService], Any] | None = None,
+        setup_sql: str | Sequence[str] | None = None,
+        lock_dir: Path | str | None = None,
+        lock_timeout: float = 180.0,
+        fingerprint_sources: Sequence[str | bytes | Path] | None = None,
+    ) -> str:
+        """Ensure a PostgreSQL template database exists, initializing it if absent."""
+        return ensure_template_database(
+            self,
+            template_name=template_name,
+            setup_fn=setup_fn,
+            setup_sql=setup_sql,
+            lock_dir=lock_dir,
+            lock_timeout=lock_timeout,
+            fingerprint_sources=fingerprint_sources,
+        )
+
+    def create_worker_database_from_template(
+        self,
+        template_name: str,
+        worker_db: str,
+    ) -> str:
+        """Create a worker database by cloning an existing PostgreSQL template database."""
+        return create_worker_database_from_template(
+            self,
+            template_name=template_name,
+            worker_db=worker_db,
+        )
+
+    def sweep_worker_databases(self, prefix: str = "pytest_databases_") -> list[str]:
+        """Terminate backends and drop transient worker databases matching ``prefix`` while preserving templates."""
+        return sweep_worker_databases(self, prefix=prefix)
+
+    @staticmethod
+    def compute_fingerprint(*sources: str | bytes | Path) -> str:
+        """Compute a deterministic SHA-256 fingerprint from strings, bytes, files, or directories."""
+        return compute_schema_fingerprint(*sources)
 
 
 def make_connection_string(host: str, port: int, user: str, password: str, database: str) -> str:
@@ -271,6 +324,272 @@ def drop_database_force(
         raise RuntimeError(msg)
 
 
+def compute_schema_fingerprint(*sources: str | bytes | Path) -> str:
+    """Compute a deterministic SHA-256 fingerprint from strings, bytes, files, or directories.
+
+    Args:
+        *sources: String SQL, raw bytes, file paths, or directory paths to hash.
+
+    Returns:
+        A 12-character lowercase hex digest suitable for database name suffixing.
+    """
+    hasher = hashlib.sha256()
+    for source in sources:
+        if isinstance(source, bytes):
+            hasher.update(b"bytes:")
+            hasher.update(source)
+        elif isinstance(source, Path):
+            if source.exists():
+                _hash_filesystem_path(hasher, source)
+            else:
+                hasher.update(b"path:")
+                hasher.update(str(source).encode("utf-8"))
+        elif isinstance(source, str):
+            path_candidate = Path(source)
+            if path_candidate.exists():
+                _hash_filesystem_path(hasher, path_candidate)
+            else:
+                hasher.update(b"str:")
+                hasher.update(source.encode("utf-8"))
+    return hasher.hexdigest()[:12]
+
+
+def _hash_filesystem_path(hasher: Any, path: Path) -> None:
+    """Hash a file or recursively hash a directory in deterministic order."""
+    if path.is_file():
+        hasher.update(b"file:")
+        hasher.update(path.name.encode("utf-8"))
+        hasher.update(path.read_bytes())
+    elif path.is_dir():
+        hasher.update(b"dir:")
+        hasher.update(path.name.encode("utf-8"))
+        for entry in sorted(path.rglob("*")):
+            if entry.is_file():
+                hasher.update(entry.relative_to(path).as_posix().encode("utf-8"))
+                hasher.update(entry.read_bytes())
+
+
+def ensure_template_database(
+    service: PostgresService,
+    *,
+    template_name: str,
+    setup_fn: Callable[[PostgresService], Any] | None = None,
+    setup_sql: str | Sequence[str] | None = None,
+    lock_dir: Path | str | None = None,
+    lock_timeout: float = 180.0,
+    fingerprint_sources: Sequence[str | bytes | Path] | None = None,
+) -> str:
+    """Ensure a PostgreSQL template database exists, initializing it if absent using double-checked file locking.
+
+    Args:
+        service: Connected PostgreSQL service metadata.
+        template_name: Target template database name (or prefix if fingerprint_sources are provided).
+        setup_fn: Optional callable receiving a staging PostgresService instance to perform setup.
+        setup_sql: Optional SQL statement or sequence of SQL statements executed against the staging database.
+        lock_dir: Optional directory for cross-worker lock files (defaults to tempfile.gettempdir()).
+        lock_timeout: Timeout in seconds for cross-worker file lock acquisition.
+        fingerprint_sources: Optional sequence of files, directories, or strings to compute a fingerprint suffix.
+
+    Returns:
+        The validated and confirmed template database name.
+    """
+    resolved_name = template_name
+    if fingerprint_sources is not None:
+        digest = compute_schema_fingerprint(*fingerprint_sources)
+        resolved_name = f"{template_name}_{digest}"
+    safe_tpl = _validate_identifier(resolved_name)
+
+    check_sql = f"SELECT 1 FROM pg_database WHERE datname = '{safe_tpl}' AND datistemplate = true;"
+    exit_code, output = exec_psql(
+        service.container,
+        user=service.user,
+        password=service.password,
+        database="postgres",
+        sql=check_sql,
+        tuples_only=True,
+    )
+    if exit_code == 0 and output.strip() == b"1":
+        return safe_tpl
+
+    lock_base = Path(lock_dir or tempfile.gettempdir())
+    lock_base.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_base / f"pytest_databases_tpl_{safe_tpl}.lock"
+
+    with filelock.FileLock(str(lock_path), timeout=lock_timeout):
+        exit_code, output = exec_psql(
+            service.container,
+            user=service.user,
+            password=service.password,
+            database="postgres",
+            sql=check_sql,
+            tuples_only=True,
+        )
+        if exit_code == 0 and output.strip() == b"1":
+            return safe_tpl
+
+        staging_name = _validate_identifier(f"{safe_tpl}_staging")
+        drop_database_force(service, db_name=staging_name)
+
+        exit_code, output = exec_psql(
+            service.container,
+            user=service.user,
+            password=service.password,
+            database="postgres",
+            sql=f'CREATE DATABASE "{staging_name}";',
+        )
+        if exit_code != 0:
+            msg = f"Failed to create staging database {staging_name!r}: {output.decode(errors='replace').strip()}"
+            raise RuntimeError(msg)
+
+        if setup_sql is not None:
+            stmts = [setup_sql] if isinstance(setup_sql, str) else list(setup_sql)
+            for stmt in stmts:
+                exit_code, output = exec_psql(
+                    service.container,
+                    user=service.user,
+                    password=service.password,
+                    database=staging_name,
+                    sql=stmt,
+                )
+                if exit_code != 0:
+                    drop_database_force(service, db_name=staging_name)
+                    msg = f"Failed to execute setup SQL on staging database {staging_name!r}: {output.decode(errors='replace').strip()}"
+                    raise RuntimeError(msg)
+
+        if setup_fn is not None:
+            staging_service = dataclasses.replace(service, database=staging_name)
+            try:
+                setup_fn(staging_service)
+            except Exception:
+                drop_database_force(service, db_name=staging_name)
+                raise
+
+        terminate_sql = (
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            f"WHERE datname = '{staging_name}' AND pid <> pg_backend_pid();"
+        )
+        exec_psql(
+            service.container,
+            user=service.user,
+            password=service.password,
+            database="postgres",
+            sql=terminate_sql,
+        )
+
+        exit_code, output = exec_psql(
+            service.container,
+            user=service.user,
+            password=service.password,
+            database="postgres",
+            sql=f'ALTER DATABASE "{staging_name}" WITH is_template = true allow_connections = false;',
+        )
+        if exit_code != 0:
+            drop_database_force(service, db_name=staging_name)
+            msg = f"Failed to mark staging database {staging_name!r} as template: {output.decode(errors='replace').strip()}"
+            raise RuntimeError(msg)
+
+        drop_database_force(service, db_name=safe_tpl)
+
+        exit_code, output = exec_psql(
+            service.container,
+            user=service.user,
+            password=service.password,
+            database="postgres",
+            sql=f'ALTER DATABASE "{staging_name}" RENAME TO "{safe_tpl}";',
+        )
+        if exit_code != 0:
+            drop_database_force(service, db_name=staging_name)
+            msg = f"Failed to rename staging database {staging_name!r} to {safe_tpl!r}: {output.decode(errors='replace').strip()}"
+            raise RuntimeError(msg)
+
+        return safe_tpl
+
+
+def create_worker_database_from_template(
+    service: PostgresService,
+    *,
+    template_name: str,
+    worker_db: str,
+) -> str:
+    """Create a worker database by cloning an existing PostgreSQL template database.
+
+    Args:
+        service: Connected PostgreSQL service metadata.
+        template_name: Existing template database name.
+        worker_db: Target database name to create for the worker.
+
+    Returns:
+        The created worker database name.
+    """
+    safe_tpl = _validate_identifier(template_name)
+    safe_worker_db = _validate_identifier(worker_db)
+    drop_database_force(service, db_name=safe_worker_db)
+    clone_sql = (
+        f'CREATE DATABASE "{safe_worker_db}" TEMPLATE "{safe_tpl}"; '
+        f'ALTER DATABASE "{safe_worker_db}" WITH allow_connections = true;'
+    )
+    exit_code, output = exec_psql(
+        service.container,
+        user=service.user,
+        password=service.password,
+        database="postgres",
+        sql=clone_sql,
+    )
+    if exit_code != 0:
+        msg = (
+            f"Failed to clone template database {safe_tpl!r} into {safe_worker_db!r}: "
+            f"{output.decode(errors='replace').strip()}"
+        )
+        raise RuntimeError(msg)
+    exit_code, output = exec_psql(
+        service.container,
+        user=service.user,
+        password=service.password,
+        database=safe_worker_db,
+        sql="SELECT 1",
+        tuples_only=True,
+    )
+    if exit_code != 0 or output.strip() != b"1":
+        msg = f"Verification SELECT against cloned worker database {safe_worker_db!r} failed: {output.decode(errors='replace').strip()}"
+        raise RuntimeError(msg)
+    return safe_worker_db
+
+
+def sweep_worker_databases(
+    service: PostgresService,
+    *,
+    prefix: str = "pytest_databases_",
+) -> list[str]:
+    """Terminate backends and drop transient worker databases matching ``prefix`` while preserving templates.
+
+    Args:
+        service: Connected PostgreSQL service metadata.
+        prefix: Database name prefix to match for worker databases.
+
+    Returns:
+        List of dropped database names.
+    """
+    safe_prefix = _validate_identifier(prefix)
+    query = f"SELECT datname FROM pg_database WHERE datname LIKE '{safe_prefix}%' AND datistemplate = false;"
+    exit_code, output = exec_psql(
+        service.container,
+        user=service.user,
+        password=service.password,
+        database="postgres",
+        sql=query,
+        tuples_only=True,
+    )
+    if exit_code != 0:
+        return []
+    dropped: list[str] = []
+    for line in output.splitlines():
+        datname = line.decode(errors="replace").strip()
+        if datname and datname != service.database:
+            drop_database_force(service, db_name=datname)
+            dropped.append(datname)
+    return dropped
+
+
 @pytest.fixture(scope="session")
 def xdist_postgres_isolation_level() -> XdistIsolationLevel:
     """Return the default pytest-xdist isolation level for PostgreSQL services."""
@@ -361,6 +680,11 @@ def provide_postgres_service(
     host_port: int | None = None,
     timeout: int = 60,
     pause: float = 0.5,
+    template_name: str | None = None,
+    template_setup: Callable[[PostgresService], Any] | str | Sequence[str] | None = None,
+    template_lock_dir: Path | str | None = None,
+    template_lock_timeout: float = 180.0,
+    template_fingerprint_sources: Sequence[str | bytes | Path] | None = None,
 ) -> Generator[PostgresService, None, None]:
     """Start and validate a PostgreSQL-compatible container service using ``psql``.
 
@@ -402,12 +726,37 @@ def provide_postgres_service(
         transient=xdist_postgres_isolate == "server",
         host_port=host_port,
     ) as service:
-        create_worker_database(
-            service.container,
+        base_service = PostgresService(
+            host=service.host,
+            port=service.port,
+            container=service.container,
+            database="postgres",
             user=user,
             password=password,
-            db_name=db_name,
         )
+        if xdist_postgres_isolate == "template":
+            resolved_tpl = template_name or "pytest_databases_template"
+            actual_tpl = ensure_template_database(
+                base_service,
+                template_name=resolved_tpl,
+                setup_fn=template_setup if callable(template_setup) else None,
+                setup_sql=template_setup if not callable(template_setup) else None,
+                lock_dir=template_lock_dir,
+                lock_timeout=template_lock_timeout,
+                fingerprint_sources=template_fingerprint_sources,
+            )
+            create_worker_database_from_template(
+                base_service,
+                template_name=actual_tpl,
+                worker_db=db_name,
+            )
+        else:
+            create_worker_database(
+                service.container,
+                user=user,
+                password=password,
+                db_name=db_name,
+            )
         yield PostgresService(
             host=service.host,
             port=service.port,
@@ -775,6 +1124,24 @@ def postgres_image() -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
+def postgres_template_name() -> str | None:
+    """Return an optional custom template name when template isolation is enabled."""
+    return None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_template_setup() -> Callable[[PostgresService], Any] | str | Sequence[str] | None:
+    """Return an optional schema setup callable or SQL string(s) for template database initialization."""
+    return None
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_template_lock_dir() -> str | None:
+    """Return an optional custom directory for template database cross-worker lock files."""
+    return None
+
+
+@pytest.fixture(autouse=False, scope="session")
 def postgres_service(
     docker_service: DockerService,
     postgres_image: str,
@@ -783,6 +1150,9 @@ def postgres_service(
     postgres_user: str,
     postgres_password: str,
     postgres_port: int | None,
+    postgres_template_name: str | None,
+    postgres_template_setup: Callable[[PostgresService], Any] | str | Sequence[str] | None,
+    postgres_template_lock_dir: str | None,
 ) -> Generator[PostgresService, None, None]:
     """Provide the default PostgreSQL service.
 
@@ -798,6 +1168,9 @@ def postgres_service(
         user=postgres_user,
         password=postgres_password,
         host_port=postgres_port,
+        template_name=postgres_template_name,
+        template_setup=postgres_template_setup,
+        template_lock_dir=postgres_template_lock_dir,
     ) as service:
         yield service
 

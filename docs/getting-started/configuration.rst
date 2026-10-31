@@ -24,7 +24,7 @@ Example ``pyproject.toml`` configuration:
 Parallel Execution (``pytest-xdist``) Isolation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Services that support multiple logical databases, schemas, virtual hosts, or resource prefixes expose a session-scoped ``xdist_<backend>_isolation_level`` fixture returning ``"database"`` (default, sharing a single container across workers) or ``"server"`` (starting a dedicated transient container per worker).
+Services that support multiple logical databases, schemas, virtual hosts, or resource prefixes expose a session-scoped ``xdist_<backend>_isolation_level`` fixture returning ``"database"`` (default, sharing a single container across workers), ``"server"`` (starting a dedicated transient container per worker), or ``"template"`` (supported on PostgreSQL services for copy-on-write template database cloning).
 
 .. code-block:: python
 
@@ -33,7 +33,7 @@ Services that support multiple logical databases, schemas, virtual hosts, or res
 
    @pytest.fixture(scope="session")
    def xdist_postgres_isolation_level() -> XdistIsolationLevel:
-       return "database"
+       return "template"
 
 Accessing Configuration in Tests
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -39,6 +39,63 @@ Usage Example
         finally:
             postgres_service.drop_database_force(cloned_db)
 
+Template Database Acceleration
+------------------------------
+
+For integration test suites with heavy migration or seeding steps running under ``pytest-xdist``, creating a fresh database from scratch on every worker adds seconds of overhead. PostgreSQL supports copy-on-write template database cloning in under 30 milliseconds.
+
+``pytest-databases`` provides first-class template database lifecycle management:
+
+1. **Automatic Template Setup & Cross-Worker Coordination**:
+   Set ``xdist_postgres_isolation_level = "template"`` and configure ``postgres_template_setup`` to run schema migrations once. A file lock across parallel workers guarantees that only one worker builds the template, while other workers wait and clone directly.
+
+.. code-block:: python
+
+    import pytest
+    from pytest_databases.docker.postgres import PostgresService
+    from pytest_databases.types import XdistIsolationLevel
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+    @pytest.fixture(scope="session")
+    def xdist_postgres_isolation_level() -> XdistIsolationLevel:
+        return "template"
+
+    @pytest.fixture(scope="session")
+    def postgres_template_setup() -> str:
+        return """
+        CREATE TABLE users (id serial primary key, name text);
+        INSERT INTO users (name) VALUES ('alice'), ('bob');
+        """
+
+    def test_worker_database(postgres_service: PostgresService) -> None:
+        # postgres_service.database is an isolated worker clone created from the pre-warmed template
+        assert postgres_service.database.startswith("pytest_databases")
+
+2. **Programmatic Template Management on `PostgresService`**:
+   You can also build, clone, and sweep templates directly in custom fixtures:
+
+.. code-block:: python
+
+    from pytest_databases.docker.postgres import PostgresService
+
+    def test_custom_template(postgres_service: PostgresService) -> None:
+        # 1. Compute fingerprint across migration scripts
+        digest = postgres_service.compute_fingerprint("CREATE TABLE items (id int);")
+
+        # 2. Ensure template exists using double-checked locking
+        tpl_name = postgres_service.ensure_template(
+            f"app_tpl_{digest}",
+            setup_sql="CREATE TABLE items (id serial primary key);",
+        )
+
+        # 3. Clone worker database in < 30ms
+        worker_db = postgres_service.create_worker_database_from_template(tpl_name, "test_fast_worker")
+        try:
+            assert worker_db == "test_fast_worker"
+        finally:
+            postgres_service.drop_database_force(worker_db)
+
 Available Fixtures
 ------------------
 
@@ -47,6 +104,9 @@ Available Fixtures
 * ``postgres_password``: The PostgreSQL password.
 * ``postgres_image``: The Docker image to use for PostgreSQL (defaults to ``"postgres:18"``).
 * ``postgres_port``: Optional host-side port pin (default ``None``, override via ``POSTGRES_PORT`` env).
+* ``postgres_template_name``: Optional template database name when template isolation is enabled (defaults to ``"pytest_databases_template"``).
+* ``postgres_template_setup``: Optional setup callable or SQL string(s) to initialize the template database.
+* ``postgres_template_lock_dir``: Optional directory for template file locks (defaults to system temp directory).
 * ``postgres_service``: A fixture that provides a :class:`~pytest_databases.docker.postgres.PostgresService` instance.
 * ``postgres_connection``: Deprecated fixture that yields a ``psycopg.Connection``.
 
