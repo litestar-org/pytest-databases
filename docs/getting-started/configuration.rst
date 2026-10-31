@@ -1,43 +1,52 @@
 Configuration
 =============
 
-``pytest-databases`` uses environment variables for configuration. This allows you to override default settings like Docker image tags, usernames, passwords, ports, and database names.
+``pytest-databases`` supports configuring the container runtime (Docker or Podman), container daemon endpoints, deterministic session ownership, ``pytest-xdist`` isolation modes, and container teardown behavior via pytest options, ``pyproject.toml`` / ``pytest.ini`` settings, and environment variables.
 
-Common Environment Variables
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Container Runtime & Session Ownership
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-These variables apply globally to the Docker setup:
+You can select between Docker and Podman or let ``pytest-databases`` auto-detect the available container runtime:
 
-*   ``SKIP_DOCKER_COMPOSE=True``: If set, skip trying to manage database containers via Docker Compose. Useful if you manage services externally. (Default: "False")
-*   ``USE_LEGACY_DOCKER_COMPOSE=True``: If set, forces the use of the older ``docker-compose`` command instead of ``docker compose``. (Default: "False")
-*   ``DOCKER_HOST``: Specifies the host where the Docker daemon is running and where services will be exposed. (Default: "127.0.0.1")
+* ``--container-runtime`` / ``container_runtime`` (ini) / ``PYTEST_DATABASES_CONTAINER_RUNTIME``: Container runtime engine to use (``auto``, ``docker``, or ``podman``; default: ``auto``).
+* ``--keep-containers`` / ``keep_containers`` (ini) / ``PYTEST_DATABASES_KEEP_CONTAINERS``: Retain containers after session teardown instead of removing them (default: ``False``).
+* ``PYTEST_DATABASES_CONTAINER_RUNTIME_ENDPOINT`` / ``DOCKER_HOST`` / ``CONTAINER_HOST``: Explicit container daemon socket URI (for example ``unix:///run/user/1000/podman/podman.sock``).
+* ``PYTEST_DATABASES_NAMESPACE``: Optional namespace combined with the repository root path to derive a deterministic ``pytest-databases.owner-id`` label so concurrent checkouts do not collide while crashed sessions are cleaned up automatically on the next run.
 
-Database-Specific Variables
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Example ``pyproject.toml`` configuration:
 
-Some drivers have additional environment variables for configuration.
+.. code-block:: toml
 
-Please refer to the documentation for the specific database you are using under the :doc:`../supported-databases/index` section for a complete list of its configuration variables.
+   [tool.pytest.ini_options]
+   container_runtime = "auto"
+   keep_containers = false
+
+Parallel Execution (``pytest-xdist``) Isolation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Services that support multiple logical databases, schemas, virtual hosts, or resource prefixes expose a session-scoped ``xdist_<backend>_isolation_level`` fixture returning ``"database"`` (default, sharing a single container across workers) or ``"server"`` (starting a dedicated transient container per worker).
+
+.. code-block:: python
+
+   import pytest
+   from pytest_databases.types import XdistIsolationLevel
+
+   @pytest.fixture(scope="session")
+   def xdist_postgres_isolation_level() -> XdistIsolationLevel:
+       return "database"
 
 Accessing Configuration in Tests
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The effective configuration values (whether defaults or overridden by environment variables) are available as attributes on the service fixture objects:
+The effective configuration values are available as attributes on the service fixture objects:
 
 .. code-block:: python
 
    from pytest_databases.docker.postgres import PostgresService
 
    def test_postgres_config_access(postgres_service: PostgresService) -> None:
-       # Access configuration values used by the running service
-       print(f"Connecting to Postgres user: {postgres_service.user}")
-       print(f"Using database: {postgres_service.database}")
-       print(f"On host: {postgres_service.host}:{postgres_service.port}")
-
-       # Example assertions (replace with your expected defaults or env overrides)
        assert postgres_service.user == "postgres"
        assert postgres_service.password == "super-secret"
-       assert postgres_service.database == "pytest_databases"
-       assert postgres_service.host == "127.0.0.1" # Or your DOCKER_HOST override
+       assert postgres_service.database.startswith("pytest_databases")
        assert isinstance(postgres_service.port, int)
        assert postgres_service.port > 0
