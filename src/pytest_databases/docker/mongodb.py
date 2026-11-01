@@ -153,7 +153,6 @@ def mongodb_connection(mongodb_service: MongoDBService) -> Generator[Any, None, 
 
 @pytest.fixture(autouse=False, scope="function")
 def mongodb_database(
-    mongodb_connection: Any,
     mongodb_service: MongoDBService,
 ) -> Generator[Any, None, None]:
     """Provide a deprecated pymongo Database instance for testing.
@@ -167,7 +166,17 @@ def mongodb_database(
         DeprecationWarning,
         stacklevel=2,
     )
-    yield mongodb_connection[mongodb_service.database]
+    pymongo = importlib.import_module("pymongo")
+    client = pymongo.MongoClient(
+        host=mongodb_service.host,
+        port=mongodb_service.port,
+        username=mongodb_service.username,
+        password=mongodb_service.password,
+    )
+    try:
+        yield client[mongodb_service.database]
+    finally:
+        client.close()
 
 
 def _exec_mongosh(

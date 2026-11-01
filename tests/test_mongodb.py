@@ -70,12 +70,19 @@ def test_mongodb_deprecated_connection_and_database_shims() -> None:
     mock_import.assert_called_once_with("pymongo")
     mock_client.close.assert_called_once_with()
 
-    with pytest.deprecated_call(match="mongodb_database"):
-        db_gen = _unwrap_fixture(mongodb_database)(mock_client, service)
+    mock_client.close.reset_mock()
+    with (
+        patch("importlib.import_module", return_value=mock_pymongo) as mock_import_db,
+        pytest.deprecated_call(match="mongodb_database"),
+    ):
+        db_gen = _unwrap_fixture(mongodb_database)(service)
         db = next(db_gen)
         assert db is mock_db
         with pytest.raises(StopIteration):
             next(db_gen)
+
+    mock_import_db.assert_called_once_with("pymongo")
+    mock_client.close.assert_called_once_with()
 
 
 @pytest.fixture(scope="module")
