@@ -8,7 +8,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[elasticsearch]
+   pip install pytest-databases
 
 The ``elasticsearch`` extra is kept as a compatibility group. Install the
 Elasticsearch client that your application already uses (for example ``elasticsearch``).

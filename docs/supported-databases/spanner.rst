@@ -8,7 +8,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[spanner]
+   pip install pytest-databases
 
 Bring your own client (for example ``google-cloud-spanner``). The fixture provisions the test instance and database directly through the emulator's HTTP REST API on port ``9020`` without pulling a ``cloud-sdk`` sidecar image.
 

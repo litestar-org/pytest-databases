@@ -3,6 +3,45 @@ Changelog
 
 All notable changes to this project will be documented in this file.
 
+0.20.0 (unreleased)
+-------------------
+
+Added
+~~~~~
+
+* Added embedded PostgreSQL testing service (`EmbeddedPostgresService`, ``embedded_postgres_service``)
+  supporting copy-on-write template database acceleration, xdist shared-cluster coordination,
+  dynamic port allocation, and fast test configurations via ``pgembed`` or host binaries.
+* Added clientless AWS SigV4 bucket provisioning via ``create_s3_bucket`` and exposed ``.endpoint_url``
+  and ``.ensure_bucket`` on ``RustfsService`` and ``MinioService``.
+* Added namespaced platform fixtures (``mysql_platform``, ``dolt_platform``, ``bigquery_platform``)
+  to avoid cross-plugin fixture collisions.
+
+Deprecated
+~~~~~~~~~~
+
+* Deprecated all third-party database driver and cloud SDK compatibility extras
+  (``[postgres]``, ``[redis]``, ``[oracle]``, etc.) for removal in ``1.0.0``. All container
+  services validate readiness without third-party client libraries. Use the base package
+  and install your application's preferred client drivers directly.
+  The ``[embedded-postgres]`` extra remains fully supported.
+* Deprecated legacy connection and client fixtures across ``postgres``, ``mysql``, ``oracle``,
+  ``cockroachdb``, ``mongodb``, ``bigquery``, ``azure_blob``, ``redis``, ``spanner``, and
+  ``gizmosql`` for removal in ``1.0.0``; callers should consume the corresponding ``*_service``
+  fixtures instead.
+* Deprecated bare ``platform`` fixture shadowing across ``mysql``, ``dolt``, and ``bigquery``
+  in favor of namespaced ``mysql_platform``, ``dolt_platform``, and ``bigquery_platform`` fixtures.
+* Deprecated ``DockerServiceRegistry`` for removal in ``1.0.0``. Use ``DockerService`` instead.
+
+Fixed
+~~~~~
+
+* Fixed ``DeprecationWarning`` ``stacklevel`` attribution on ``@contextmanager``-decorated helpers
+  so deprecation notices cite caller modules rather than standard library ``contextlib``.
+* Decoupled legacy alias fixtures (``oracle_connection``, ``oracle_startup_connection``, ``mongodb_database``)
+  to emit a single deprecation warning instead of chained duplicate emissions.
+* Updated Oracle client missing dependency hint to suggest ``pip install oracledb``.
+
 0.19.0 (2026-05-23)
 -------------------
 

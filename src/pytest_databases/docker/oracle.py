@@ -218,7 +218,7 @@ def oracle_responsive(host: str, port: int, service_name: str, user: str, passwo
         True when the query returns ``1``, otherwise False.
     """
     warnings.warn(
-        "`oracle_responsive` is deprecated and will be removed in v1.0.",
+        "`oracle_responsive` is deprecated in v0.20.0 and will be removed in v1.0.0.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -740,10 +740,10 @@ def open_oracle_connection(
         An open ``oracledb.Connection``.
     """
     warnings.warn(
-        f"`{fixture_name}` is deprecated and will be removed in v1.0. "
+        f"`{fixture_name}` is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Create an `oracledb` connection from `oracle_service` instead.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     oracledb = _load_oracledb()
     with oracledb.connect(
@@ -981,25 +981,25 @@ def oracle_23ai_connection(oracle_23ai_service: OracleService) -> Generator[Any,
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_connection(oracle_23ai_connection: Any) -> Any:
-    """Deprecated alias for ``oracle_23ai_connection``."""
-    warnings.warn(
-        "`oracle_connection` is deprecated and will be removed in v1.0.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return oracle_23ai_connection
+def oracle_connection(oracle_23ai_service: OracleService) -> Generator[Any, None, None]:
+    """Deprecated alias for ``oracle_23ai_connection``.
+
+    Yields:
+        An open ``oracledb.Connection``.
+    """
+    with open_oracle_connection(oracle_23ai_service, fixture_name="oracle_connection") as conn:
+        yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_startup_connection(oracle_23ai_connection: Any) -> Any:
-    """Deprecated alias for ``oracle_23ai_connection`` preserved for v0.19.0 callers."""
-    warnings.warn(
-        "`oracle_startup_connection` is deprecated and will be removed in v1.0.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return oracle_23ai_connection
+def oracle_startup_connection(oracle_23ai_service: OracleService) -> Generator[Any, None, None]:
+    """Deprecated alias for ``oracle_23ai_connection`` preserved for v0.19.0 callers.
+
+    Yields:
+        An open ``oracledb.Connection``.
+    """
+    with open_oracle_connection(oracle_23ai_service, fixture_name="oracle_startup_connection") as conn:
+        yield conn
 
 
 def _load_oracledb() -> Any:
@@ -1014,7 +1014,7 @@ def _load_oracledb() -> Any:
     try:
         return importlib.import_module("oracledb")
     except ModuleNotFoundError as exc:
-        msg = "Oracle connection fixtures require the 'oracledb' package (`pip install pytest-databases[oracle]`)."
+        msg = "Oracle connection fixtures require the 'oracledb' package (`pip install oracledb`)."
         raise pytest.UsageError(msg) from exc
 
 

@@ -217,10 +217,10 @@ def provide_deprecated_redis_client(
         A connected ``redis.Redis`` client instance.
     """
     warnings.warn(
-        f"The '{fixture_name}' fixture is deprecated and will be removed in a future release. "
+        f"The '{fixture_name}' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
         f"Use '{service_fixture_name}' and instantiate your own Redis client instead.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     redis_module = importlib.import_module("redis")
     client = redis_module.Redis(host=service.host, port=service.port, db=service.db)

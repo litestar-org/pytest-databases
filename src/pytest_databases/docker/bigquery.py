@@ -25,6 +25,7 @@ __all__ = (
     "BigQueryService",
     "bigquery_client",
     "bigquery_image",
+    "bigquery_platform",
     "bigquery_service",
     "platform",
     "provide_bigquery_client",
@@ -50,7 +51,7 @@ class BigQueryService(ServiceContainer):
     def credentials(self) -> Any:
         """Deprecated ``AnonymousCredentials`` instance for the BigQuery emulator."""
         warnings.warn(
-            "BigQueryService.credentials is deprecated and will be removed in a future release. "
+            "BigQueryService.credentials is deprecated in v0.20.0 and will be removed in v1.0.0. "
             "Construct your own google.auth.credentials.AnonymousCredentials() instance.",
             DeprecationWarning,
             stacklevel=2,
@@ -62,7 +63,7 @@ class BigQueryService(ServiceContainer):
     def client_options(self) -> Any:
         """Deprecated ``ClientOptions`` configured with the emulator API endpoint."""
         warnings.warn(
-            "BigQueryService.client_options is deprecated and will be removed in a future release. "
+            "BigQueryService.client_options is deprecated in v0.20.0 and will be removed in v1.0.0. "
             "Construct ClientOptions(api_endpoint=service.endpoint) directly.",
             DeprecationWarning,
             stacklevel=2,
@@ -172,10 +173,10 @@ def provide_bigquery_client(bigquery_service: BigQueryService) -> Generator[Any,
         A configured ``bigquery.Client`` connected to ``bigquery_service``.
     """
     warnings.warn(
-        "The 'bigquery_client' fixture is deprecated and will be removed in a future release. "
+        "The 'bigquery_client' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use 'bigquery_service' and construct your own google.cloud.bigquery.Client.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     bq_mod: Any = importlib.import_module("google.cloud.bigquery")
     options_mod: Any = importlib.import_module("google.api_core.client_options")
@@ -200,9 +201,21 @@ def bigquery_image() -> str:
 
 
 @pytest.fixture(scope="session")
-def platform() -> str:
+def bigquery_platform() -> str:
     """Return the container platform architecture for the BigQuery emulator."""
     return "linux/x86_64"
+
+
+@pytest.fixture(scope="session")
+def platform(bigquery_platform: str) -> str:
+    """Return the container platform architecture for BigQuery (deprecated for removal in v1.0.0, use bigquery_platform)."""
+    warnings.warn(
+        "'platform' fixture in pytest_databases.docker.bigquery is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'bigquery_platform' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return bigquery_platform
 
 
 @pytest.fixture(scope="session")
@@ -210,7 +223,7 @@ def bigquery_service(
     docker_service: DockerService,
     xdist_bigquery_isolation_level: XdistIsolationLevel,
     bigquery_image: str,
-    platform: str,
+    bigquery_platform: str,
 ) -> Generator[BigQueryService, None, None]:
     """Provide a session-scoped BigQuery emulator service.
 
@@ -221,7 +234,7 @@ def bigquery_service(
         docker_service,
         xdist_bigquery_isolation_level,
         bigquery_image,
-        platform,
+        bigquery_platform,
     ) as service:
         yield service
 

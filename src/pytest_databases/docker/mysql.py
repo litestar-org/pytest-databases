@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 import time
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,7 @@ __all__ = [
     "mysql_97_service",
     "mysql_database",
     "mysql_password",
+    "mysql_platform",
     "mysql_root_password",
     "mysql_service",
     "mysql_user",
@@ -149,9 +151,21 @@ def xdist_mysql_isolation_level() -> XdistIsolationLevel:
 
 
 @pytest.fixture(scope="session")
-def platform() -> str:
+def mysql_platform() -> str:
     """Return the legacy x86_64 platform string used by MySQL 5.6 and 5.7."""
     return "linux/x86_64"
+
+
+@pytest.fixture(scope="session")
+def platform(mysql_platform: str) -> str:
+    """Return the legacy platform string for MySQL (deprecated for removal in v1.0.0, use mysql_platform)."""
+    warnings.warn(
+        "'platform' fixture in pytest_databases.docker.mysql is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'mysql_platform' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return mysql_platform
 
 
 @pytest.fixture(scope="session")
@@ -188,7 +202,7 @@ def mysql_service(mysql_84_service: MySQLService) -> MySQLService:
 def mysql_56_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
-    platform: str,
+    mysql_platform: str,
     mysql_user: str,
     mysql_password: str,
     mysql_root_password: str,
@@ -204,7 +218,7 @@ def mysql_56_service(
         name="mysql-56",
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
-        platform=platform,
+        platform=mysql_platform,
         user=mysql_user,
         password=mysql_password,
         root_password=mysql_root_password,
@@ -217,7 +231,7 @@ def mysql_56_service(
 def mysql_57_service(
     docker_service: DockerService,
     xdist_mysql_isolation_level: XdistIsolationLevel,
-    platform: str,
+    mysql_platform: str,
     mysql_user: str,
     mysql_password: str,
     mysql_root_password: str,
@@ -233,7 +247,7 @@ def mysql_57_service(
         name="mysql-57",
         docker_service=docker_service,
         isolation_level=xdist_mysql_isolation_level,
-        platform=platform,
+        platform=mysql_platform,
         user=mysql_user,
         password=mysql_password,
         root_password=mysql_root_password,

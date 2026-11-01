@@ -153,10 +153,10 @@ def provide_azure_blob_container_client(
         A synchronous ``azure.storage.blob.ContainerClient`` instance.
     """
     warnings.warn(
-        f"The '{fixture_name}' fixture is deprecated and will be removed in a future release. "
+        f"The '{fixture_name}' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use 'azure_blob_service' and construct your own Azure Blob client.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     blob_mod: Any = importlib.import_module("azure.storage.blob")
     with blob_mod.ContainerClient.from_connection_string(
@@ -179,10 +179,10 @@ async def provide_azure_blob_async_container_client(
         An asynchronous ``azure.storage.blob.aio.ContainerClient`` instance.
     """
     warnings.warn(
-        f"The '{fixture_name}' fixture is deprecated and will be removed in a future release. "
+        f"The '{fixture_name}' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use 'azure_blob_service' and construct your own async Azure Blob client.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     aio_mod: Any = importlib.import_module("azure.storage.blob.aio")
     async with aio_mod.ContainerClient.from_connection_string(

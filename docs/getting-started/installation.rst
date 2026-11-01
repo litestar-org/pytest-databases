@@ -9,10 +9,26 @@ Install ``pytest-databases`` using ``uv`` or ``pip``:
 
 All ``*_service`` container fixtures validate readiness using Python's standard library or tools bundled inside the target container image, so the base ``pytest-databases`` package does not force any database driver dependencies into your environment. Install your application's preferred database or cloud client alongside ``pytest-databases``.
 
-Optional Compatibility Extras
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Optional Extras
+~~~~~~~~~~~~~~~
 
-Compatibility extras remain available for projects that pin ``pytest-databases[<extra>]`` in their dependencies:
+The embedded PostgreSQL service can be installed via the ``embedded-postgres`` extra:
+
+.. code-block:: bash
+
+   pip install "pytest-databases[embedded-postgres]"
+
+.. deprecated:: 0.20.0
+   Database driver and cloud SDK compatibility extras (e.g. ``pytest-databases[postgres]``,
+   ``pytest-databases[redis]``, etc.) are deprecated in v0.20.0 and will be removed in v1.0.0.
+   Because all container services validate readiness without third-party client libraries, install
+   the base package (``pip install pytest-databases``) and bring your application's preferred client
+   drivers directly. The ``pytest-databases[embedded-postgres]`` extra remains fully supported.
+
+Legacy Compatibility Extras
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Legacy compatibility extras remain available during the v0.20.x deprecation window for projects that pin ``pytest-databases[<extra>]`` in their dependencies:
 
 .. list-table:: Available Compatibility Extras
    :widths: 30 50

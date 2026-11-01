@@ -133,7 +133,7 @@ def mongodb_connection(mongodb_service: MongoDBService) -> Generator[Any, None, 
         Active pymongo MongoClient instance.
     """
     warnings.warn(
-        "'mongodb_connection' is deprecated and will be removed in a future release. "
+        "'mongodb_connection' is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use 'mongodb_service' and instantiate your pymongo client directly.",
         DeprecationWarning,
         stacklevel=2,
@@ -162,7 +162,7 @@ def mongodb_database(
         Active pymongo Database instance.
     """
     warnings.warn(
-        "'mongodb_database' is deprecated and will be removed in a future release. "
+        "'mongodb_database' is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use 'mongodb_service' and instantiate your pymongo client directly.",
         DeprecationWarning,
         stacklevel=2,
