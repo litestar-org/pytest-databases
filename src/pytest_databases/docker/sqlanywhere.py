@@ -175,15 +175,15 @@ def exec_dbisql(
         'if [ -x "$bin" ] || command -v "$bin" >/dev/null 2>&1; then '
         'case "$bin" in '
         f'*dbisqlc) "$bin" -q -c {quoted_conn} {quoted_batch}; rc=$?; if [ $rc -ne 126 ] && [ $rc -ne 127 ]; then exit $rc; fi ;; '
-        f'*) "$bin" -nogui -c {quoted_conn} <<\'EOF\'\n'
-        f'{batch}\n'
-        'EOF\n'
-        'rc=$?; if [ $rc -ne 126 ] && [ $rc -ne 127 ]; then exit $rc; fi ;; '
-        'esac; '
-        'fi; '
-        'fi; '
-        'done; '
-        'exit 127'
+        f"*) \"$bin\" -nogui -c {quoted_conn} <<'EOF'\n"
+        f"{batch}\n"
+        "EOF\n"
+        "rc=$?; if [ $rc -ne 126 ] && [ $rc -ne 127 ]; then exit $rc; fi ;; "
+        "esac; "
+        "fi; "
+        "fi; "
+        "done; "
+        "exit 127"
     )
     result = container.exec_run(["sh", "-c", script])
     exit_code = result.exit_code if result.exit_code is not None else -1

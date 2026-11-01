@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 import time
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -150,7 +151,13 @@ def dolt_platform() -> str | None:
 
 @pytest.fixture(scope="session")
 def platform(dolt_platform: str | None) -> str | None:
-    """Backward-compatible platform fixture alias for Dolt."""
+    """Backward-compatible platform fixture alias for Dolt (deprecated for removal in v1.0.0, use dolt_platform)."""
+    warnings.warn(
+        "'platform' fixture in pytest_databases.docker.dolt is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'dolt_platform' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return dolt_platform
 
 

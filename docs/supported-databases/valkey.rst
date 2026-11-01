@@ -8,9 +8,9 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[valkey] valkey
+   pip install pytest-databases valkey
 
-The ``valkey`` Python client is no longer pulled by ``pytest-databases[valkey]`` — the fixture validates the container via the bundled ``valkey-cli`` invoked through ``container.exec_run`` — so install your own client alongside ``pytest-databases``.
+The ``valkey`` Python client is no longer pulled by ``pytest-databases`` — the fixture validates the container via the bundled ``valkey-cli`` invoked through ``container.exec_run`` — so install your own client alongside ``pytest-databases``.
 
 Usage Example
 -------------

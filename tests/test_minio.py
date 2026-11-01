@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from pytest_databases.docker.minio import (
     MINIO_IMAGE,
@@ -47,8 +47,8 @@ def test_minio_default_bucket_name_isolates_xdist_workers(monkeypatch: pytest.Mo
     assert bucket_fn("server") == "pytest-databases-2"
 
 
-def test_minio_service_uses_chainguard_images_and_mc_host_env() -> None:
-    """Verify provide_minio_service boots Chainguard MinIO and configures mc via MC_HOST_local."""
+def test_minio_service_provisions_default_bucket_via_sigv4() -> None:
+    """Verify provide_minio_service boots MinIO and provisions the default bucket via SigV4."""
     docker_service = MagicMock()
     dummy_container = MagicMock()
 
@@ -62,29 +62,30 @@ def test_minio_service_uses_chainguard_images_and_mc_host_env() -> None:
     docker_service.run.side_effect = fake_run
 
     isolation_level = _unwrap_fixture(xdist_minio_isolation_level)()
-    with provide_minio_service(
-        docker_service,
-        access_key=_unwrap_fixture(minio_access_key)(),
-        secret_key=_unwrap_fixture(minio_secret_key)(),
-        secure=_unwrap_fixture(minio_secure)(),
-        default_bucket_name="pytest-databases",
-        isolation_level=isolation_level,
-        image=MINIO_IMAGE,
-        client_image=MINIO_MC_IMAGE,
-    ) as service:
+    with (
+        patch("pytest_databases.docker.minio.create_s3_bucket") as mock_create_bucket,
+        provide_minio_service(
+            docker_service,
+            access_key=_unwrap_fixture(minio_access_key)(),
+            secret_key=_unwrap_fixture(minio_secret_key)(),
+            secure=_unwrap_fixture(minio_secure)(),
+            default_bucket_name="pytest-databases",
+            isolation_level=isolation_level,
+            image=MINIO_IMAGE,
+            client_image=MINIO_MC_IMAGE,
+        ) as service,
+    ):
         assert service.endpoint == "127.0.0.1:39000"
+        assert service.endpoint_url == "http://127.0.0.1:39000"
         assert service.access_key == "minio"
         assert service.secret_key == "minio123"
         assert service.secure is False
-
-    docker_service._client.images.get.assert_called_once_with(MINIO_MC_IMAGE)
-    docker_service._client.containers.run.assert_called_once_with(
-        image=MINIO_MC_IMAGE,
-        command=["mb", "local/pytest-databases"],
-        environment={"MC_HOST_local": "http://minio:minio123@127.0.0.1:39000"},
-        remove=True,
-        network_mode="host",
-    )
+        mock_create_bucket.assert_called_once_with(
+            "http://127.0.0.1:39000",
+            "pytest-databases",
+            access_key="minio",
+            secret_key="minio123",
+        )
 
 
 def test_default_no_xdist(pytester: pytest.Pytester) -> None:

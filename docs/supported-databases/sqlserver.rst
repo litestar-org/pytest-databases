@@ -8,7 +8,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[mssql]
+   pip install pytest-databases
 
 The ``mssql`` extra is kept as a compatibility group. The fixture provides a running SQL Server service and validates
 availability with SQL Server's bundled tools. Install the SQL Server client library that your application already uses.

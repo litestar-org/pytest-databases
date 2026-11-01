@@ -60,7 +60,7 @@ class SpannerService(ServiceContainer):
     def credentials(self) -> Any:
         """Deprecated AnonymousCredentials for Cloud Spanner emulator."""
         warnings.warn(
-            "'SpannerService.credentials' is deprecated and will be removed in a future release. "
+            "'SpannerService.credentials' is deprecated in v0.20.0 and will be removed in v1.0.0. "
             "Instantiate 'google.auth.credentials.AnonymousCredentials()' directly.",
             DeprecationWarning,
             stacklevel=2,
@@ -72,7 +72,7 @@ class SpannerService(ServiceContainer):
     def client_options(self) -> Any:
         """Deprecated ClientOptions for Cloud Spanner emulator."""
         warnings.warn(
-            "'SpannerService.client_options' is deprecated and will be removed in a future release. "
+            "'SpannerService.client_options' is deprecated in v0.20.0 and will be removed in v1.0.0. "
             "Instantiate 'google.api_core.client_options.ClientOptions(api_endpoint=service.endpoint)' directly.",
             DeprecationWarning,
             stacklevel=2,
@@ -252,7 +252,7 @@ def spanner_connection(
         Active google.cloud.spanner.Client instance.
     """
     warnings.warn(
-        "'spanner_connection' is deprecated and will be removed in a future release. "
+        "'spanner_connection' is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use 'spanner_service' and instantiate your google.cloud.spanner.Client directly.",
         DeprecationWarning,
         stacklevel=2,

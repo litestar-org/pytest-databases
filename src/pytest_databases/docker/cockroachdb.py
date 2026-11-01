@@ -107,10 +107,10 @@ def open_cockroachdb_connection(
         Active psycopg connection.
     """
     warnings.warn(
-        f"'{fixture_name}' is deprecated and will be removed in a future release. "
+        f"'{fixture_name}' is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use 'cockroachdb_service' and instantiate your psycopg client directly.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     psycopg = importlib.import_module("psycopg")
     opts = "&".join(f"{k}={v}" for k, v in driver_opts.items()) if driver_opts else ""

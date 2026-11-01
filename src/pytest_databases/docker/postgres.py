@@ -779,10 +779,10 @@ def provide_postgres_connection(
         An open ``psycopg.Connection`` connected to ``service``.
     """
     warnings.warn(
-        f"The '{fixture_name}' fixture is deprecated and will be removed in a future release. "
+        f"The '{fixture_name}' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use the corresponding '*_service' fixture and construct your own psycopg connection.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     psycopg_module = importlib.import_module("psycopg")
     with psycopg_module.connect(

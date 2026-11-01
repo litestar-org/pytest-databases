@@ -175,10 +175,10 @@ def provide_deprecated_gizmosql_connection(
         An active ADBC Flight SQL DBAPI connection.
     """
     warnings.warn(
-        "The 'gizmosql_connection' fixture is deprecated and will be removed in a future release. "
+        "The 'gizmosql_connection' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
         "Use 'gizmosql_service' (or 'gizmosql_duckdb_service' / 'gizmosql_sqlite_service') instead.",
         DeprecationWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     flightsql = importlib.import_module("adbc_driver_flightsql.dbapi")
     with flightsql.connect(

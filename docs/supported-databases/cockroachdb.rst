@@ -8,7 +8,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[cockroachdb]
+   pip install pytest-databases
 
 The ``cockroachdb`` extra is an empty compatibility group. ``pytest-databases``
 no longer bundles a CockroachDB Python client; install your preferred client
