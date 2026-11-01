@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import os
 import re
+import sys
 import time
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
@@ -15,7 +16,11 @@ from typing import TYPE_CHECKING, Any
 import filelock
 import pytest
 from docker.errors import APIError, DockerException, ImageNotFound
-from typing_extensions import Self
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 from pytest_databases.helpers import get_xdist_worker_id
 from pytest_databases.runtime import (
