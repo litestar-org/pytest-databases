@@ -33,11 +33,13 @@ Usage Example
 Available Fixtures
 ------------------
 
-* ``mssql_image``: The Docker image to use for SQL Server.
+* ``mssql_image``: The Docker image to use for SQL Server (defaults to ``mssql_2022_image``).
+* ``mssql_2022_image`` and ``mssql_2025_image``: Version-specific SQL Server 2022 and 2025 images.
 * ``mssql_user``: The SQL Server user exposed on ``mssql_service``.
 * ``mssql_password``: The SQL Server password exposed on ``mssql_service``.
 * ``mssql_database``: The database created for ``mssql_service``.
-* ``mssql_service``: A fixture that provides a SQL Server service.
+* ``mssql_service``: A fixture that provides a SQL Server service (aliases ``mssql_2022_service``).
+* ``mssql_2022_service`` and ``mssql_2025_service``: Version-specific SQL Server 2022 and 2025 services.
 
 Service API
 -----------
