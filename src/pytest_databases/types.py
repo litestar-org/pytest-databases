@@ -20,4 +20,4 @@ class ServiceContainer:
     port: int
 
 
-XdistIsolationLevel = Literal["database", "server"]
+XdistIsolationLevel = Literal["database", "server", "template"]
