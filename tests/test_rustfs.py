@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
+
+import pytest
 
 from pytest_databases.docker.rustfs import (
     RUSTFS_IMAGE,
+    RustfsService,
+    create_s3_bucket,
     rustfs_access_key,
     rustfs_default_bucket_name,
     rustfs_image,
@@ -15,8 +21,6 @@ from pytest_databases.docker.rustfs import (
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
-
-    import pytest
 
 
 def test_default_credentials_and_image_are_configured() -> None:
@@ -155,3 +159,91 @@ def test_isolation_two(rustfs_service: RustfsService, rustfs_default_bucket_name
 def _unwrap_fixture(fixture_def: Any) -> Callable[..., Any]:
     """Return the underlying callable wrapped by a pytest fixture definition."""
     return fixture_def.__wrapped__
+
+
+def test_rustfs_service_endpoint_url() -> None:
+    """Verify RustfsService formats endpoint_url correctly based on secure flag."""
+    dummy_container = MagicMock()
+    service_http = RustfsService(
+        host="127.0.0.1",
+        port=9000,
+        container=dummy_container,
+        endpoint="127.0.0.1:9000",
+        access_key="key",
+        secret_key="secret",
+        secure=False,
+    )
+    assert service_http.endpoint_url == "http://127.0.0.1:9000"
+
+    service_https = RustfsService(
+        host="127.0.0.1",
+        port=9000,
+        container=dummy_container,
+        endpoint="127.0.0.1:9000",
+        access_key="key",
+        secret_key="secret",
+        secure=True,
+    )
+    assert service_https.endpoint_url == "https://127.0.0.1:9000"
+
+
+def test_create_s3_bucket_success() -> None:
+    """Verify create_s3_bucket succeeds on HTTP 200 response."""
+    with patch("pytest_databases.docker.rustfs.urlopen") as mock_urlopen:
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.__enter__.return_value = mock_response
+        mock_urlopen.return_value = mock_response
+
+        create_s3_bucket(
+            "http://127.0.0.1:9000",
+            "test-bucket",
+            access_key="test-key",
+            secret_key="test-secret",
+        )
+        assert mock_urlopen.call_count == 1
+        request = mock_urlopen.call_args[0][0]
+        assert request.method == "PUT"
+        assert request.full_url == "http://127.0.0.1:9000/test-bucket"
+        assert "AWS4-HMAC-SHA256" in request.headers["Authorization"]
+
+
+def test_create_s3_bucket_already_exists() -> None:
+    """Verify create_s3_bucket ignores HTTP 409 BucketAlreadyOwnedByYou."""
+    with patch("pytest_databases.docker.rustfs.urlopen") as mock_urlopen:
+        error = HTTPError(
+            url="http://127.0.0.1:9000/test-bucket",
+            code=409,
+            msg="Conflict",
+            hdrs=MagicMock(),
+            fp=MagicMock(read=lambda: b"<Error><Code>BucketAlreadyOwnedByYou</Code></Error>"),
+        )
+        mock_urlopen.side_effect = error
+
+        create_s3_bucket(
+            "http://127.0.0.1:9000",
+            "test-bucket",
+            access_key="test-key",
+            secret_key="test-secret",
+        )
+
+
+def test_create_s3_bucket_raises_runtime_error_on_failure() -> None:
+    """Verify create_s3_bucket raises RuntimeError on unexpected HTTP errors."""
+    with patch("pytest_databases.docker.rustfs.urlopen") as mock_urlopen:
+        error = HTTPError(
+            url="http://127.0.0.1:9000/test-bucket",
+            code=403,
+            msg="Forbidden",
+            hdrs=MagicMock(),
+            fp=MagicMock(read=lambda: b"<Error><Code>AccessDenied</Code></Error>"),
+        )
+        mock_urlopen.side_effect = error
+
+        with pytest.raises(RuntimeError, match=r"Failed to create bucket 'test-bucket'"):
+            create_s3_bucket(
+                "http://127.0.0.1:9000",
+                "test-bucket",
+                access_key="test-key",
+                secret_key="test-secret",
+            )
