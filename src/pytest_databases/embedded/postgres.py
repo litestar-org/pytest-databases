@@ -712,10 +712,6 @@ def create_worker_database_from_template(
     safe_tpl = _validate_identifier(template_name)
     safe_worker_db = _validate_identifier(worker_db)
     drop_database_force(service, db_name=safe_worker_db)
-    clone_sql = (
-        f'CREATE DATABASE "{safe_worker_db}" TEMPLATE "{safe_tpl}"; '
-        f'ALTER DATABASE "{safe_worker_db}" WITH allow_connections = true;'
-    )
     exit_code, output = exec_psql(
         service.binaries,
         user=service.user,
@@ -723,11 +719,26 @@ def create_worker_database_from_template(
         database="postgres",
         host=service.host,
         port=service.port,
-        sql=clone_sql,
+        sql=f'CREATE DATABASE "{safe_worker_db}" TEMPLATE "{safe_tpl}";',
     )
     if exit_code != 0:
         msg = (
             f"Failed to clone template database {safe_tpl!r} into {safe_worker_db!r}: "
+            f"{output.decode(errors='replace').strip()}"
+        )
+        raise RuntimeError(msg)
+    exit_code, output = exec_psql(
+        service.binaries,
+        user=service.user,
+        password=service.password,
+        database="postgres",
+        host=service.host,
+        port=service.port,
+        sql=f'ALTER DATABASE "{safe_worker_db}" WITH allow_connections = true;',
+    )
+    if exit_code != 0:
+        msg = (
+            f"Failed to alter cloned database {safe_worker_db!r}: "
             f"{output.decode(errors='replace').strip()}"
         )
         raise RuntimeError(msg)
