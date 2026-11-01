@@ -455,7 +455,8 @@ def _validate_relative_path(path: str) -> None:
 def _discover_provider_files(project_root: Path) -> tuple[set[str], set[str]]:
     sources = {
         path.relative_to(project_root).as_posix()
-        for path in (project_root / "src" / "pytest_databases" / "docker").glob("*.py")
+        for package in ("docker", "embedded")
+        for path in (project_root / "src" / "pytest_databases" / package).glob("*.py")
         if path.name != "__init__.py"
     }
     sources.add("src/pytest_databases/_service.py")

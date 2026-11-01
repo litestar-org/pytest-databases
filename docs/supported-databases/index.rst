@@ -7,6 +7,7 @@ This section provides detailed information on the supported databases, including
    :maxdepth: 1
 
    postgres
+   embedded_postgres
    mysql
    mariadb
    dolt

@@ -144,6 +144,17 @@ Added
   (``PostgresTemplateOptions``); the setup SQL and file contents are hashed into the template name
   (``pytest_databases_template_<digest>``). ``PostgresService.ensure_template()``,
   ``create_worker_database_from_template()``, ``sweep_worker_databases()`` and ``compute_fingerprint()``.
+* ``pytest_databases.embedded.postgres``: ``embedded_postgres_service`` (``EmbeddedPostgresService`` with ``dsn``,
+  ``connection_config``, ``exec_sql()`` and the same template helpers as ``PostgresService``) runs local ``initdb`` /
+  ``postgres`` binaries with trust authentication on a loopback port, without a container runtime or ``psql``.
+  Binaries come from ``embedded_postgres_bin_dir``, ``PG_BIN_DIR``, the new ``embedded-postgres`` extra (``pgembed``
+  on Python 3.12+, ``pgserver`` on 3.11), the ``PATH``, ``pg_config --bindir``, or common install directories.
+  Fixtures ``embedded_postgres_user``, ``embedded_postgres_database``, ``embedded_postgres_port``,
+  ``embedded_postgres_bin_dir``, ``embedded_postgres_template_name``, ``embedded_postgres_template_setup``,
+  ``embedded_postgres_template_fingerprint_sources``, ``embedded_postgres_template_lock_dir`` and
+  ``xdist_embedded_postgres_isolation_level`` (default ``template``: xdist workers share one cluster and each gets a
+  database cloned from the template). ``provide_embedded_postgres_service``, ``resolve_postgres_binaries`` and
+  ``PostgresBinaries``.
 
 Changed
 ~~~~~~~

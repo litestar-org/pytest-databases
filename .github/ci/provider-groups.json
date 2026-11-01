@@ -7,6 +7,7 @@
     "src/pytest_databases/_s3.py",
     "src/pytest_databases/_service.py",
     "src/pytest_databases/docker/__init__.py",
+    "src/pytest_databases/embedded/__init__.py",
     "src/pytest_databases/helpers.py",
     "src/pytest_databases/runtime.py",
     "src/pytest_databases/types.py",
@@ -59,6 +60,7 @@
     "tests/test_mssql.py::test_plugin_imports_without_pymssql",
     "tests/test_oracle.py::test_plugin_imports_without_oracledb",
     "tests/test_postgres.py::test_plugin_imports_without_psycopg",
+    "tests/test_embedded_postgres.py::test_plugin_imports_without_pgembed",
     "tests/test_pubsub.py::test_plugin_imports_without_google_cloud_pubsub",
     "tests/test_rabbitmq.py::test_plugin_imports_without_amqp_clients",
     "tests/test_redis.py::test_plugin_imports_without_redis",
@@ -210,8 +212,12 @@
       "docs_globs": ["docs/supported-databases/oracle.rst"]
     },
     "postgres": {
-      "source_globs": ["src/pytest_databases/docker/postgres.py"],
-      "test_paths": ["tests/test_postgres.py"],
+      "source_globs": [
+        "src/pytest_databases/docker/postgres.py",
+        "src/pytest_databases/embedded/_pgwire.py",
+        "src/pytest_databases/embedded/postgres.py"
+      ],
+      "test_paths": ["tests/test_postgres.py", "tests/test_embedded_postgres.py"],
       "images": [
         "gcr.io/alloydb-omni/alloydbomni:15",
         "gcr.io/alloydb-omni/alloydbomni:16",
@@ -236,7 +242,7 @@
         "postgres:17",
         "postgres:18"
       ],
-      "docs_globs": ["docs/supported-databases/postgres.rst"]
+      "docs_globs": ["docs/supported-databases/postgres.rst", "docs/supported-databases/embedded_postgres.rst"]
     },
     "pubsub": {
       "source_globs": ["src/pytest_databases/docker/pubsub.py"],

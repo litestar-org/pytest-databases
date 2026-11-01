@@ -67,6 +67,7 @@ cockroachdb = []
 dragonfly = ["redis"]
 elasticsearch7 = []
 elasticsearch8 = []
+embedded-postgres = ["pgembed>=0.1.0; python_version >= '3.12'", "pgserver>=0.1.4; python_version < '3.12'"]
 gizmosql = ["adbc-driver-flightsql", "pyarrow"]
 keydb = ["redis"]
 mariadb = []
@@ -356,6 +357,7 @@ docstring-code-line-length = 60
 "src/pytest_databases/_s3.py" = ["S310"]
 "src/pytest_databases/helpers.py" = ["S310"]
 "src/pytest_databases/docker/*" = ["S310"]
+"src/pytest_databases/embedded/*" = ["S404"]
 # Tests can use magic values, assertions, and relative imports
 "tests/**/*" = [
   "PLR2004",

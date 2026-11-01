@@ -53,6 +53,7 @@ Ready-made database and cloud emulator fixtures for your pytest tests.
 - **SAP ASE (Sybase)**: SAP Adaptive Server Enterprise 16.0 (`datagrip/sybase:16.0`)
 - **SAP SQL Anywhere**: SQL Anywhere 16 (`jaschweder/sybase:latest`)
 - **PostgreSQL template databases**: build the schema once and clone it per test database (`"template"` isolation)
+- **Embedded PostgreSQL**: local `initdb`/`postgres` binaries without a container runtime (`embedded-postgres` extra)
 
 ## Installation
 

@@ -38,11 +38,50 @@ All ``*_service`` container fixtures check readiness with Python's standard libr
 container image, so the base package does not install any database driver. Install the client library your application
 already uses alongside ``pytest-databases``.
 
+Embedded PostgreSQL
+~~~~~~~~~~~~~~~~~~~
+
+The embedded PostgreSQL service runs local ``initdb`` / ``postgres`` binaries instead of a container. The
+``embedded-postgres`` extra installs them (``pgembed`` on Python 3.12+, ``pgserver`` on Python 3.11); without it the
+service uses PostgreSQL from ``PG_BIN_DIR``, the ``PATH``, or ``pg_config --bindir``.
+
+.. tab-set::
+   :sync-group: installer
+
+   .. tab-item:: uv
+      :sync: uv
+
+      .. code-block:: bash
+
+         uv add --dev "pytest-databases[embedded-postgres]"
+
+   .. tab-item:: pip
+      :sync: pip
+
+      .. code-block:: bash
+
+         pip install "pytest-databases[embedded-postgres]"
+
+   .. tab-item:: pdm
+      :sync: pdm
+
+      .. code-block:: bash
+
+         pdm add --dev "pytest-databases[embedded-postgres]"
+
+   .. tab-item:: poetry
+      :sync: poetry
+
+      .. code-block:: bash
+
+         poetry add --group dev "pytest-databases[embedded-postgres]"
+
 Optional Extras
 ~~~~~~~~~~~~~~~
 
-The extras below remain for projects that pin ``pytest-databases[<extra>]``. None of them is needed by a ``*_service``
-fixture; the ones that install a package only pull in a client for your own tests or for a deprecated client fixture.
+The extras below remain for projects that pin ``pytest-databases[<extra>]``. Apart from ``embedded-postgres``, none of
+them is needed by a ``*_service`` fixture; the ones that install a package only pull in a client for your own tests or
+for a deprecated client fixture.
 
 .. list-table:: Available extras
    :widths: 25 35 40
@@ -57,6 +96,9 @@ fixture; the ones that install a package only pull in a client for your own test
    * - ``bigquery``
      - ``google-cloud-bigquery``
      - Used by the deprecated ``bigquery_client`` fixture.
+   * - ``embedded-postgres``
+     - ``pgembed`` (Python 3.12+) or ``pgserver`` (Python 3.11)
+     - PostgreSQL server binaries for ``embedded_postgres_service``.
    * - ``gizmosql``
      - ``adbc-driver-flightsql``, ``pyarrow``
      - Used by the deprecated ``gizmosql_connection`` fixture.
