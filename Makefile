@@ -8,6 +8,14 @@ SHELL := /bin/bash
 .ONESHELL:
 .EXPORT_ALL_VARIABLES:
 MAKEFLAGS += --no-print-directory
+.SHELLFLAGS := -eu -o pipefail -c
+
+# Rodete (Internal Linux) detection and overrides
+ifneq ($(shell grep -s -q "rodete" /etc/os-release && echo "yes"),)
+export PIP_INDEX_URL=https://pypi.org/simple
+export UV_INDEX_URL=https://pypi.org/simple
+export UV_DEFAULT_INDEX=https://pypi.org/simple
+endif
 
 # -----------------------------------------------------------------------------
 # Display Formatting and Colors
@@ -28,21 +36,24 @@ ERROR := $(shell printf "$(RED)✖$(NC)")
 
 .PHONY: help
 help:                                               ## Display this help text for Makefile
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 # =============================================================================
 # Installation and Environment Setup
 # =============================================================================
 
+.PHONY: setup-env
+setup-env:                                          ## Configure environment (detects Rodete vs standard Linux/macOS)
+	@bash tools/scripts/setup-env.sh
+
 .PHONY: install-uv
 install-uv:                                         ## Install latest version of uv
 	@echo "${INFO} Installing uv..."
 	@curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
-	@uv tool install nodeenv >/dev/null 2>&1
 	@echo "${OK} UV installed successfully"
 
 .PHONY: install
-install: destroy clean                              ## Install the project, dependencies, and pre-commit
+install: destroy clean setup-env                    ## Install the project, dependencies, and hooks
 	@echo "${INFO} Starting fresh installation..."
 	@uv python pin 3.12 >/dev/null 2>&1
 	@uv venv >/dev/null 2>&1
@@ -60,15 +71,16 @@ destroy:                                            ## Destroy the virtual envir
 # =============================================================================
 
 .PHONY: upgrade
-upgrade:                                            ## Upgrade all dependencies to latest stable versions
+upgrade: setup-env                                  ## Upgrade all dependencies to latest stable versions
 	@echo "${INFO} Updating all dependencies... 🔄"
 	@uv lock --upgrade
+	@uv sync --all-extras --dev
 	@echo "${OK} Dependencies updated 🔄"
-	@uv run pre-commit autoupdate
-	@echo "${OK} Updated Pre-commit hooks 🔄"
+	@uvx prek autoupdate --cooldown-days 7 2>/dev/null || uv run pre-commit autoupdate
+	@echo "${OK} Updated pre-commit hooks 🔄"
 
 .PHONY: lock
-lock:                                              ## Rebuild lockfiles from scratch
+lock: setup-env                                     ## Rebuild lockfiles from scratch
 	@echo "${INFO} Rebuilding lockfiles... 🔄"
 	@uv lock --upgrade >/dev/null 2>&1
 	@echo "${OK} Lockfiles updated"
@@ -152,17 +164,20 @@ pyright:                                           ## Run pyright
 	@echo "${OK} Pyright checks passed ✨"
 
 .PHONY: type-check
-type-check: mypy pyright                           ## Run all type checking
+type-check: mypy-nocache pyright                   ## Run all type checking
 
 # -----------------------------------------------------------------------------
-# Linting and Formatting
+# Linting, Formatting, and Security
 # -----------------------------------------------------------------------------
+
+.PHONY: prek
+prek:                                              ## Run prek / pre-commit hooks
+	@echo "${INFO} Running pre-commit checks... 🔎"
+	@NODE_OPTIONS="--no-deprecation --disable-warning=ExperimentalWarning" uvx prek run --color=always --all-files 2>/dev/null || NODE_OPTIONS="--no-deprecation --disable-warning=ExperimentalWarning" uv run pre-commit run --color=always --all-files
+	@echo "${OK} Pre-commit checks passed ✨"
 
 .PHONY: pre-commit
-pre-commit:                                        ## Run pre-commit hooks
-	@echo "${INFO} Running pre-commit checks... 🔎"
-	@NODE_OPTIONS="--no-deprecation --disable-warning=ExperimentalWarning" uv run pre-commit run --color=always --all-files
-	@echo "${OK} Pre-commit checks passed ✨"
+pre-commit: prek                                   ## Alias for prek
 
 .PHONY: slotscheck
 slotscheck:                                        ## Run slotscheck
@@ -170,14 +185,21 @@ slotscheck:                                        ## Run slotscheck
 	@uv run slotscheck src/pytest_databases
 	@echo "${OK} Slots check passed ✨"
 
+.PHONY: zizmor
+zizmor:                                            ## Audit GitHub Actions workflows with zizmor
+	@echo "${INFO} Auditing GitHub Actions workflows (zizmor)... 🛡️"
+	@uv run zizmor --strict-collection .github/workflows
+	@echo "${OK} Workflow security audit passed ✨"
+
 .PHONY: fix
 fix:                                               ## Run code formatters
 	@echo "${INFO} Running code formatters... 🔧"
 	@uv run ruff check --fix --unsafe-fixes
+	@uv run ruff format
 	@echo "${OK} Code formatting complete ✨"
 
 .PHONY: lint
-lint: pre-commit type-check slotscheck             ## Run all linting checks
+lint: prek type-check slotscheck zizmor            ## Run all linting, typing, and security checks
 
 .PHONY: check-all
 check-all: lint test coverage                      ## Run all checks (lint, test, coverage)
@@ -193,7 +215,7 @@ docs-clean:                                        ## Clean documentation build
 	@echo "${OK} Documentation assets cleaned"
 
 .PHONY: docs-serve
-docs-serve:                              ## Serve documentation locally
+docs-serve:                                        ## Serve documentation locally
 	@echo "${INFO} Starting documentation server... 📚"
 	@uv run sphinx-autobuild docs docs/_build/ -j auto --watch src/pytest_databases --watch docs --watch tests --watch CONTRIBUTING.rst --open-browser
 

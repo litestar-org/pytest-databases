@@ -1,3 +1,5 @@
+"""Package version and project metadata discovery."""
+
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, metadata, version
