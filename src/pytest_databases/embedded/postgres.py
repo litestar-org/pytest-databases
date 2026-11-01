@@ -800,8 +800,8 @@ def sweep_worker_databases(
 def _find_free_port() -> int:
     """Find an available ephemeral port on the loopback interface."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", 0))
-        sock.listen(1)
         return int(sock.getsockname()[1])
 
 
@@ -887,11 +887,13 @@ def start_cluster(
             socket_dir_arg,
         ]
 
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        log_file = data_dir / "postgresql.log"
+        with log_file.open("ab") as log_fp:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=log_fp,
+            )
 
         deadline = time.monotonic() + startup_timeout
         port_bind_failed = False
@@ -900,7 +902,10 @@ def start_cluster(
                 if attempt < max_attempts - 1 and port == 0:
                     port_bind_failed = True
                     break
-                msg = f"PostgreSQL daemon terminated prematurely with code {process.returncode}"
+                stderr_text = ""
+                if log_file.exists():
+                    stderr_text = f": {log_file.read_text(encoding='utf-8', errors='replace').strip()}"
+                msg = f"PostgreSQL daemon terminated prematurely with code {process.returncode}{stderr_text}"
                 raise RuntimeError(msg)
             if _check_socket_ready(host, allocated_port, timeout=0.2):
                 exit_code, output = exec_psql(
