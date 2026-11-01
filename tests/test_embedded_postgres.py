@@ -83,6 +83,23 @@ def test_resolve_postgres_binaries_with_explicit_dir(mock_binaries: PostgresBina
     assert discovered.psql == mock_binaries.psql
 
 
+def test_resolve_postgres_binaries_with_pgserver(mock_binaries: PostgresBinaries) -> None:
+    """Verify resolve_postgres_binaries discovers binaries via pgserver submodules."""
+    mock_pgserver = MagicMock(spec=[])
+    mock_commands = MagicMock()
+    mock_commands.POSTGRES_BIN_PATH = mock_binaries.initdb.parent
+    mock_pgserver._commands = mock_commands
+
+    with (
+        patch.dict("os.environ", {"PG_BIN_DIR": ""}, clear=True),
+        patch("shutil.which", return_value=None),
+        patch.object(embedded_pg_mod, "pgembed", None),
+        patch.object(embedded_pg_mod, "pgserver", mock_pgserver),
+    ):
+        discovered = resolve_postgres_binaries()
+        assert discovered.initdb == mock_binaries.initdb
+
+
 def test_resolve_postgres_binaries_missing_raises_runtime_error(tmp_path: Path) -> None:
     """Verify resolve_postgres_binaries raises RuntimeError when binaries are absent."""
     empty_dir = tmp_path / "empty_bin"

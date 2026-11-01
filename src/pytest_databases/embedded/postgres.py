@@ -197,7 +197,11 @@ def resolve_postgres_binaries(bin_dir: Path | str | None = None) -> PostgresBina
             candidate_dirs.append(Path(pgembed_bin))
 
     if pgserver is not None:
-        pgserver_bin = getattr(pgserver, "POSTGRES_BIN_PATH", None)
+        pgserver_bin = (
+            getattr(pgserver, "POSTGRES_BIN_PATH", None)
+            or getattr(getattr(pgserver, "postgres_server", None), "POSTGRES_BIN_PATH", None)
+            or getattr(getattr(pgserver, "_commands", None), "POSTGRES_BIN_PATH", None)
+        )
         if pgserver_bin is not None:
             candidate_dirs.append(Path(pgserver_bin))
 
