@@ -96,14 +96,58 @@ build:                                             ## Build the package
 	@echo "${OK} Package build complete"
 
 .PHONY: release
-release:                                           ## Bump version and create release tag
+release:                                           ## Bump version and create release (finalize pre-release or bump=major|minor|patch)
 	@echo "${INFO} Preparing for release... 📦"
+	@current_version="$$(grep -E '^current_version = ' pyproject.toml | head -n1 | cut -d'"' -f2)"; \
+	case "$$current_version" in \
+		*-*) \
+			if [ -z "$(bump)" ] || [ "$(bump)" = "pre" ]; then \
+				release_version="$${current_version%%-*}"; \
+				echo "${INFO} Finalizing pre-release $$current_version -> $$release_version..."; \
+				uv run bump-my-version bump --new-version "$$release_version" pre; \
+			else \
+				uv run bump-my-version bump "$(bump)"; \
+			fi \
+			;; \
+		*) \
+			if [ -z "$(bump)" ]; then \
+				echo "${ERROR} Please specify 'bump' parameter for stable releases, e.g., make release bump=minor"; \
+				echo "${INFO} Examples:"; \
+				echo "  make release bump=patch            # 0.19.0 -> 0.19.1"; \
+				echo "  make release bump=minor            # 0.19.0 -> 0.20.0"; \
+				echo "  make release bump=major            # 0.19.0 -> 1.0.0"; \
+				exit 1; \
+			fi; \
+			uv run bump-my-version bump "$(bump)"; \
+			;; \
+	esac
+	@uv lock --upgrade-package pytest-databases >/dev/null 2>&1
 	@make docs
 	@make clean
 	@make build
-	@uv lock --upgrade-package pytest-databases
-	@uv run bump-my-version bump $(bump)
 	@echo "${OK} Release complete 🎉"
+
+.PHONY: pre-release
+pre-release:                                       ## Set pre-release version (use version=X.Y.Z-alpha.N|beta.N|rc.N)
+	@if [ -z "$(version)" ]; then \
+		echo "${ERROR} Please specify 'version' parameter, e.g., make pre-release version=0.20.0-alpha.1"; \
+		echo "${INFO} Examples:"; \
+		echo "  make pre-release version=0.20.0-alpha.1   # First alpha for 0.20.0"; \
+		echo "  make pre-release version=0.20.0-alpha.2   # Next alpha"; \
+		echo "  make pre-release version=0.20.0-beta.1    # First beta"; \
+		echo "  make pre-release version=0.20.0-rc.1      # Release candidate"; \
+		echo "  make release                              # Finalize to 0.20.0"; \
+		exit 1; \
+	fi
+	@echo "${INFO} Setting pre-release version to $(version)... 📦"
+	@make clean
+	@uv run bump-my-version bump --new-version $(version) pre
+	@uv lock --upgrade-package pytest-databases >/dev/null 2>&1
+	@make build
+	@echo "${OK} Pre-release $(version) ready 🎉"
+	@echo "${INFO} Next steps:"
+	@echo "  1. Commit and push changes: git push origin HEAD"
+	@echo "  2. Create GitHub pre-release: gh release create v$(version) --prerelease --generate-notes --title 'v$(version)'"
 
 # =============================================================================
 # Cleaning and Maintenance

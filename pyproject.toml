@@ -147,31 +147,34 @@ current_version = "0.19.0"
 ignore_missing_files = false
 ignore_missing_version = false
 message = "chore(release): bump to `v{new_version}`"
-parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
+parse = """(?x)
+    (?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)
+    (-(?P<pre>alpha|beta|rc)\\.(?P<pre_n>\\d+))?
+"""
 regex = false
 replace = "{new_version}"
 search = "{current_version}"
-serialize = ["{major}.{minor}.{patch}"]
+serialize = [
+    "{major}.{minor}.{patch}",
+    "{major}.{minor}.{patch}-{pre}.{pre_n}",
+]
 sign_tags = false
 tag = false
 tag_message = "chore(release): `v{new_version}`"
 tag_name = "v{new_version}"
 
+[tool.bumpversion.parts.pre]
+first_value = "stable"
+optional_value = "stable"
+values = ["alpha", "beta", "rc", "stable"]
+
+[tool.bumpversion.parts.pre_n]
+first_value = "1"
+
 [[tool.bumpversion.files]]
 filename = "pyproject.toml"
 replace = 'version = "{new_version}"'
 search = 'version = "{current_version}"'
-
-[[tool.bumpversion.files]]
-filename = "uv.lock"
-replace = """
-name = "pytest-databases"
-version = "{new_version}"
-"""
-search = """
-name = "pytest-databases"
-version = "{current_version}"
-"""
 ## Linting Tools
 
 [tool.slotscheck]
