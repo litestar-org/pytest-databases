@@ -164,32 +164,18 @@ def test_deprecated_gizmosql_connection_emits_warning() -> None:
 
 
 GIZMOSQL_TEST_HELPERS = """
+from pytest_databases.docker.gizmosql import exec_gizmosql
+
 def run_gizmosql(service, sql):
-    result = service.container.exec_run(
-        [
-            "gizmosql_client",
-            "--host",
-            "localhost",
-            "--port",
-            "31337",
-            "--username",
-            service.username,
-            "--tls",
-            "--tls-skip-verify",
-            "--command",
-            sql,
-        ],
-        environment={"GIZMOSQL_PASSWORD": service.password},
+    exit_code, output = exec_gizmosql(
+        service.container,
+        sql,
+        user=service.username,
+        password=service.password,
     )
-    assert result.exit_code == 0, (
-        result.output.decode(errors="replace") if isinstance(result.output, bytes) else str(result.output)
-    )
-    output = result.output
-    if isinstance(output, bytes):
-        return output.decode().strip()
-    if isinstance(output, str):
-        return output.strip()
-    return b"".join(output).decode().strip()
+    decoded = output.decode(errors="replace").strip()
+    assert exit_code == 0, decoded
+    return decoded
 """
 
 
@@ -342,4 +328,58 @@ def test(gizmosql_service: GizmoSQLService) -> None:
 """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
+    result.assert_outcomes(passed=1)
+
+
+def test_exec_gizmosql_retries_on_sigabrt() -> None:
+    """Verify exec_gizmosql retries when gizmosql_client exits with 134 (SIGABRT)."""
+    container = MagicMock()
+    container.exec_run.side_effect = [
+        MagicMock(exit_code=134, output=b"terminate called"),
+        MagicMock(exit_code=0, output=b"1\n"),
+    ]
+    with patch("pytest_databases.docker.gizmosql.time.sleep"):
+        code, output = exec_gizmosql(container, "SELECT 1;", user="u", password="p")
+    assert code == 0
+    assert output == b"1\n"
+    assert container.exec_run.call_count == 2
+
+
+def test_gizmosql_all_fixtures_inprocess(pytester: Pytester) -> None:
+    """Verify GizmoSQL config and service fixtures execute in-process with mocked provider."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    pytest_plugins = ["pytest_databases.docker.gizmosql"]
+
+    @pytest.fixture(scope="session")
+    def docker_service() -> MagicMock:
+        return MagicMock()
+
+    def test_fixtures(request: pytest.FixtureRequest) -> None:
+        mock_svc = MagicMock()
+
+        @contextmanager
+        def fake_svc(*args, **kwargs):
+            yield mock_svc
+
+        def fake_conn(*args, **kwargs):
+            yield "conn"
+
+        with (
+            patch("pytest_databases.docker.gizmosql.provide_gizmosql_service", side_effect=fake_svc),
+            patch("pytest_databases.docker.gizmosql.provide_deprecated_gizmosql_connection", side_effect=fake_conn),
+        ):
+            assert request.getfixturevalue("xdist_gizmosql_isolation_level") == "database"
+            assert request.getfixturevalue("gizmosql_image") == "gizmodata/gizmosql:latest"
+            assert request.getfixturevalue("gizmosql_username") == "gizmosql_username"
+            assert request.getfixturevalue("gizmosql_password") == "gizmosql_password"
+            assert request.getfixturevalue("gizmosql_duckdb_service") is mock_svc
+            assert request.getfixturevalue("gizmosql_sqlite_service") is mock_svc
+            assert request.getfixturevalue("gizmosql_service") is mock_svc
+            assert request.getfixturevalue("gizmosql_connection") == "conn"
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)

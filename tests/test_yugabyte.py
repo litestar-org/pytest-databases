@@ -3,21 +3,28 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
+
+import pytest
+from docker.errors import APIError
 
 from pytest_databases.docker.yugabyte import (
     YUGABYTE_DATABASE,
     YUGABYTE_PASSWORD,
     YUGABYTE_USER,
+    _ensure_yugabyte_database,
+    _exec_ysqlsh,
+    _make_ysqlsh_command,
+    _prepare_yugabyte_database,
+    _validate_mapped_endpoint,
+    is_transient_yugabyte_error,
     provide_yugabyte_service,
 )
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-
-    import pytest
 
 
 def test_provide_yugabyte_service_validates_without_sidecar_containers() -> None:
@@ -109,6 +116,7 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
     import shlex
     import time
     import pytest
+    from pytest_databases.docker.yugabyte import is_transient_yugabyte_error
 
     pytest_plugins = ["pytest_databases.docker.yugabyte"]
 
@@ -121,13 +129,13 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
             "-c",
             shlex.quote(sql),
         ])
-        for attempt in range(5):
+        for attempt in range(10):
             result = yugabyte_service.container.exec_run(["sh", "-c", command])
             output = result.output.decode(errors="replace")
             if result.exit_code == 0:
                 return
-            if "could not serialize access" in output and attempt < 4:
-                time.sleep(0.2)
+            if is_transient_yugabyte_error(output) and attempt < 9:
+                time.sleep(0.3 * (attempt + 1))
                 continue
             assert result.exit_code == 0, output
 
@@ -146,7 +154,9 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     """Verify server-isolated yugabyte_service starts separate containers per xdist worker."""
     pytester.makepyfile("""
     import shlex
+    import time
     import pytest
+    from pytest_databases.docker.yugabyte import is_transient_yugabyte_error
 
     pytest_plugins = ["pytest_databases.docker.yugabyte"]
 
@@ -163,8 +173,15 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
             "-c",
             shlex.quote(sql),
         ])
-        result = yugabyte_service.container.exec_run(["sh", "-c", command])
-        assert result.exit_code == 0, result.output.decode(errors="replace")
+        for attempt in range(10):
+            result = yugabyte_service.container.exec_run(["sh", "-c", command])
+            output = result.output.decode(errors="replace")
+            if result.exit_code == 0:
+                return
+            if is_transient_yugabyte_error(output) and attempt < 9:
+                time.sleep(0.3 * (attempt + 1))
+                continue
+            assert result.exit_code == 0, output
 
     def test_one(yugabyte_service) -> None:
         run_ysqlsh(yugabyte_service, "CREATE DATABASE foo")
@@ -175,3 +192,160 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
 
     result = pytester.runpytest_subprocess("-n", "2")
     result.assert_outcomes(passed=2)
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "expected_name", "expected_db"),
+    [
+        (2, "database", "yugabyte", "pytest_databases_2"),
+        (2, "server", "yugabyte_2", "pytest_databases"),
+    ],
+)
+def test_provide_yugabyte_service_xdist_and_endpoint_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_num: int,
+    isolation_level: str,
+    expected_name: str,
+    expected_db: str,
+) -> None:
+    """Verify provide_yugabyte_service xdist modes and mapped endpoint retry/failure."""
+    monkeypatch.setattr("pytest_databases.docker.yugabyte.get_xdist_worker_num", lambda: worker_num)
+    monkeypatch.setattr("pytest_databases.docker.yugabyte.time.sleep", lambda _: None)
+    monkeypatch.setattr("pytest_databases.docker.yugabyte._prepare_yugabyte_database", lambda *_a, **_kw: None)
+
+    calls = 0
+
+    def fake_validate(*_args: Any, **_kwargs: Any) -> tuple[int, bytes]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return 1, b"not ready"
+        return 0, b"1\n"
+
+    monkeypatch.setattr("pytest_databases.docker.yugabyte._validate_mapped_endpoint", fake_validate)
+    docker_service = MagicMock()
+    captured_name: list[str] = []
+
+    @contextmanager
+    def fake_run(**kwargs: Any) -> Generator[ServiceContainer, None, None]:
+        captured_name.append(kwargs["name"])
+        yield ServiceContainer(host="127.0.0.1", port=5433, container=MagicMock())
+
+    docker_service.run.side_effect = fake_run
+
+    with provide_yugabyte_service(
+        docker_service,
+        isolation_level=isolation_level,  # type: ignore[arg-type]
+        image="yugabyte:latest",
+        user=YUGABYTE_USER,
+        password=YUGABYTE_PASSWORD,
+        database=YUGABYTE_DATABASE,
+    ) as svc:
+        assert svc.database == expected_db
+        assert captured_name == [expected_name]
+
+    monkeypatch.setattr(
+        "pytest_databases.docker.yugabyte._validate_mapped_endpoint",
+        lambda *_a, **_kw: (1, b"connection refused"),
+    )
+    with (
+        pytest.raises(RuntimeError, match=r"mapped endpoint 127\.0\.0\.1:5433 was not ready"),
+        provide_yugabyte_service(
+            docker_service,
+            isolation_level="database",
+            image="yugabyte:latest",
+            user=YUGABYTE_USER,
+            password=YUGABYTE_PASSWORD,
+            database=YUGABYTE_DATABASE,
+        ),
+    ):
+        pass
+
+
+def test_yugabyte_helpers_and_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify Yugabyte helper branches including transient error detection and retry exhaustion."""
+    assert "-p 5433" in _make_ysqlsh_command("SELECT 1", port=5433)
+    assert is_transient_yugabyte_error(b"ERROR: Restart read required") is True
+    assert is_transient_yugabyte_error("ERROR: Catalog Version Mismatch") is True
+    assert is_transient_yugabyte_error("ERROR: syntax error") is False
+
+    container = MagicMock()
+    container.exec_run.side_effect = APIError("daemon error")
+    assert _exec_ysqlsh(container, "SELECT 1")[0] == -1
+
+    container.exec_run.side_effect = [MagicMock(exit_code=1, output=b"exists err")]
+    assert _ensure_yugabyte_database(container, "db", "usr") == (False, b"exists err")
+
+    container.exec_run.side_effect = [
+        MagicMock(exit_code=0, output=b""),
+        MagicMock(exit_code=1, output=b"create err"),
+    ]
+    assert _ensure_yugabyte_database(container, "db", "usr") == (False, b"create err")
+
+    container.exec_run.side_effect = [
+        MagicMock(exit_code=0, output=b"1"),
+        MagicMock(exit_code=1, output=b"grant err"),
+    ]
+    assert _ensure_yugabyte_database(container, "db", "usr") == (False, b"grant err")
+
+    monkeypatch.setattr("pytest_databases.docker.yugabyte.time.sleep", lambda _: None)
+    container.exec_run.side_effect = None
+    container.exec_run.return_value = MagicMock(exit_code=1, output=b"role err")
+    with pytest.raises(RuntimeError, match="could not reach database"):
+        _prepare_yugabyte_database(container, "yugabyte", "db", "usr", "pwd")
+
+    monkeypatch.setattr(
+        "pytest_databases.docker.yugabyte.socket.create_connection",
+        MagicMock(side_effect=OSError("refused")),
+    )
+    svc = ServiceContainer(host="127.0.0.1", port=5433, container=container)
+    assert _validate_mapped_endpoint(svc, "db", "usr", "pwd")[0] == 1
+
+
+def test_yugabyte_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all Yugabyte fixtures execute in-process with mocked docker_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    import pytest_databases.docker.yugabyte as yb_mod
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.yugabyte"]
+
+    @pytest.fixture(autouse=True, scope="session")
+    def mock_yb():
+        orig_prep = yb_mod._prepare_yugabyte_database
+        orig_val = yb_mod._validate_mapped_endpoint
+        yb_mod._prepare_yugabyte_database = lambda *a, **kw: None
+        yb_mod._validate_mapped_endpoint = lambda *a, **kw: (0, b"1")
+        yield
+        yb_mod._prepare_yugabyte_database = orig_prep
+        yb_mod._validate_mapped_endpoint = orig_val
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        mock_ds = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=5433, container=MagicMock())
+        mock_ds.run.side_effect = _run
+        return mock_ds
+
+    def test_fixtures(
+        xdist_yugabyte_isolation_level,
+        yugabyte_image,
+        yugabyte_user,
+        yugabyte_password,
+        yugabyte_database,
+        yugabyte_service,
+    ):
+        assert xdist_yugabyte_isolation_level == "database"
+        assert "yugabyte" in yugabyte_image
+        assert yugabyte_user == "yugabyte"
+        assert yugabyte_password == "yugabyte"
+        assert yugabyte_database == "pytest_databases"
+        assert yugabyte_service.port == 5433
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

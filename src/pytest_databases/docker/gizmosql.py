@@ -6,10 +6,12 @@ import contextlib
 import dataclasses
 import importlib
 import re
+import time
 import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
+from docker.errors import APIError, NotFound
 
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
@@ -73,6 +75,10 @@ class GizmoSQLService(ServiceContainer):
 def exec_gizmosql(container: Container, sql: str, *, user: str, password: str) -> tuple[int, bytes]:
     """Execute a SQL statement inside a GizmoSQL container using ``gizmosql_client``.
 
+    Retries up to 3 times if ``gizmosql_client`` aborts with ``SIGABRT``/``SIGSEGV``
+    (exit codes 134 or 139 or ``double free or corruption``) during C++ global destructor
+    teardown after executing the Flight SQL command.
+
     Args:
         container: Running GizmoSQL container.
         sql: SQL statement to execute.
@@ -82,23 +88,39 @@ def exec_gizmosql(container: Container, sql: str, *, user: str, password: str) -
     Returns:
         Tuple of ``(exit_code, raw_output_bytes)``.
     """
-    result = container.exec_run(
-        [
-            "gizmosql_client",
-            "--host",
-            "localhost",
-            "--port",
-            "31337",
-            "--username",
-            user,
-            "--tls",
-            "--tls-skip-verify",
-            "--command",
-            sql,
-        ],
-        environment={"GIZMOSQL_PASSWORD": password},
-    )
-    return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
+    last_code = -1
+    last_out = b""
+    for attempt in range(3):
+        try:
+            result = container.exec_run(
+                [
+                    "gizmosql_client",
+                    "--host",
+                    "localhost",
+                    "--port",
+                    "31337",
+                    "--username",
+                    user,
+                    "--tls",
+                    "--tls-skip-verify",
+                    "--command",
+                    sql,
+                ],
+                environment={"GIZMOSQL_PASSWORD": password},
+            )
+        except (APIError, NotFound) as exc:
+            last_code = -1
+            last_out = str(exc).encode()
+            break
+        last_code = result.exit_code if result.exit_code is not None else -1
+        last_out = exec_output_to_bytes(result.output)
+        if last_code == 0:
+            return last_code, last_out
+        if last_code not in {134, 139} and b"double free or corruption" not in last_out.lower():
+            return last_code, last_out
+        if attempt < 2:
+            time.sleep(0.2 * (attempt + 1))
+    return last_code, last_out
 
 
 @contextlib.contextmanager

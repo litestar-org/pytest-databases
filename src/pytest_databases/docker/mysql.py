@@ -7,9 +7,10 @@ import os
 import time
 import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from docker.errors import APIError, NotFound
 
 from pytest_databases._service import DockerService, ServiceContainer
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num, resolve_legacy_platform
@@ -70,9 +71,21 @@ def provide_mysql_service(
     """
 
     def check(_service: ServiceContainer) -> bool:
-        res = _service.container.exec_run(
-            ["mysql", "--user=root", f"--password={root_password}", "-e", "SELECT 1"],
-        )
+        try:
+            res = _service.container.exec_run(
+                [
+                    "mysql",
+                    "--protocol=tcp",
+                    "-h",
+                    "127.0.0.1",
+                    "--user=root",
+                    f"--password={root_password}",
+                    "-e",
+                    "SELECT 1",
+                ],
+            )
+        except (APIError, NotFound):
+            return False
         return res.exit_code == 0
 
     worker_num = get_xdist_worker_num()
@@ -108,6 +121,9 @@ def provide_mysql_service(
         )
         verify_cmd = [
             "mysql",
+            "--protocol=tcp",
+            "-h",
+            "127.0.0.1",
             f"--user={user}",
             f"--password={password}",
             db_name,
@@ -116,16 +132,26 @@ def provide_mysql_service(
         ]
         last_err: bytes = b""
         for attempt in range(15):
-            setup_res = service.container.exec_run(
-                ["mysql", "--user=root", f"--password={root_password}", "-e", setup_sql],
-            )
-            if setup_res.exit_code == 0:
-                verify_res = service.container.exec_run(verify_cmd)
-                if verify_res.exit_code == 0:
-                    break
-                last_err = exec_output_to_bytes(verify_res.output)
+            try:
+                setup_res = service.container.exec_run(
+                    [
+                        "mysql",
+                        "--protocol=tcp",
+                        "-h",
+                        "127.0.0.1",
+                        "--user=root",
+                        f"--password={root_password}",
+                        "-e",
+                        setup_sql,
+                    ],
+                )
+                verify_res = service.container.exec_run(verify_cmd) if setup_res.exit_code == 0 else None
+            except (APIError, NotFound) as exc:
+                last_err = str(exc).encode()
             else:
-                last_err = exec_output_to_bytes(setup_res.output)
+                if verify_res is not None and verify_res.exit_code == 0:
+                    break
+                last_err = exec_output_to_bytes(verify_res.output if verify_res is not None else setup_res.output)
             time.sleep(1 + attempt * 0.5)
         else:
             msg = (
@@ -202,175 +228,103 @@ def mysql_service(mysql_84_service: MySQLService) -> MySQLService:
     return mysql_84_service
 
 
-@pytest.fixture(scope="session")
-def mysql_56_service(
-    docker_service: DockerService,
-    xdist_mysql_isolation_level: XdistIsolationLevel,
-    mysql_platform: str | None,
-    mysql_user: str,
-    mysql_password: str,
-    mysql_root_password: str,
-    mysql_database: str,
-) -> Generator[MySQLService, None, None]:
-    """Provide a running MySQL 5.6 container service.
+def _make_mysql_legacy_service_fixture(fixture_name: str, image: str, name: str, doc: str) -> Any:
+    """Create a session-scoped MySQL 5.x service fixture honoring ``mysql_platform``."""
 
-    Yields:
-        Active MySQLService instance.
-    """
-    with provide_mysql_service(
-        image="mysql:5.6",
-        name="mysql-56",
-        docker_service=docker_service,
-        isolation_level=xdist_mysql_isolation_level,
-        platform=mysql_platform,
-        user=mysql_user,
-        password=mysql_password,
-        root_password=mysql_root_password,
-        database=mysql_database,
-    ) as service:
-        yield service
+    def _fixture(
+        docker_service: DockerService,
+        xdist_mysql_isolation_level: XdistIsolationLevel,
+        mysql_platform: str | None,
+        mysql_user: str,
+        mysql_password: str,
+        mysql_root_password: str,
+        mysql_database: str,
+    ) -> Generator[MySQLService, None, None]:
+        with provide_mysql_service(
+            image=image,
+            name=name,
+            docker_service=docker_service,
+            isolation_level=xdist_mysql_isolation_level,
+            platform=mysql_platform,
+            user=mysql_user,
+            password=mysql_password,
+            root_password=mysql_root_password,
+            database=mysql_database,
+        ) as service:
+            yield service
 
-
-@pytest.fixture(scope="session")
-def mysql_57_service(
-    docker_service: DockerService,
-    xdist_mysql_isolation_level: XdistIsolationLevel,
-    mysql_platform: str | None,
-    mysql_user: str,
-    mysql_password: str,
-    mysql_root_password: str,
-    mysql_database: str,
-) -> Generator[MySQLService, None, None]:
-    """Provide a running MySQL 5.7 container service.
-
-    Yields:
-        Active MySQLService instance.
-    """
-    with provide_mysql_service(
-        image="mysql:5.7",
-        name="mysql-57",
-        docker_service=docker_service,
-        isolation_level=xdist_mysql_isolation_level,
-        platform=mysql_platform,
-        user=mysql_user,
-        password=mysql_password,
-        root_password=mysql_root_password,
-        database=mysql_database,
-    ) as service:
-        yield service
+    _fixture.__name__ = fixture_name
+    _fixture.__qualname__ = fixture_name
+    _fixture.__doc__ = doc
+    _fixture.__module__ = __name__
+    return pytest.fixture(scope="session")(_fixture)
 
 
-@pytest.fixture(scope="session")
-def mysql_8_service(
-    request: pytest.FixtureRequest,
-    docker_service: DockerService,
-    xdist_mysql_isolation_level: XdistIsolationLevel,
-    mysql_user: str,
-    mysql_password: str,
-    mysql_root_password: str,
-    mysql_database: str,
-) -> Generator[MySQLService, None, None]:
-    """Provide a running MySQL 8 container service.
+def _make_mysql_modern_service_fixture(fixture_name: str, image: str, name: str, doc: str) -> Any:
+    """Create a session-scoped MySQL 8+/9+ service fixture with legacy ``platform`` fallback."""
 
-    Yields:
-        Active MySQLService instance.
-    """
-    with provide_mysql_service(
-        image="mysql:8",
-        name="mysql-8",
-        docker_service=docker_service,
-        isolation_level=xdist_mysql_isolation_level,
-        platform=resolve_legacy_platform(request, None, None),
-        user=mysql_user,
-        password=mysql_password,
-        root_password=mysql_root_password,
-        database=mysql_database,
-    ) as service:
-        yield service
+    def _fixture(
+        request: pytest.FixtureRequest,
+        docker_service: DockerService,
+        xdist_mysql_isolation_level: XdistIsolationLevel,
+        mysql_user: str,
+        mysql_password: str,
+        mysql_root_password: str,
+        mysql_database: str,
+    ) -> Generator[MySQLService, None, None]:
+        with provide_mysql_service(
+            image=image,
+            name=name,
+            docker_service=docker_service,
+            isolation_level=xdist_mysql_isolation_level,
+            platform=resolve_legacy_platform(request, None, None),
+            user=mysql_user,
+            password=mysql_password,
+            root_password=mysql_root_password,
+            database=mysql_database,
+        ) as service:
+            yield service
 
-
-@pytest.fixture(scope="session")
-def mysql_84_service(
-    request: pytest.FixtureRequest,
-    docker_service: DockerService,
-    xdist_mysql_isolation_level: XdistIsolationLevel,
-    mysql_user: str,
-    mysql_password: str,
-    mysql_root_password: str,
-    mysql_database: str,
-) -> Generator[MySQLService, None, None]:
-    """Provide a running MySQL 8.4 LTS container service.
-
-    Yields:
-        Active MySQLService instance.
-    """
-    with provide_mysql_service(
-        image="mysql:8.4",
-        name="mysql-8.4",
-        docker_service=docker_service,
-        isolation_level=xdist_mysql_isolation_level,
-        platform=resolve_legacy_platform(request, None, None),
-        user=mysql_user,
-        password=mysql_password,
-        root_password=mysql_root_password,
-        database=mysql_database,
-    ) as service:
-        yield service
+    _fixture.__name__ = fixture_name
+    _fixture.__qualname__ = fixture_name
+    _fixture.__doc__ = doc
+    _fixture.__module__ = __name__
+    return pytest.fixture(scope="session")(_fixture)
 
 
-@pytest.fixture(scope="session")
-def mysql_96_service(
-    request: pytest.FixtureRequest,
-    docker_service: DockerService,
-    xdist_mysql_isolation_level: XdistIsolationLevel,
-    mysql_user: str,
-    mysql_password: str,
-    mysql_root_password: str,
-    mysql_database: str,
-) -> Generator[MySQLService, None, None]:
-    """Provide a running MySQL 9.6 container service.
-
-    Yields:
-        Active MySQLService instance.
-    """
-    with provide_mysql_service(
-        image="mysql:9.6",
-        name="mysql-9.6",
-        docker_service=docker_service,
-        isolation_level=xdist_mysql_isolation_level,
-        platform=resolve_legacy_platform(request, None, None),
-        user=mysql_user,
-        password=mysql_password,
-        root_password=mysql_root_password,
-        database=mysql_database,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(scope="session")
-def mysql_97_service(
-    request: pytest.FixtureRequest,
-    docker_service: DockerService,
-    xdist_mysql_isolation_level: XdistIsolationLevel,
-    mysql_user: str,
-    mysql_password: str,
-    mysql_root_password: str,
-    mysql_database: str,
-) -> Generator[MySQLService, None, None]:
-    """Provide a running MySQL 9.7 container service.
-
-    Yields:
-        Active MySQLService instance.
-    """
-    with provide_mysql_service(
-        image="mysql:9.7",
-        name="mysql-9.7",
-        docker_service=docker_service,
-        isolation_level=xdist_mysql_isolation_level,
-        platform=resolve_legacy_platform(request, None, None),
-        user=mysql_user,
-        password=mysql_password,
-        root_password=mysql_root_password,
-        database=mysql_database,
-    ) as service:
-        yield service
+mysql_56_service = _make_mysql_legacy_service_fixture(
+    "mysql_56_service",
+    "mysql:5.6",
+    "mysql-56",
+    "Provide a running MySQL 5.6 container service.",
+)
+mysql_57_service = _make_mysql_legacy_service_fixture(
+    "mysql_57_service",
+    "mysql:5.7",
+    "mysql-57",
+    "Provide a running MySQL 5.7 container service.",
+)
+mysql_8_service = _make_mysql_modern_service_fixture(
+    "mysql_8_service",
+    "mysql:8",
+    "mysql-8",
+    "Provide a running MySQL 8 container service.",
+)
+mysql_84_service = _make_mysql_modern_service_fixture(
+    "mysql_84_service",
+    "mysql:8.4",
+    "mysql-8.4",
+    "Provide a running MySQL 8.4 LTS container service.",
+)
+mysql_96_service = _make_mysql_modern_service_fixture(
+    "mysql_96_service",
+    "mysql:9.6",
+    "mysql-9.6",
+    "Provide a running MySQL 9.6 container service.",
+)
+mysql_97_service = _make_mysql_modern_service_fixture(
+    "mysql_97_service",
+    "mysql:9.7",
+    "mysql-9.7",
+    "Provide a running MySQL 9.7 container service.",
+)

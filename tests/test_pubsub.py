@@ -245,3 +245,44 @@ def _clear_xdist_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove pytest-xdist worker environment variables from the test environment."""
     for variable in ("PYTEST_XDIST_TESTRUNUID", "PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT"):
         monkeypatch.delenv(variable, raising=False)
+
+
+def test_pubsub_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify Pub/Sub fixtures execute in-process with and without xdist."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.pubsub"]
+
+    @pytest.fixture(scope="session")
+    def container_service():
+        mock_cs = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=8085, container=MagicMock())
+        mock_cs.run.side_effect = _run
+        return mock_cs
+
+    def test_fixtures(
+        pubsub_image,
+        pubsub_project,
+        xdist_pubsub_isolation_level,
+        pubsub_service,
+    ):
+        assert "google-cloud-cli" in pubsub_image
+        assert pubsub_project == "pytest-databases"
+        assert xdist_pubsub_isolation_level == "database"
+        assert pubsub_service.port == 8085
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)
+
+
+def test_pubsub_project_fixture_with_xdist_worker_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify pubsub_project appends xdist worker number when present."""
+    monkeypatch.setattr("pytest_databases.docker.pubsub.get_xdist_worker_num", lambda: 3)
+    fn = unwrap_fixture(pubsub.pubsub_project)
+    assert fn() == "pytest-databases-3"

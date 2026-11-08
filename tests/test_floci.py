@@ -428,3 +428,36 @@ def test_floci_service_live(pytester: pytest.Pytester, monkeypatch: MonkeyPatch,
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
     result.assert_outcomes(passed=1)
+
+
+def test_floci_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all Floci GCP, OCI, AWS, and Azure fixtures execute in-process with mocked container provider."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.floci"]
+
+    @pytest.fixture(scope="session")
+    def container_service() -> MagicMock:
+        return MagicMock()
+
+    def test_fixtures(request: pytest.FixtureRequest) -> None:
+        mock_sc = ServiceContainer(host="127.0.0.1", port=4566, container=MagicMock())
+
+        @contextmanager
+        def fake_container(*args, **kwargs):
+            yield mock_sc
+
+        with patch("pytest_databases.docker.floci.provide_floci_container", side_effect=fake_container):
+            assert request.getfixturevalue("xdist_floci_isolation_level") == "database"
+            assert request.getfixturevalue("floci_resource_prefix") == "pytest-databases-"
+            assert request.getfixturevalue("floci_gcp_service").host == "127.0.0.1"
+            assert request.getfixturevalue("floci_oci_service").host == "127.0.0.1"
+            assert request.getfixturevalue("floci_aws_service").host == "127.0.0.1"
+            assert request.getfixturevalue("floci_az_service").host == "127.0.0.1"
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

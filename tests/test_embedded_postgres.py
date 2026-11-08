@@ -7,6 +7,7 @@ import struct
 import subprocess
 import sys
 import threading
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
@@ -414,3 +415,244 @@ def test_embedded_postgres_service_live(pytester: pytest.Pytester, isolation: st
     result.assert_outcomes(passed=2)
     leftovers = [*pytester.path.rglob("embedded_postgres_cluster.json"), *pytester.path.rglob("embedded_postgres_data")]
     assert leftovers == []
+
+
+def test_embedded_postgres_cluster_lifecycle_and_helpers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify init_cluster, start_cluster, stop_cluster, and helper error branches."""
+
+    bins = PostgresBinaries(
+        initdb=tmp_path / "initdb",
+        postgres=tmp_path / "postgres",
+        pg_ctl=tmp_path / "pg_ctl",
+    )
+    data_dir = tmp_path / "data"
+
+    monkeypatch.setattr(
+        "pytest_databases.embedded.postgres.subprocess.run",
+        lambda *_a, **_kw: SimpleNamespace(returncode=0, stderr=b"", stdout=""),
+    )
+    embedded_mod.init_cluster(bins, data_dir)
+    assert "fsync = off" in (data_dir / "postgresql.conf").read_text(encoding="utf-8")
+
+    (data_dir / "PG_VERSION").write_text("17", encoding="utf-8")
+    embedded_mod.init_cluster(bins, data_dir)
+
+    fail_dir = tmp_path / "fail_data"
+    monkeypatch.setattr(
+        "pytest_databases.embedded.postgres.subprocess.run",
+        lambda *_a, **_kw: SimpleNamespace(returncode=1, stderr=b"initdb boom"),
+    )
+    with pytest.raises(RuntimeError, match="initdb boom"):
+        embedded_mod.init_cluster(bins, fail_dir)
+
+    monkeypatch.setattr("pytest_databases.embedded.postgres.time.sleep", lambda _: None)
+    fake_proc = MagicMock()
+    fake_proc.poll.return_value = None
+    fake_proc.pid = 12345
+    monkeypatch.setattr("pytest_databases.embedded.postgres.subprocess.Popen", lambda *_a, **_kw: fake_proc)
+    monkeypatch.setattr("pytest_databases.embedded.postgres.tcp_port_open", lambda *_a, **_kw: True)
+    monkeypatch.setattr("pytest_databases.embedded.postgres.run_simple_query", lambda *_a, **_kw: (0, b"1"))
+    proc, port = start_cluster(bins, data_dir, port=0)
+    assert proc is fake_proc
+    assert port > 0
+
+    exited_proc = MagicMock()
+    exited_proc.poll.return_value = 1
+    exited_proc.returncode = 1
+    monkeypatch.setattr("pytest_databases.embedded.postgres.subprocess.Popen", lambda *_a, **_kw: exited_proc)
+    with pytest.raises(RuntimeError, match="exited with code 1"):
+        start_cluster(bins, data_dir, port=0)
+
+    (data_dir / "postmaster.pid").write_text("99999\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "pytest_databases.embedded.postgres.subprocess.run",
+        lambda *_a, **_kw: SimpleNamespace(returncode=0),
+    )
+    monkeypatch.setattr("pytest_databases.embedded.postgres.os.kill", lambda *_a, **_kw: None)
+    times = iter([0.0, 0.1, 20.0])
+    monkeypatch.setattr("pytest_databases.embedded.postgres.time.monotonic", lambda: next(times, 20.0))
+    embedded_mod.stop_cluster(bins, data_dir, process=None, timeout=1.0)
+    embedded_mod.stop_cluster(bins, data_dir, process=fake_proc, timeout=1.0)
+
+    stub_proc = MagicMock()
+    stub_proc.poll.return_value = None
+    stub_proc.wait.side_effect = [subprocess.TimeoutExpired(cmd="pg", timeout=1.0), 0]
+    embedded_mod._terminate(stub_proc, timeout=1.0)
+    stub_proc.kill.assert_called_once()
+
+    assert embedded_mod._log_tail(tmp_path / "missing.log") == "<no server log>"
+    assert embedded_mod._postmaster_pid(tmp_path / "missing_dir") is None
+
+
+def test_embedded_postgres_shared_cluster_and_prepare_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify _SharedCluster live state / cleanup and _prepare_database / _create_database branches."""
+
+    bins = PostgresBinaries(initdb=tmp_path / "initdb", postgres=tmp_path / "postgres", pg_ctl=None)
+    monkeypatch.setattr("pytest_databases.embedded.postgres.init_cluster", lambda *_a, **_kw: None)
+    fake_proc = MagicMock(pid=4321)
+    fake_proc.poll.return_value = 0
+    monkeypatch.setattr("pytest_databases.embedded.postgres.start_cluster", lambda *_a, **_kw: (fake_proc, 55432))
+    monkeypatch.setattr("pytest_databases.embedded.postgres.stop_cluster", lambda *_a, **_kw: None)
+    monkeypatch.setattr("pytest_databases.embedded.postgres.os.kill", lambda *_a, **_kw: None)
+    monkeypatch.setattr("pytest_databases.embedded.postgres.run_simple_query", lambda *_a, **_kw: (0, b"1"))
+
+    shared_dir = tmp_path / "shared"
+    shared_dir.mkdir()
+    with embedded_mod._SharedCluster(shared_dir, worker_id="gw0", binaries=bins, user="postgres", port=0) as svc1:
+        assert svc1.port == 55432
+        with embedded_mod._SharedCluster(shared_dir, worker_id="gw1", binaries=bins, user="postgres", port=0) as svc2:
+            assert svc2.port == 55432
+
+    assert svc1._run_sql("postgres", "SELECT 1") == (0, b"1")
+    monkeypatch.setattr(svc1, "ensure_template", lambda *_a, **_kw: "tmpl_1")
+    monkeypatch.setattr(svc1, "create_worker_database_from_template", lambda *_a, **_kw: None)
+    monkeypatch.setattr(svc1, "drop_database_force", lambda *_a, **_kw: None)
+
+    prepared_tmpl = embedded_mod._prepare_database(
+        svc1,
+        db_name="w_db",
+        isolation="template",
+        template_name="tmpl",
+        template_setup=None,
+        fingerprint_sources=(),
+        lock_dir=None,
+    )
+    assert prepared_tmpl.database == "w_db"
+
+    prepared_db = embedded_mod._prepare_database(
+        svc1,
+        db_name="w_db2",
+        isolation="database",
+        template_name="tmpl",
+        template_setup=None,
+        fingerprint_sources=(),
+        lock_dir=None,
+    )
+    assert prepared_db.database == "w_db2"
+
+    monkeypatch.setattr(svc1, "exec_sql", lambda *_a, **_kw: (1, b"create failed"))
+    with pytest.raises(RuntimeError, match="create failed"):
+        embedded_mod._create_database(svc1, "bad_db")
+
+    monkeypatch.setattr("pytest_databases.embedded.postgres._create_database", lambda *_a, **_kw: None)
+    with provide_embedded_postgres_service(binaries=bins, database="custom_db", cleanup_mode="delete") as provided:
+        assert provided.database == "custom_db"
+
+    cluster_err = embedded_mod._SharedCluster(shared_dir, worker_id="gw9", binaries=bins, user="postgres", port=0)
+    monkeypatch.setattr(cluster_err, "_provision", MagicMock(side_effect=RuntimeError("boom")))
+    with pytest.raises(RuntimeError, match="boom"), cluster_err:
+        pass
+
+    cluster_err._state_file.write_text('{"pid": "bad"}', encoding="utf-8")
+    assert cluster_err._read_live_state() is None
+    cluster_err._state_file.write_text("not-json", encoding="utf-8")
+    cluster_err._stop_recorded_cluster()
+
+    assert embedded_mod._version_key(tmp_path / "16" / "bin") != embedded_mod._version_key(tmp_path / "17" / "bin")
+    monkeypatch.setattr("pytest_databases.embedded.postgres.shutil.which", lambda _: "/usr/bin/pg_config")
+    monkeypatch.setattr(
+        "pytest_databases.embedded.postgres.subprocess.run",
+        MagicMock(side_effect=OSError("exec err")),
+    )
+    assert embedded_mod._pg_config_bin_dirs() == []
+    assert isinstance(embedded_mod._candidate_bin_dirs(), list)
+
+    monkeypatch.setattr("pytest_databases.embedded.postgres.get_xdist_worker_id", lambda: "gw2")
+    monkeypatch.setattr("pytest_databases.embedded.postgres.get_xdist_worker_num", lambda: 2)
+    monkeypatch.setattr("pytest_databases.embedded.postgres.resolve_postgres_binaries", lambda _: bins)
+
+    @contextmanager
+    def fake_shared_cluster(*_a: Any, **_kw: Any) -> Any:
+        yield MagicMock()
+
+    monkeypatch.setattr("pytest_databases.embedded.postgres._SharedCluster", fake_shared_cluster)
+    monkeypatch.setattr("pytest_databases.embedded.postgres._prepare_database", lambda admin, **_kw: admin)
+    fake_tpf = MagicMock()
+    fake_tpf.getbasetemp.return_value = tmp_path / "basetemp"
+    gen = unwrap_fixture(embedded_mod.embedded_postgres_service)(
+        fake_tpf,
+        "postgres",
+        "pytest_databases",
+        0,
+        None,
+        "template",
+        None,
+        None,
+        (),
+        None,
+    )
+    assert next(gen) is not None
+    with pytest.raises(StopIteration):
+        next(gen)
+
+
+def test_embedded_postgres_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all embedded_postgres fixtures execute in-process with mocked cluster helpers."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    import pytest
+    import pytest_databases.embedded.postgres as ep_mod
+    from pytest_databases.embedded.postgres import EmbeddedPostgresService, PostgresBinaries
+
+    pytest_plugins = ["pytest_databases.embedded.postgres"]
+
+    @pytest.fixture(autouse=True, scope="session")
+    def mock_embedded(tmp_path_factory):
+        d = tmp_path_factory.mktemp("pg")
+        bins = PostgresBinaries(initdb=d / "initdb", postgres=d / "postgres", pg_ctl=None)
+        orig_res = ep_mod.resolve_postgres_binaries
+        orig_prov = ep_mod.provide_embedded_postgres_service
+        orig_prep = ep_mod._prepare_database
+        ep_mod.resolve_postgres_binaries = lambda *a, **kw: bins
+
+        @contextmanager
+        def _fake_provide(**kwargs):
+            yield EmbeddedPostgresService(
+                host="127.0.0.1",
+                port=55432,
+                user="postgres",
+                database="postgres",
+                data_dir=d,
+                binaries=bins,
+            )
+
+        ep_mod.provide_embedded_postgres_service = _fake_provide
+        ep_mod._prepare_database = lambda admin, **kw: admin
+        yield
+        ep_mod.resolve_postgres_binaries = orig_res
+        ep_mod.provide_embedded_postgres_service = orig_prov
+        ep_mod._prepare_database = orig_prep
+
+    def test_fixtures(
+        embedded_postgres_user,
+        embedded_postgres_database,
+        embedded_postgres_port,
+        embedded_postgres_bin_dir,
+        xdist_embedded_postgres_isolation_level,
+        embedded_postgres_template_name,
+        embedded_postgres_template_setup,
+        embedded_postgres_template_fingerprint_sources,
+        embedded_postgres_template_lock_dir,
+        embedded_postgres_service,
+    ):
+        assert embedded_postgres_user == "postgres"
+        assert embedded_postgres_database == "pytest_databases"
+        assert embedded_postgres_port == 0
+        assert embedded_postgres_bin_dir is None
+        assert xdist_embedded_postgres_isolation_level == "template"
+        assert embedded_postgres_template_name is None
+        assert embedded_postgres_template_setup is None
+        assert embedded_postgres_template_fingerprint_sources == ()
+        assert embedded_postgres_template_lock_dir is None
+        assert embedded_postgres_service.port == 55432
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

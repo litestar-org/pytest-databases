@@ -14,6 +14,7 @@ import pytest
 
 from pytest_databases.docker.spanner import (
     SpannerService,
+    _send_spanner_request_with_retry,
     bootstrap_spanner_emulator,
     provide_spanner_service,
     spanner_connection,
@@ -271,4 +272,76 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
     """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
+    result.assert_outcomes(passed=1)
+
+
+def test_send_spanner_request_with_retry_urlerror_exhaustion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _send_spanner_request_with_retry retries URLError and raises after max attempts."""
+    monkeypatch.setattr("pytest_databases.docker.spanner.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "pytest_databases.docker.spanner.urllib.request.urlopen",
+        MagicMock(side_effect=urllib.error.URLError("connection refused")),
+    )
+    with pytest.raises(urllib.error.URLError, match="connection refused"):
+        _send_spanner_request_with_retry(
+            "http://127.0.0.1:9020/v1/projects/p/instances",
+            {"instanceId": "inst"},
+            max_attempts=2,
+        )
+
+
+def test_spanner_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all Spanner fixtures execute in-process with mocked docker_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    import sys
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.spanner"]
+
+    @pytest.fixture(autouse=True, scope="session")
+    def mock_spanner():
+        import pytest_databases.docker.spanner as sp_mod
+        orig = sp_mod.bootstrap_spanner_emulator
+        sp_mod.bootstrap_spanner_emulator = lambda *a, **kw: None
+        sys.modules["google"] = MagicMock()
+        sys.modules["google.cloud"] = MagicMock()
+        sys.modules["google.cloud.spanner"] = MagicMock()
+        sys.modules["google.auth"] = MagicMock()
+        sys.modules["google.auth.credentials"] = MagicMock()
+        sys.modules["google.api_core"] = MagicMock()
+        sys.modules["google.api_core.client_options"] = MagicMock()
+        yield
+        sp_mod.bootstrap_spanner_emulator = orig
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        mock_ds = MagicMock()
+        mock_ds.get_port_for_Config.return_value = 9020
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=9010, container=MagicMock())
+        mock_ds.run.side_effect = _run
+        return mock_ds
+
+    def test_fixtures(
+        xdist_spanner_isolation_level,
+        spanner_project,
+        spanner_instance_name,
+        spanner_database_name,
+        spanner_image,
+        spanner_service,
+        spanner_connection,
+    ):
+        assert xdist_spanner_isolation_level == "database"
+        assert spanner_project == "emulator-test-project"
+        assert spanner_instance_name == "emulator-test-instance"
+        assert spanner_database_name == "emulator-test-database"
+        assert "cloud-spanner-emulator" in spanner_image
+        assert spanner_service.port == 9010
+        assert spanner_connection is not None
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", "-W", "ignore::DeprecationWarning")
     result.assert_outcomes(passed=1)

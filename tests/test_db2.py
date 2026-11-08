@@ -392,3 +392,42 @@ def test_create_worker_database_matches_exact_name(directory_listing: str, expec
         for line in directory_listing.splitlines()
     )
     assert found is not expect_create
+
+
+def test_db2_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify Db2 config and service fixtures execute in-process with mocked provider."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+    from pytest_databases.docker.db2 import db2_dbname
+
+    pytest_plugins = ["pytest_databases.docker.db2"]
+
+    @pytest.fixture(scope="session")
+    def container_service() -> MagicMock:
+        return MagicMock()
+
+    def test_fixtures(request: pytest.FixtureRequest) -> None:
+        mock_svc = MagicMock()
+
+        @contextmanager
+        def fake_svc(*args, **kwargs):
+            yield mock_svc
+
+        with patch("pytest_databases.docker.db2.provide_db2_service", side_effect=fake_svc):
+            assert request.getfixturevalue("xdist_db2_isolation_level") == "database"
+            assert request.getfixturevalue("db2_4k_device_support") is True
+            assert request.getfixturevalue("db2_image")
+            assert request.getfixturevalue("db2_username") == "db2inst1"
+            assert request.getfixturevalue("db2_password") == "pytest_db2_pwd"
+            assert request.getfixturevalue("db2_dbname") == "pytestdb"
+            assert request.getfixturevalue("db2_startup_timeout") == 600
+            assert request.getfixturevalue("db2_service") is mock_svc
+
+        with patch("pytest_databases.docker.db2.get_xdist_worker_num", return_value=1):
+            fn = getattr(db2_dbname, "__wrapped__", db2_dbname)
+            assert fn("database") == "ptdb_1"
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

@@ -365,3 +365,43 @@ def test_sqlanywhere_service_live(pytester: pytest.Pytester) -> None:
     """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2", timeout=600)
     result.assert_outcomes(passed=2)
+
+
+def test_sqlanywhere_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify SQL Anywhere config and service fixtures execute in-process with mocked provider."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    pytest_plugins = ["pytest_databases.docker.sqlanywhere"]
+
+    @pytest.fixture(scope="session")
+    def container_service() -> MagicMock:
+        return MagicMock()
+
+    def test_fixtures(request: pytest.FixtureRequest, tmp_path: Path) -> None:
+        mock_svc = MagicMock()
+        mock_svc.container = MagicMock()
+
+        @contextmanager
+        def fake_svc(*args, **kwargs):
+            yield mock_svc
+
+        with (
+            patch("pytest_databases.docker.sqlanywhere.provide_sqlanywhere_service", side_effect=fake_svc),
+            patch("pytest_databases.docker.sqlanywhere.extract_sqlanywhere_client_libs", return_value=tmp_path),
+            patch("pytest_databases.docker.sqlanywhere.sqlanywhere_client_environment", return_value={"SQLANY16": str(tmp_path)}),
+        ):
+            assert request.getfixturevalue("sqlanywhere_image")
+            assert request.getfixturevalue("sqlanywhere_user") == "dba"
+            assert request.getfixturevalue("sqlanywhere_password") == "sql"
+            assert request.getfixturevalue("sqlanywhere_database") == "demo"
+            assert request.getfixturevalue("sqlanywhere_startup_timeout") == 60
+            assert request.getfixturevalue("xdist_sqlanywhere_isolation_level") == "server"
+            assert request.getfixturevalue("sqlanywhere_service") is mock_svc
+            assert request.getfixturevalue("sqlanywhere_client_libs") == tmp_path
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

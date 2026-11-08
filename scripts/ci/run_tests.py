@@ -17,9 +17,24 @@ if TYPE_CHECKING:
     from typing import Any
 
 
-def build_compatibility_command(manifest: Mapping[str, Any]) -> list[str]:
+def _pytest_prefix(*, coverage: bool) -> list[str]:
+    if coverage:
+        return [
+            sys.executable,
+            "-m",
+            "coverage",
+            "run",
+            "--parallel-mode",
+            "--source=pytest_databases",
+            "-m",
+            "pytest",
+        ]
+    return [sys.executable, "-m", "pytest"]
+
+
+def build_compatibility_command(manifest: Mapping[str, Any], *, coverage: bool = False) -> list[str]:
     """Build the engine-free compatibility pytest command."""
-    return [sys.executable, "-m", "pytest", *manifest["compatibility_test_paths"]]
+    return [*_pytest_prefix(coverage=coverage), *manifest["compatibility_test_paths"]]
 
 
 def build_provider_command(manifest: Mapping[str, Any], provider_id: str, *, coverage: bool = False) -> list[str]:
@@ -28,8 +43,7 @@ def build_provider_command(manifest: Mapping[str, Any], provider_id: str, *, cov
     if provider_id not in providers:
         message = f"unknown provider: {provider_id}"
         raise ValueError(message)
-    coverage_args = ["--cov=pytest_databases", "--cov-report="] if coverage else []
-    return [sys.executable, "-m", "pytest", *coverage_args, *providers[provider_id]["test_paths"]]
+    return [*_pytest_prefix(coverage=coverage), *providers[provider_id]["test_paths"]]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -45,7 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     manifest = load_manifest()
     validate_manifest(manifest)
     command = (
-        build_compatibility_command(manifest)
+        build_compatibility_command(manifest, coverage=args.coverage)
         if args.compatibility
         else build_provider_command(manifest, args.provider, coverage=args.coverage)
     )

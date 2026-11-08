@@ -114,7 +114,24 @@ jobs:
           fi
 
       - name: Run clientless compatibility tests
-        run: uv run --no-sync python -m scripts.ci.run_tests --compatibility
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+          PYTEST_SPEC: ${{ matrix.pytest-spec }}
+        run: |
+          if [[ "$PYTHON_VERSION" == "3.12" && "$PYTEST_SPEC" == "pytest>=9" ]]; then
+            uv run --no-sync python -m scripts.ci.run_tests --compatibility --coverage
+          else
+            uv run --no-sync python -m scripts.ci.run_tests --compatibility
+          fi
+
+      - name: Upload coverage data
+        if: matrix.python-version == '3.12' && matrix.pytest-spec == 'pytest>=9'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-data-compatibility
+          path: .coverage*
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   quality:
     name: Quality

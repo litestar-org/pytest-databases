@@ -266,3 +266,150 @@ def test_two(redpanda_service: RedpandaService):
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2", "-vv")
     result.assert_outcomes(passed=2)
+
+
+def test_fetch_kafka_brokers_and_recv_exact_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify fetch_kafka_brokers validation and _recv_exact EOF handling."""
+    mock_sock = MagicMock()
+    mock_sock.recv.return_value = b""
+    with pytest.raises(OSError, match="Unexpected EOF"):
+        redpanda._recv_exact(mock_sock, 4)
+
+    def make_conn(payloads: list[bytes]) -> Any:
+        @contextlib.contextmanager
+        def _conn(*_a: Any, **_kw: Any) -> Any:
+            s = MagicMock()
+            s.recv.side_effect = payloads
+            yield s
+
+        return _conn
+
+    monkeypatch.setattr(
+        "pytest_databases.docker.redpanda.socket.create_connection",
+        make_conn([struct.pack(">i", 0)]),
+    )
+    with pytest.raises(ValueError, match="Invalid Kafka metadata response size"):
+        redpanda.fetch_kafka_brokers("127.0.0.1", 9092)
+
+    monkeypatch.setattr(
+        "pytest_databases.docker.redpanda.socket.create_connection",
+        make_conn([struct.pack(">i", 4), b"1234"]),
+    )
+    with pytest.raises(ValueError, match="Truncated Kafka metadata response header"):
+        redpanda.fetch_kafka_brokers("127.0.0.1", 9092)
+
+    monkeypatch.setattr(
+        "pytest_databases.docker.redpanda.socket.create_connection",
+        make_conn([struct.pack(">i", 8), struct.pack(">ii", 999, 0)]),
+    )
+    assert redpanda.fetch_kafka_brokers("127.0.0.1", 9092) == []
+
+    monkeypatch.setattr(
+        "pytest_databases.docker.redpanda.socket.create_connection",
+        make_conn([struct.pack(">i", 10), struct.pack(">ii", 7, 1) + b"12"]),
+    )
+    assert redpanda.fetch_kafka_brokers("127.0.0.1", 9092) == []
+
+    monkeypatch.setattr(
+        "pytest_databases.docker.redpanda.socket.create_connection",
+        make_conn([struct.pack(">i", 14), struct.pack(">iihi", 7, 1, 10, 0)]),
+    )
+    assert redpanda.fetch_kafka_brokers("127.0.0.1", 9092) == []
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "expected_name", "expected_prefix"),
+    [
+        (1, "database", "redpanda", "pytest_databases_1_"),
+        (1, "server", "redpanda_1", ""),
+    ],
+)
+def test_provide_redpanda_service_xdist_and_readiness_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_num: int,
+    isolation_level: str,
+    expected_name: str,
+    expected_prefix: str,
+) -> None:
+    """Verify provide_redpanda_service xdist modes and check failure branches."""
+    monkeypatch.setattr("pytest_databases.docker.redpanda.get_xdist_worker_num", lambda: worker_num)
+    monkeypatch.setattr("pytest_databases.docker.redpanda._write_start_arguments", lambda _: None)
+
+    broker_calls = 0
+
+    def fake_brokers(host: str, port: int) -> list[tuple[str, int]]:
+        nonlocal broker_calls
+        broker_calls += 1
+        if broker_calls == 1:
+            msg = "not listening"
+            raise OSError(msg)
+        if broker_calls == 2:
+            return [("other", 1234)]
+        return [(host, port)]
+
+    monkeypatch.setattr("pytest_databases.docker.redpanda.fetch_kafka_brokers", fake_brokers)
+    container = MagicMock()
+    container.exec_run.side_effect = [
+        MagicMock(exit_code=1, output=b"starting"),
+        MagicMock(exit_code=0, output=b"healthy"),
+        MagicMock(exit_code=0, output=b"healthy"),
+        MagicMock(exit_code=0, output=b"healthy"),
+    ]
+    cs = MagicMock()
+    captured_name: list[str] = []
+
+    @contextlib.contextmanager
+    def fake_run(**kwargs: Any) -> Any:
+        captured_name.append(kwargs["name"])
+        svc = ServiceContainer(host="127.0.0.1", port=19092, container=container)
+        check = kwargs["check"]
+        assert check(svc) is False
+        assert check(svc) is False
+        assert check(svc) is False
+        assert check(svc) is True
+        yield svc
+
+    cs.run.side_effect = fake_run
+
+    with redpanda.provide_redpanda_service(
+        container_service=cs,
+        redpanda_image="redpanda:latest",
+        redpanda_port=None,
+        xdist_redpanda_isolation_level=isolation_level,  # type: ignore[arg-type]
+    ) as service:
+        assert service.topic_prefix == expected_prefix
+        assert captured_name == [expected_name]
+
+
+def test_redpanda_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all Redpanda fixtures execute in-process with mocked container_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.redpanda"]
+
+    @pytest.fixture(scope="session")
+    def container_service():
+        mock_cs = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=19092, container=MagicMock())
+        mock_cs.run.side_effect = _run
+        return mock_cs
+
+    def test_fixtures(
+        redpanda_image,
+        redpanda_port,
+        xdist_redpanda_isolation_level,
+        redpanda_service,
+    ):
+        assert "redpanda" in redpanda_image
+        assert redpanda_port is None
+        assert xdist_redpanda_isolation_level == "database"
+        assert redpanda_service.port == 19092
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

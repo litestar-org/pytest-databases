@@ -19,6 +19,7 @@ from pytest_databases.docker.oracle import (
     ORACLE_ADB_ATP_SERVICES,
     OracleADBService,
     OracleService,
+    _is_transient_oracle_error,
     enable_oracle_ords_schema,
     ensure_oracle_adb_user,
     ensure_oracle_user,
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from pytest import MonkeyPatch
+    from pytest import MonkeyPatch, Pytester
 
 pytest_plugins = ["pytest_databases.docker.oracle"]
 
@@ -681,4 +682,94 @@ def test_oracle_adb_service_live(pytester: pytest.Pytester) -> None:
     """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv", timeout=1200)
+    result.assert_outcomes(passed=1)
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        (b"ORA-12514: TNS:listener does not currently know of service", True),
+        (b"ORA-00054: resource busy and acquire with NOWAIT specified", True),
+        (b"ORA-00942: table or view does not exist", False),
+    ],
+)
+def test_is_transient_oracle_error(output: bytes, expected: bool) -> None:
+    """Verify transient Oracle Listener/startup/lock error code detection."""
+    assert _is_transient_oracle_error(output) is expected
+
+
+def test_ensure_oracle_adb_user_and_ords_retries_on_transient_ora_error() -> None:
+    """Verify ensure_oracle_adb_user and enable_oracle_ords_schema retry transient ORA errors."""
+    container = MagicMock()
+    container.exec_run.side_effect = [
+        MagicMock(exit_code=1, output=b"ORA-12514: listener does not know of service"),
+        MagicMock(exit_code=0, output=b"PL/SQL procedure successfully completed."),
+        MagicMock(exit_code=1, output=b"ORA-00054: resource busy"),
+        MagicMock(exit_code=0, output=b"PL/SQL procedure successfully completed."),
+    ]
+    with patch("pytest_databases.docker.oracle.time.sleep"):
+        ensure_oracle_adb_user(
+            container,
+            user="pytest_0",
+            password="Password123",
+            service_name="myatp_high.adb.oraclecloud.com",
+            admin_password="Password123",
+        )
+        enable_oracle_ords_schema(
+            container,
+            user="pytest_0",
+            password="Password123",
+            service_name="myatp_high.adb.oraclecloud.com",
+        )
+    assert container.exec_run.call_count == 4
+
+
+def test_oracle_all_fixtures_inprocess(pytester: Pytester) -> None:
+    """Verify all Oracle fixtures execute in-process when service and connection providers are mocked."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    pytest_plugins = ["pytest_databases.docker.oracle"]
+
+    @pytest.fixture(scope="session")
+    def docker_service() -> MagicMock:
+        return MagicMock()
+
+    @pytest.fixture(scope="session")
+    def container_service() -> MagicMock:
+        return MagicMock()
+
+    def test_fixtures(request: pytest.FixtureRequest) -> None:
+        mock_ora = MagicMock()
+        mock_adb = MagicMock()
+
+        @contextmanager
+        def fake_ora(*args, **kwargs):
+            yield mock_ora
+
+        @contextmanager
+        def fake_adb(*args, **kwargs):
+            yield mock_adb
+
+        fake_module = MagicMock()
+        fake_conn = MagicMock()
+        fake_conn.__enter__.return_value = fake_conn
+        fake_module.connect.return_value = fake_conn
+
+        with (
+            patch("pytest_databases.docker.oracle.provide_oracle_service", side_effect=fake_ora),
+            patch("pytest_databases.docker.oracle.provide_oracle_adb_service", side_effect=fake_adb),
+            patch("pytest_databases.docker.oracle._load_oracledb", return_value=fake_module),
+        ):
+            assert request.getfixturevalue("oracle_23ai_service") is mock_ora
+            assert request.getfixturevalue("oracle_18c_service") is mock_ora
+            assert request.getfixturevalue("oracle_service") is mock_ora
+            assert request.getfixturevalue("oracle_adb_service") is mock_adb
+            assert request.getfixturevalue("oracle_18c_connection") is fake_conn
+            assert request.getfixturevalue("oracle_23ai_connection") is fake_conn
+            assert request.getfixturevalue("oracle_startup_connection") is fake_conn
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)

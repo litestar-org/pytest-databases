@@ -439,6 +439,13 @@ omit = [
   "scripts/*",
 ]
 parallel = true
+source = ["pytest_databases"]
+
+[tool.coverage.paths]
+source = [
+  "src/pytest_databases",
+  "*/site-packages/pytest_databases",
+]
 
 [tool.coverage.report]
 # Regexes for lines to exclude from consideration

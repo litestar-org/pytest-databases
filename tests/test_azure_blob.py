@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import urllib.error
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -20,7 +21,9 @@ from pytest_databases.docker.azure_blob import (
     ensure_azurite_container,
     provide_azure_blob_async_container_client,
     provide_azure_blob_container_client,
+    provide_azure_blob_service,
 )
+from pytest_databases.types import ServiceContainer
 
 
 def test_plugin_imports_without_azure_storage_blob(pytester: pytest.Pytester) -> None:
@@ -319,3 +322,122 @@ def test_two(
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
+
+
+@pytest.mark.parametrize(
+    ("isolation_level", "worker_num", "expected_account", "expected_name"),
+    [
+        ("database", None, DEFAULT_ACCOUNT_NAME, "azurite-blob"),
+        ("database", 1, "test_account_1", "azurite-blob"),
+        ("server", 1, DEFAULT_ACCOUNT_NAME, "azurite-blob_1"),
+    ],
+)
+def test_provide_azure_blob_service_xdist_and_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+    isolation_level: str,
+    worker_num: int | None,
+    expected_account: str,
+    expected_name: str,
+) -> None:
+    """Verify provide_azure_blob_service readiness checks and xdist container naming."""
+    monkeypatch.setattr("pytest_databases.docker.azure_blob.get_xdist_worker_num", lambda: worker_num)
+    monkeypatch.setattr("pytest_databases.docker.azure_blob.get_xdist_worker_count", lambda: 2)
+    ensured_containers: list[str] = []
+
+    def fake_ensure_container(**kwargs: Any) -> bool:
+        ensured_containers.append(kwargs["container_name"])
+        return True
+
+    monkeypatch.setattr("pytest_databases.docker.azure_blob.ensure_azurite_container", fake_ensure_container)
+    docker_service = MagicMock()
+    captured_name: list[str] = []
+
+    def fake_run(image: str, **kwargs: Any) -> Any:
+        @contextmanager
+        def _ctx() -> Any:
+            captured_name.append(kwargs["name"])
+            svc = ServiceContainer(host="127.0.0.1", port=10000, container=MagicMock())
+            assert kwargs["check"](svc) is True
+            yield svc
+
+        return _ctx()
+
+    docker_service.run.side_effect = fake_run
+
+    with provide_azure_blob_service(
+        docker_service,
+        azurite_in_memory=True,
+        azure_blob_xdist_isolation_level=isolation_level,  # type: ignore[arg-type]
+        azure_blob_default_container_name="pytest-databases",
+    ) as service:
+        assert service.account_name == expected_account
+        assert captured_name == [expected_name]
+        assert "pytest-databases" in ensured_containers
+
+
+def test_azure_blob_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify Azure Blob fixtures execute in-process with mocked docker_service and SDK."""
+    pytester.makepyfile("""
+    import asyncio
+    from contextlib import contextmanager
+    import sys
+    from unittest.mock import AsyncMock, MagicMock
+    import pytest
+    import pytest_databases.docker.azure_blob as ab_mod
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.azure_blob"]
+
+    @pytest.fixture(autouse=True, scope="session")
+    def mock_ensure():
+        orig = ab_mod.ensure_azurite_container
+        ab_mod.ensure_azurite_container = lambda **kw: True
+        fake_sync = MagicMock()
+        fake_async = MagicMock()
+        fake_client = AsyncMock()
+        fake_async.ContainerClient.from_connection_string.return_value = fake_client
+        sys.modules["azure"] = MagicMock()
+        sys.modules["azure.storage"] = MagicMock()
+        sys.modules["azure.storage.blob"] = fake_sync
+        sys.modules["azure.storage.blob.aio"] = fake_async
+        yield
+        ab_mod.ensure_azurite_container = orig
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        mock_ds = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=10000, container=MagicMock())
+        mock_ds.run.side_effect = _run
+        return mock_ds
+
+    def test_fixtures(
+        azurite_in_memory,
+        azure_blob_xdist_isolation_level,
+        azure_blob_default_container_name,
+        azure_blob_service,
+        azure_blob_container_client,
+    ):
+        assert azurite_in_memory is True
+        assert azure_blob_xdist_isolation_level == "database"
+        assert azure_blob_default_container_name == "pytest-databases"
+        assert azure_blob_service.port == 10000
+        assert azure_blob_container_client is not None
+
+        async def _run_async_fixture() -> None:
+            agen = ab_mod.azure_blob_async_container_client.__wrapped__(
+                azure_blob_service,
+                azure_blob_default_container_name,
+            )
+            client = await agen.__anext__()
+            assert client is not None
+            try:
+                await agen.__anext__()
+            except StopAsyncIteration:
+                pass
+
+        asyncio.run(_run_async_fixture())
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", "-W", "ignore::DeprecationWarning")
+    result.assert_outcomes(passed=1)

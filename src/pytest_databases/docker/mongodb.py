@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from docker.errors import APIError, NotFound
 
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
@@ -204,6 +205,9 @@ def _exec_mongosh(
     if database is not None:
         cmd.append(database)
     cmd.extend(["--eval", eval_script])
-    result = container.exec_run(cmd)
+    try:
+        result = container.exec_run(cmd)
+    except (APIError, NotFound) as exc:
+        return -1, str(exc).encode()
     exit_code = result.exit_code if result.exit_code is not None else -1
     return exit_code, exec_output_to_bytes(result.output)

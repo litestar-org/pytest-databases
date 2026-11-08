@@ -16,6 +16,7 @@ import pytest
 from pytest_databases import helpers
 from pytest_databases.docker import localstack
 from pytest_databases.docker.localstack import LocalStackService
+from pytest_databases.types import ServiceContainer
 from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
@@ -337,3 +338,106 @@ def test_xdist_server_isolation(
     result.assert_outcomes(passed=2)
     container_ids = {path.read_text(encoding="utf-8") for path in tmp_path.glob("gw*.txt")}
     assert len(container_ids) == 2
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "services", "auth_token", "expected_name"),
+    [
+        (None, "database", None, None, "localstack"),
+        (1, "database", ("s3",), "tok-123", "localstack"),
+        (2, "server", ("sqs",), None, "localstack_2"),
+    ],
+)
+def test_provide_localstack_service_and_cli_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_num: int | None,
+    isolation_level: str,
+    services: tuple[str, ...] | None,
+    auth_token: str | None,
+    expected_name: str,
+) -> None:
+    """Verify provide_localstack_service xdist modes, service filtering, auth token, and CLI errors."""
+    monkeypatch.setattr(localstack, "get_xdist_worker_num", lambda: worker_num)
+    monkeypatch.setattr(localstack, "_health_is_ready", lambda *_a, **_kw: True)
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"{}")
+    svc_container = ServiceContainer(host="127.0.0.1", port=4566, container=mock_container)
+    mock_docker.run.return_value.__enter__.return_value = svc_container
+
+    with localstack.provide_localstack_service(
+        container_service=mock_docker,
+        localstack_image="nahuelnucera/ministack:latest",
+        localstack_region="us-east-1",
+        localstack_access_key="test",
+        localstack_secret_key="test",
+        localstack_auth_token=auth_token,
+        localstack_services=services,
+        localstack_resource_prefix="pfx-",
+        xdist_localstack_isolation_level=isolation_level,  # type: ignore[arg-type]
+    ) as svc:
+        assert svc.endpoint_url == "http://127.0.0.1:4566"
+
+    check = mock_docker.run.call_args.kwargs["check"]
+    assert mock_docker.run.call_args.kwargs["name"] == expected_name
+    assert check(svc_container) is True
+    monkeypatch.setattr(localstack, "_health_is_ready", lambda *_a, **_kw: False)
+    assert check(svc_container) is False
+
+    mock_container.exec_run.return_value = MagicMock(exit_code=None, output=b"")
+    with pytest.raises(RuntimeError, match="did not return an exit code"):
+        localstack._exec_aws_cli(mock_container, ("sqs", "list-queues"))
+
+    mock_container.exec_run.return_value = MagicMock(exit_code=127, output=b"not found")
+    with pytest.raises(RuntimeError, match="must provide the awslocal or aws CLI"):
+        localstack._exec_aws_cli(mock_container, ("sqs", "list-queues"))
+
+
+def test_localstack_all_fixtures_inprocess(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise all LocalStack session fixtures in-process with a mocked provide_localstack_service."""
+    monkeypatch.setenv("LOCALSTACK_SERVICES", "s3, sqs")
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+    from pytest_databases.docker import localstack as ls_mod
+    from pytest_databases.docker.localstack import LocalStackService
+
+    pytest_plugins = ["pytest_databases.docker.localstack"]
+
+    @pytest.fixture(scope="session")
+    def container_service():
+        return MagicMock()
+
+    @contextmanager
+    def _fake_provide(**kwargs):
+        yield LocalStackService(
+            host="127.0.0.1",
+            port=4566,
+            container=MagicMock(),
+            endpoint_url="http://127.0.0.1:4566",
+            region=kwargs["localstack_region"],
+            access_key=kwargs["localstack_access_key"],
+            secret_key=kwargs["localstack_secret_key"],
+            services=kwargs["localstack_services"],
+            resource_prefix=kwargs["localstack_resource_prefix"],
+        )
+
+    def test_all(request, monkeypatch):
+        with patch.object(ls_mod, "provide_localstack_service", _fake_provide):
+            for name in ls_mod.__all__:
+                if name in {"LocalStackService", "provide_localstack_service"}:
+                    continue
+                val = request.getfixturevalue(name)
+                if name != "localstack_auth_token":
+                    assert val is not None
+        monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw3")
+        monkeypatch.delenv("LOCALSTACK_RESOURCE_PREFIX", raising=False)
+        assert ls_mod.localstack_resource_prefix.__wrapped__() == "pytest-databases-3-"
+        monkeypatch.setenv("LOCALSTACK_RESOURCE_PREFIX", "custom-")
+        assert ls_mod.localstack_resource_prefix.__wrapped__() == "custom-"
+        monkeypatch.delenv("LOCALSTACK_SERVICES", raising=False)
+        assert ls_mod.localstack_services.__wrapped__() is None
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

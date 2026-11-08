@@ -175,3 +175,39 @@ def test_two(valkey_service: ValkeyService) -> None:
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
+
+
+def test_valkey_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all Valkey fixtures execute in-process with mocked docker_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.valkey"]
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        mock_ds = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=6379, container=MagicMock())
+        mock_ds.run.side_effect = _run
+        return mock_ds
+
+    def test_fixtures(
+        xdist_valkey_isolation_level,
+        valkey_image,
+        valkey_host,
+        valkey_port,
+        valkey_service,
+    ):
+        assert xdist_valkey_isolation_level == "database"
+        assert "valkey" in valkey_image
+        assert valkey_host == "127.0.0.1"
+        assert valkey_port == 6379
+        assert valkey_service.port == 6379
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", "-W", "ignore::DeprecationWarning")
+    result.assert_outcomes(passed=1)

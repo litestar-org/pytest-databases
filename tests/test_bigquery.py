@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
+import sys
+import urllib.error
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -12,6 +16,7 @@ import pytest
 from pytest_databases.docker import bigquery as bigquery_mod
 from pytest_databases.docker.bigquery import (
     BigQueryService,
+    _ensure_bigquery_dataset,
     provide_bigquery_client,
     provide_bigquery_service,
     query_bigquery_emulator,
@@ -246,3 +251,176 @@ def test_xdist(pytester: pytest.Pytester) -> None:
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
+
+
+def test_bigquery_service_deprecated_properties_and_init_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify BigQueryService deprecated credentials arg and properties emit DeprecationWarning."""
+    with pytest.deprecated_call(match="Passing 'credentials' to BigQueryService"):
+        svc = BigQueryService(
+            host="127.0.0.1",
+            port=9050,
+            container=MagicMock(),
+            project="test-proj",
+            dataset="test_ds",
+            credentials="legacy-creds",
+        )
+    assert svc.endpoint == "http://127.0.0.1:9050"
+
+    fake_creds = MagicMock()
+    fake_opts = MagicMock()
+    monkeypatch.setitem(sys.modules, "google.auth.credentials", SimpleNamespace(AnonymousCredentials=fake_creds))
+    monkeypatch.setitem(sys.modules, "google.api_core.client_options", SimpleNamespace(ClientOptions=fake_opts))
+
+    with pytest.deprecated_call(match=r"BigQueryService\.credentials"):
+        _ = svc.credentials
+    fake_creds.assert_called_once_with()
+
+    with pytest.deprecated_call(match=r"BigQueryService\.client_options"):
+        _ = svc.client_options
+    fake_opts.assert_called_once_with(api_endpoint="http://127.0.0.1:9050")
+
+
+@pytest.mark.parametrize(
+    ("status_code", "should_raise"),
+    [
+        (200, False),
+        (409, False),
+        (500, True),
+    ],
+)
+def test_ensure_bigquery_dataset_status_codes(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    should_raise: bool,
+) -> None:
+    """Verify _ensure_bigquery_dataset handles 200, 409 Conflict, and re-raises other HTTPError codes."""
+
+    def fake_urlopen(req: Any, timeout: float = 5.0) -> Any:
+        if status_code == 200:
+            cm = MagicMock()
+            cm.__enter__.return_value = MagicMock(status=200)
+            return cm
+        raise urllib.error.HTTPError(req.full_url, status_code, "Error", MagicMock(), io.BytesIO(b""))
+
+    monkeypatch.setattr("pytest_databases.docker.bigquery.urllib.request.urlopen", fake_urlopen)
+    if should_raise:
+        with pytest.raises(urllib.error.HTTPError):
+            _ensure_bigquery_dataset("127.0.0.1", 9050, "proj", "ds")
+    else:
+        _ensure_bigquery_dataset("127.0.0.1", 9050, "proj", "ds")
+
+
+@pytest.mark.parametrize(
+    ("isolation_level", "worker_num", "expected_dataset", "expected_name"),
+    [
+        ("database", None, "test-dataset", "bigquery"),
+        ("database", 2, "test-dataset_2", "bigquery"),
+        ("server", 2, "test-dataset", "bigquery_2"),
+    ],
+)
+def test_query_bigquery_emulator_and_provide_bigquery_service_check_branches(
+    monkeypatch: pytest.MonkeyPatch,
+    isolation_level: str,
+    worker_num: int | None,
+    expected_dataset: str,
+    expected_name: str,
+) -> None:
+    """Verify query_bigquery_emulator and provide_bigquery_service readiness check branches."""
+    responses: list[Any] = [
+        urllib.error.URLError("down"),
+        {"jobComplete": False},
+        {"jobComplete": True, "rows": []},
+        {"jobComplete": True, "rows": [{"f": [{"v": "1"}]}]},
+    ]
+
+    def fake_urlopen(req: Any, timeout: float = 5.0) -> Any:
+        item = responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        cm = MagicMock()
+        cm.__enter__.return_value.read.return_value = json.dumps(item).encode("utf-8")
+        return cm
+
+    monkeypatch.setattr("pytest_databases.docker.bigquery.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("pytest_databases.docker.bigquery._ensure_bigquery_dataset", lambda *_a, **_kw: None)
+    monkeypatch.setattr("pytest_databases.docker.bigquery.get_xdist_worker_num", lambda: worker_num)
+
+    docker_service = MagicMock()
+    captured_name: list[str] = []
+
+    def fake_run(image: str, **kwargs: Any) -> Any:
+        @contextmanager
+        def _ctx() -> Any:
+            captured_name.append(kwargs["name"])
+            svc = ServiceContainer(host="127.0.0.1", port=9050, container=MagicMock())
+            check = kwargs["check"]
+            assert check(svc) is False
+            assert check(svc) is False
+            assert check(svc) is False
+            assert check(svc) is True
+            yield svc
+
+        return _ctx()
+
+    docker_service.run.side_effect = fake_run
+
+    with provide_bigquery_service(
+        docker_service=docker_service,
+        image="ghcr.io/goccy/bigquery-emulator:0.6.6",
+        platform_arch="linux/x86_64",
+        isolation_level=isolation_level,  # type: ignore[arg-type]
+    ) as service:
+        assert service.dataset == expected_dataset
+        assert captured_name == [expected_name]
+
+
+def test_bigquery_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all BigQuery fixtures execute in-process with mocked docker_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    import sys
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.bigquery"]
+
+    @pytest.fixture(autouse=True, scope="session")
+    def mock_bq():
+        import pytest_databases.docker.bigquery as bq_mod
+        orig = bq_mod._ensure_bigquery_dataset
+        bq_mod._ensure_bigquery_dataset = lambda *a, **kw: None
+        sys.modules["google"] = MagicMock()
+        sys.modules["google.cloud"] = MagicMock()
+        sys.modules["google.cloud.bigquery"] = MagicMock()
+        sys.modules["google.auth"] = MagicMock()
+        sys.modules["google.auth.credentials"] = MagicMock()
+        sys.modules["google.api_core"] = MagicMock()
+        sys.modules["google.api_core.client_options"] = MagicMock()
+        yield
+        bq_mod._ensure_bigquery_dataset = orig
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        mock_ds = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=9050, container=MagicMock())
+        mock_ds.run.side_effect = _run
+        return mock_ds
+
+    def test_fixtures(
+        xdist_bigquery_isolation_level,
+        bigquery_image,
+        bigquery_platform,
+        bigquery_service,
+        bigquery_client,
+    ):
+        assert xdist_bigquery_isolation_level == "database"
+        assert "bigquery-emulator" in bigquery_image
+        assert bigquery_platform == "linux/x86_64"
+        assert bigquery_service.port == 9050
+        assert bigquery_client is not None
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", "-W", "ignore::DeprecationWarning")
+    result.assert_outcomes(passed=1)

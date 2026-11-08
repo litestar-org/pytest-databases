@@ -11,6 +11,7 @@ This section provides detailed information on the supported databases, including
    mysql
    mariadb
    dolt
+   doltgres
    oracle
    sqlserver
    spanner

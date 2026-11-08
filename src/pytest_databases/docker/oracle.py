@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import tarfile
+import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -413,6 +414,22 @@ def ensure_oracle_user(
     return exit_code == 0
 
 
+_TRANSIENT_ORACLE_ERROR_MARKERS: tuple[str, ...] = (
+    "ora-01033",
+    "ora-01034",
+    "ora-12514",
+    "ora-12528",
+    "ora-00054",
+    "ora-04021",
+)
+
+
+def _is_transient_oracle_error(output: bytes) -> bool:
+    """Return whether ``output`` contains a transient Oracle startup or dictionary lock error."""
+    decoded = output.decode(errors="replace").lower()
+    return any(marker in decoded for marker in _TRANSIENT_ORACLE_ERROR_MARKERS)
+
+
 def ensure_oracle_adb_user(
     container: Container,
     user: str,
@@ -460,14 +477,21 @@ def ensure_oracle_adb_user(
         f"GRANT CONNECT, RESOURCE, DWROLE, UNLIMITED TABLESPACE TO {user};",
         f"ALTER USER {user} QUOTA UNLIMITED ON DATA;",
     ])
-    exit_code, output = _exec_sqlplus(
-        container,
-        user="admin",
-        password=admin_password,
-        service_name=service_name,
-        sql=setup_script,
-        as_sysdba=False,
-    )
+    exit_code = -1
+    output = b""
+    for attempt in range(5):
+        exit_code, output = _exec_sqlplus(
+            container,
+            user="admin",
+            password=admin_password,
+            service_name=service_name,
+            sql=setup_script,
+            as_sysdba=False,
+        )
+        if exit_code == 0 or not _is_transient_oracle_error(output):
+            break
+        if attempt < 4:
+            time.sleep(0.5 * (attempt + 1))
     if exit_code != 0:
         msg = f"Failed to provision Oracle ADB user {user!r} (exit {exit_code}): {output.decode(errors='replace').strip()}"
         raise RuntimeError(msg)
@@ -510,14 +534,21 @@ def enable_oracle_ords_schema(
         "COMMIT; "
         "END;\n/"
     )
-    exit_code, output = _exec_sqlplus(
-        container,
-        user=user,
-        password=password,
-        service_name=service_name,
-        sql=plsql,
-        as_sysdba=False,
-    )
+    exit_code = -1
+    output = b""
+    for attempt in range(5):
+        exit_code, output = _exec_sqlplus(
+            container,
+            user=user,
+            password=password,
+            service_name=service_name,
+            sql=plsql,
+            as_sysdba=False,
+        )
+        if exit_code == 0 or not _is_transient_oracle_error(output):
+            break
+        if attempt < 4:
+            time.sleep(0.5 * (attempt + 1))
     if exit_code != 0:
         msg = f"Failed to REST-enable schema {schema_upper!r} (exit {exit_code}): {output.decode(errors='replace').strip()}"
         raise RuntimeError(msg)
@@ -733,7 +764,7 @@ def provide_oracle_adb_service(
         check=check,
         container_port=1521,
         extra_ports={1522: None, 8443: None, 27017: None},
-        timeout=300,
+        timeout=420,
         pause=2.0,
         transient=worker_num is not None and isolation_level == "server",
         hostname=hostname,

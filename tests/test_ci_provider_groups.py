@@ -251,8 +251,11 @@ def test_build_commands_and_evaluate_required_jobs() -> None:
     assert compat_cmd[1:3] == ["-m", "pytest"]
     assert "tests/test_valkey.py::test_plugin_imports_without_valkey" in compat_cmd
 
+    compat_cov_cmd = build_compatibility_command(manifest, coverage=True)
+    assert compat_cov_cmd[1:7] == ["-m", "coverage", "run", "--parallel-mode", "--source=pytest_databases", "-m"]
+
     provider_cmd = build_provider_command(manifest, "minio", coverage=True)
-    assert "--cov=pytest_databases" in provider_cmd
+    assert "--source=pytest_databases" in provider_cmd
     assert provider_cmd[-1] == "tests/test_minio.py"
 
     ok_failures = evaluate_required_jobs(

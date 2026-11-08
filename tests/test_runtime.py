@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
+from docker.errors import DockerException
 
+from pytest_databases.helpers import exec_output_to_bytes, get_cpu_architecture, tcp_port_open
 from pytest_databases.runtime import (
     ContainerRuntimeConfig,
     RuntimeCandidate,
     RuntimeResolutionError,
     RuntimeType,
+    _default_probe,
+    _podman_connection_uris,
     classify_runtime,
     default_host_from_base_url,
     discover_runtime_candidates,
@@ -246,3 +251,114 @@ def test_container_runtime_config_create_client_base_url(monkeypatch: pytest.Mon
     client = config.create_client()
     assert client is mock_client
     mock_docker_cls.assert_called_once_with(base_url="unix:///run/docker.sock", timeout=60)
+
+
+def test_runtime_context_and_podman_connections_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify Docker context branches, podman connection JSON parsing, and _default_probe success."""
+    mock_context = MagicMock(Host="tcp://10.0.0.5:2376", TLSConfig=None, Name="remote")
+    monkeypatch.setattr("pytest_databases.runtime.ContextAPI.get_context", lambda _name: mock_context)
+    mock_client = MagicMock()
+    mock_client.info.return_value = {"OperatingSystem": "Docker Desktop"}
+    mock_client.version.return_value = {"Components": [{"Name": "Engine"}]}
+    monkeypatch.setattr("pytest_databases.runtime.DockerClient", MagicMock(return_value=mock_client))
+
+    ctx_config = ContainerRuntimeConfig(
+        kind=RuntimeType.DOCKER,
+        endpoint="tcp://10.0.0.5:2376",
+        source="ctx",
+        context_name="remote",
+    )
+    assert ctx_config.create_client() is mock_client
+
+    env_config = ContainerRuntimeConfig(
+        kind=RuntimeType.DOCKER,
+        endpoint="tcp://10.0.0.6:2375",
+        source="env",
+        environment=(("DOCKER_TLS_VERIFY", "0"),),
+    )
+    mock_from_env = MagicMock(return_value=mock_client)
+    monkeypatch.setattr("pytest_databases.runtime.DockerClient.from_env", mock_from_env)
+    assert env_config.create_client() is mock_client
+    assert mock_from_env.call_args.kwargs["environment"]["DOCKER_HOST"] == "tcp://10.0.0.6:2375"
+
+    def _raise_docker_exc() -> None:
+        msg = "no context"
+        raise DockerException(msg)
+
+    monkeypatch.setattr("pytest_databases.runtime.ContextAPI.get_current_context", _raise_docker_exc)
+    conn_dir = tmp_path / ".config" / "containers"
+    conn_dir.mkdir(parents=True)
+    conn_file = conn_dir / "podman-connections.json"
+    conn_file.write_text(
+        json.dumps({
+            "connections": [
+                {"uri": "ssh://root@localhost/run/podman/podman.sock"},
+                {"nested": {"URI": "unix:///tmp/podman2.sock"}},
+            ]
+        })
+    )
+    bad_file = tmp_path / "bad.json"
+    bad_file.write_text("{not-json")
+    assert _podman_connection_uris(bad_file) == []
+    assert _podman_connection_uris(tmp_path / "missing.json") == []
+
+    candidates = discover_runtime_candidates(environment={}, home=tmp_path, uid=1000)
+    endpoints = [c.endpoint for c in candidates]
+    assert "ssh://root@localhost/run/podman/podman.sock" in endpoints
+    assert "unix:///tmp/podman2.sock" in endpoints
+
+    empty_ctx = MagicMock(Host=None, Name="empty")
+    candidates_empty_ctx = discover_runtime_candidates(
+        environment={},
+        docker_context=empty_ctx,
+        home=tmp_path,
+        uid=1000,
+    )
+    assert any(c.source == "default Docker socket" for c in candidates_empty_ctx)
+
+    docker_cand = RuntimeCandidate("unix:///var/run/docker.sock", "docker", RuntimeType.DOCKER)
+    podman_cand = RuntimeCandidate("unix:///run/podman.sock", "podman", RuntimeType.PODMAN)
+    resolved = resolve_container_runtime(
+        RuntimeType.PODMAN,
+        candidates=[docker_cand, podman_cand],
+        probe=lambda c: c.expected_kind,
+    )
+    assert resolved.kind is RuntimeType.PODMAN
+
+    assert _default_probe(docker_cand) is RuntimeType.DOCKER
+    mock_client.close.assert_called()
+
+
+@pytest.mark.parametrize(
+    ("machine", "expected_arch"),
+    [
+        ("x86_64", "x86_64"),
+        ("AMD64", "x86_64"),
+        ("aarch64", "arm"),
+        ("arm64", "arm"),
+        ("riscv64", "unknown"),
+    ],
+)
+def test_helpers_cpu_arch_and_exec_output_and_tcp_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    machine: str,
+    expected_arch: str,
+) -> None:
+    """Verify get_cpu_architecture, exec_output_to_bytes, and tcp_port_open helper branches."""
+    monkeypatch.setattr("pytest_databases.helpers.platform.machine", lambda: machine)
+    assert get_cpu_architecture() == expected_arch
+    assert exec_output_to_bytes("hello") == b"hello"
+    assert exec_output_to_bytes(iter([b"hel", b"lo"])) == b"hello"
+
+    monkeypatch.setattr("pytest_databases.helpers.socket.create_connection", lambda *_a, **_kw: MagicMock())
+    assert tcp_port_open("127.0.0.1", 5432) is True
+
+    def _fail_conn(*_a: object, **_kw: object) -> None:
+        msg = "refused"
+        raise OSError(msg)
+
+    monkeypatch.setattr("pytest_databases.helpers.socket.create_connection", _fail_conn)
+    assert tcp_port_open("127.0.0.1", 5432) is False

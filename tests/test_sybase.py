@@ -396,3 +396,36 @@ def test_sybase_service_live_database_isolation(pytester: pytest.Pytester) -> No
     """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2", timeout=900)
     result.assert_outcomes(passed=2)
+
+
+def test_sybase_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify Sybase config and service fixtures execute in-process with mocked provider."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    pytest_plugins = ["pytest_databases.docker.sybase"]
+
+    @pytest.fixture(scope="session")
+    def container_service() -> MagicMock:
+        return MagicMock()
+
+    def test_fixtures(request: pytest.FixtureRequest) -> None:
+        mock_svc = MagicMock()
+
+        @contextmanager
+        def fake_svc(*args, **kwargs):
+            yield mock_svc
+
+        with patch("pytest_databases.docker.sybase.provide_sybase_service", side_effect=fake_svc):
+            assert request.getfixturevalue("sybase_image")
+            assert request.getfixturevalue("sybase_user") == "sa"
+            assert request.getfixturevalue("sybase_password")
+            assert request.getfixturevalue("sybase_database") == "master"
+            assert request.getfixturevalue("sybase_startup_timeout") == 300
+            assert request.getfixturevalue("xdist_sybase_isolation_level") == "database"
+            assert request.getfixturevalue("sybase_service") is mock_svc
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

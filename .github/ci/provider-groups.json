@@ -53,6 +53,7 @@
     "tests/test_cloudflare.py::test_plugin_imports_without_cloudflare_clients",
     "tests/test_cockroachdb.py::test_plugin_imports_without_psycopg",
     "tests/test_db2.py::test_plugin_imports_without_db2_clients",
+    "tests/test_doltgres.py::test_plugin_imports_without_psycopg",
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
     "tests/test_floci.py::test_plugin_imports_without_cloud_sdks",
     "tests/test_gizmosql.py::test_plugin_imports_without_adbc_driver_flightsql",
@@ -127,6 +128,12 @@
       "test_paths": ["tests/test_dolt.py"],
       "images": ["dolthub/dolt-sql-server:latest"],
       "docs_globs": ["docs/supported-databases/dolt.rst"]
+    },
+    "doltgres": {
+      "source_globs": ["src/pytest_databases/docker/doltgres.py"],
+      "test_paths": ["tests/test_doltgres.py"],
+      "images": ["dolthub/doltgresql:latest"],
+      "docs_globs": ["docs/supported-databases/doltgres.rst"]
     },
     "elasticsearch": {
       "source_globs": ["src/pytest_databases/docker/elastic_search.py"],

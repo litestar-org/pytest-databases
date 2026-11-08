@@ -385,3 +385,44 @@ def test_snowflake_service_live_xdist_database_isolation(pytester: pytest.Pytest
     assert len(records) == 2
     assert {record["schema"] for record in records} == {"public_0", "public_1"}
     assert len({record["container_id"] for record in records}) == 1
+
+
+def test_snowflake_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify Snowflake config and service fixtures execute in-process with mocked provider."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+    from pytest_databases.docker.snowflake import snowflake_schema
+
+    pytest_plugins = ["pytest_databases.docker.snowflake"]
+
+    @pytest.fixture(scope="session")
+    def container_service() -> MagicMock:
+        return MagicMock()
+
+    def test_fixtures(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_svc = MagicMock()
+
+        @contextmanager
+        def fake_svc(*args, **kwargs):
+            yield mock_svc
+
+        with patch("pytest_databases.docker.snowflake.provide_snowflake_service", side_effect=fake_svc):
+            assert request.getfixturevalue("xdist_snowflake_isolation_level") == "database"
+            assert request.getfixturevalue("snowflake_image")
+            assert request.getfixturevalue("snowflake_user") == "embucket"
+            assert request.getfixturevalue("snowflake_password") == "embucket"
+            assert request.getfixturevalue("snowflake_account") == "embucket"
+            assert request.getfixturevalue("snowflake_database") == "embucket"
+            assert request.getfixturevalue("snowflake_schema") == "public"
+            assert request.getfixturevalue("snowflake_warehouse") == "embucket"
+            assert request.getfixturevalue("snowflake_role") == "sysadmin"
+            assert request.getfixturevalue("snowflake_service") is mock_svc
+
+        with patch("pytest_databases.docker.snowflake.get_xdist_worker_num", return_value=2):
+            fn = getattr(snowflake_schema, "__wrapped__", snowflake_schema)
+            assert fn("database") == "public_2"
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

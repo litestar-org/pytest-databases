@@ -40,6 +40,7 @@ __all__ = (
     "ensure_azurite_container",
     "provide_azure_blob_async_container_client",
     "provide_azure_blob_container_client",
+    "provide_azure_blob_service",
 )
 
 DEFAULT_ACCOUNT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
@@ -209,14 +210,15 @@ def azure_blob_default_container_name() -> str:
     return "pytest-databases"
 
 
-@pytest.fixture(scope="session")
-def azure_blob_service(
+@contextmanager
+def provide_azure_blob_service(
     docker_service: DockerService,
+    *,
     azurite_in_memory: bool,
     azure_blob_xdist_isolation_level: XdistIsolationLevel,
     azure_blob_default_container_name: str,
 ) -> Generator[AzureBlobService, None, None]:
-    """Provide a session-scoped Azurite Blob Storage service with the default container initialized.
+    """Start and manage an Azurite Blob Storage container with the default container initialized.
 
     Yields:
         A running :class:`AzureBlobService` instance.
@@ -276,6 +278,27 @@ def azure_blob_service(
             account_key=account_key,
             account_name=account_name,
         )
+
+
+@pytest.fixture(scope="session")
+def azure_blob_service(
+    docker_service: DockerService,
+    azurite_in_memory: bool,
+    azure_blob_xdist_isolation_level: XdistIsolationLevel,
+    azure_blob_default_container_name: str,
+) -> Generator[AzureBlobService, None, None]:
+    """Provide a session-scoped Azurite Blob Storage service with the default container initialized.
+
+    Yields:
+        A running :class:`AzureBlobService` instance.
+    """
+    with provide_azure_blob_service(
+        docker_service,
+        azurite_in_memory=azurite_in_memory,
+        azure_blob_xdist_isolation_level=azure_blob_xdist_isolation_level,
+        azure_blob_default_container_name=azure_blob_default_container_name,
+    ) as service:
+        yield service
 
 
 @pytest.fixture(scope="session")

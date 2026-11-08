@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
+from docker.errors import APIError, NotFound
 
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
@@ -29,6 +30,7 @@ __all__ = (
     "YUGABYTE_TSERVER_FLAGS",
     "YUGABYTE_USER",
     "YugabyteService",
+    "is_transient_yugabyte_error",
     "provide_yugabyte_service",
     "xdist_yugabyte_isolation_level",
     "yugabyte_database",
@@ -217,6 +219,21 @@ def _make_ysqlsh_command(
     return " ".join(command_parts)
 
 
+_TRANSIENT_YUGABYTE_ERROR_MARKERS: tuple[str, ...] = (
+    "could not serialize access",
+    "restart read required",
+    "catalog version mismatch",
+    "schema version mismatch",
+    "conflict with higher priority transaction",
+)
+
+
+def is_transient_yugabyte_error(output: str | bytes) -> bool:
+    """Return whether ``output`` contains a transient YugabyteDB catalog or transaction conflict."""
+    text = output.decode(errors="replace").lower() if isinstance(output, bytes) else output.lower()
+    return any(marker in text for marker in _TRANSIENT_YUGABYTE_ERROR_MARKERS)
+
+
 def _exec_ysqlsh(
     container: Container,
     sql: str,
@@ -226,14 +243,17 @@ def _exec_ysqlsh(
     password: str | None = None,
 ) -> tuple[int, bytes]:
     environment = {"PGPASSWORD": password} if password is not None else None
-    result = container.exec_run(
-        [
-            "sh",
-            "-c",
-            _make_ysqlsh_command(sql, database=database, user=user),
-        ],
-        environment=environment,
-    )
+    try:
+        result = container.exec_run(
+            [
+                "sh",
+                "-c",
+                _make_ysqlsh_command(sql, database=database, user=user),
+            ],
+            environment=environment,
+        )
+    except (APIError, NotFound) as exc:
+        return -1, str(exc).encode()
     return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
 
 

@@ -715,3 +715,122 @@ def test_two(postgres_service: PostgresService) -> None:
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
+
+
+def test_create_worker_database_and_provide_postgres_xdist_modes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify create_worker_database retry/verification failure and provide_postgres_service xdist modes."""
+    monkeypatch.setattr(postgres_mod.time, "sleep", lambda _s: None)
+    container = MagicMock()
+
+    container.exec_run.return_value = SimpleNamespace(exit_code=1, output=b"booting")
+    with pytest.raises(RuntimeError, match="failed after 10 attempts"):
+        postgres_mod.create_worker_database(container, user="postgres", password="p", db_name="w1")
+
+    container.exec_run.side_effect = [
+        SimpleNamespace(exit_code=0, output=b""),
+        SimpleNamespace(exit_code=1, output=b"verify failed"),
+    ]
+    with pytest.raises(RuntimeError, match="Verification SELECT against 'w1' failed"):
+        postgres_mod.create_worker_database(container, user="postgres", password="p", db_name="w1")
+
+    container.exec_run.side_effect = [
+        SimpleNamespace(exit_code=1, output=b"already exists"),
+        SimpleNamespace(exit_code=0, output=b"1\n"),
+    ]
+    postgres_mod.create_worker_database(container, user="postgres", password="p", db_name="w1")
+
+    container.exec_run.side_effect = None
+    container.exec_run.return_value = SimpleNamespace(exit_code=0, output=b"1\n")
+    fake_service = SimpleNamespace(host="127.0.0.1", port=5432, container=container)
+    run_ctx = MagicMock()
+    run_ctx.__enter__.return_value = fake_service
+    run_ctx.__exit__.return_value = False
+    docker_service = MagicMock()
+    docker_service.run.return_value = run_ctx
+    monkeypatch.setattr(postgres_mod, "get_xdist_worker_num", lambda: 2)
+
+    with provide_postgres_service(
+        docker_service,
+        image="postgres:18",
+        name="postgres",
+        host="127.0.0.1",
+        user="postgres",
+        password="p",
+        xdist_postgres_isolate="database",
+    ) as svc_db:
+        assert svc_db.database == "pytest_databases_2"
+
+    with provide_postgres_service(
+        docker_service,
+        image="postgres:18",
+        name="postgres",
+        host="127.0.0.1",
+        user="postgres",
+        password="p",
+        xdist_postgres_isolate="server",
+    ) as svc_srv:
+        assert svc_srv.database == "pytest_databases"
+    assert docker_service.run.call_args.kwargs["transient"] is True
+
+
+def test_postgres_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Exercise all PostgreSQL, AlloyDB Omni, TimescaleDB, pgvector, ParadeDB, and SpiceDB fixtures in-process."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+    import pytest
+    from pytest_databases.docker import postgres as postgres_mod
+    from pytest_databases.docker.postgres import PostgresService
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        svc = MagicMock()
+        ctx = MagicMock()
+        ctx.__enter__.return_value = SimpleNamespace(host="127.0.0.1", port=50051, container=MagicMock())
+        ctx.__exit__.return_value = False
+        svc.run.return_value = ctx
+        return svc
+
+    @contextmanager
+    def _fake_provide_service(*args, **kwargs):
+        yield PostgresService(
+            host=kwargs.get("host", "127.0.0.1"),
+            port=kwargs.get("port") or 5432,
+            container=MagicMock(),
+            database="pytest_databases",
+            user=kwargs.get("user", "postgres"),
+            password=kwargs.get("password", "super-secret"),
+        )
+
+    @contextmanager
+    def _fake_provide_conn(service, *, fixture_name):
+        yield MagicMock(service=service, fixture_name=fixture_name)
+
+    def test_all_fixtures(request):
+        with (
+            patch.object(postgres_mod, "provide_postgres_service", _fake_provide_service),
+            patch.object(postgres_mod, "provide_postgres_connection", _fake_provide_conn),
+        ):
+            for name in postgres_mod.__all__:
+                if name.endswith(("_port", "_image", "_service", "_connection")) or name.startswith(
+                    ("postgres_", "xdist_")
+                ):
+                    if name in {
+                        "PostgresService",
+                        "PostgresTemplateOptions",
+                        "postgres_responsive",
+                        "provide_postgres_service",
+                        "provide_postgres_connection",
+                    }:
+                        continue
+                    val = request.getfixturevalue(name)
+                    if name.endswith("_port"):
+                        assert val is None
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

@@ -5,12 +5,16 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from docker.errors import APIError
 
 from pytest_databases.docker.mongodb import (
     MongoDBService,
+    _exec_mongosh,
     mongodb_connection,
     mongodb_database,
+    provide_mongodb_service,
 )
+from pytest_databases.types import ServiceContainer
 from tests.conftest import run_recording_deprecations, unwrap_fixture
 
 
@@ -325,3 +329,86 @@ def test_xdist_isolate_server(pytester: pytest.Pytester, mongodb_test_helpers: s
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2", "-vv")
     result.assert_outcomes(passed=2)
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "expected_name", "expected_db"),
+    [
+        (None, "database", "mongodb", "pytest_db"),
+        (1, "database", "mongodb", "pytest_db_1"),
+        (2, "server", "mongodb_2", "pytest_db"),
+    ],
+)
+def test_provide_mongodb_service_and_exec_mongosh(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_num: int | None,
+    isolation_level: str,
+    expected_name: str,
+    expected_db: str,
+) -> None:
+    """Verify provide_mongodb_service xdist modes, readiness check, and _exec_mongosh error handling."""
+    monkeypatch.setattr("pytest_databases.docker.mongodb.get_xdist_worker_num", lambda: worker_num)
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
+    svc_container = ServiceContainer(host="127.0.0.1", port=27017, container=mock_container)
+    mock_docker.run.return_value.__enter__.return_value = svc_container
+
+    with provide_mongodb_service(
+        docker_service=mock_docker,
+        image="mongo:latest",
+        name="mongodb",
+        isolation_level=isolation_level,  # type: ignore[arg-type]
+    ) as service:
+        assert service.database == expected_db
+
+    check = mock_docker.run.call_args.kwargs["check"]
+    assert mock_docker.run.call_args.kwargs["name"] == expected_name
+    assert check(svc_container) is True
+
+    code, _ = _exec_mongosh(mock_container, "db.runCommand({ping: 1})", user="u", password="p", database="mydb")
+    assert code == 0
+
+    mock_container.exec_run.side_effect = APIError("boom")
+    code_err, out_err = _exec_mongosh(mock_container, "db.runCommand({ping: 1})", user="u", password="p")
+    assert code_err == -1
+    assert b"boom" in out_err
+
+
+def test_mongodb_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Exercise all MongoDB session fixtures in-process with a mocked provide_mongodb_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+    from pytest_databases.docker import mongodb as mongo_mod
+    from pytest_databases.docker.mongodb import MongoDBService
+
+    pytest_plugins = ["pytest_databases.docker.mongodb"]
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        return MagicMock()
+
+    @contextmanager
+    def _fake_provide(*args, **kwargs):
+        yield MongoDBService(
+            host="127.0.0.1",
+            port=27017,
+            container=MagicMock(),
+            username="u",
+            password="p",
+            database="default_db",
+        )
+
+    def test_all(request):
+        with patch.object(mongo_mod, "provide_mongodb_service", _fake_provide):
+            for name in (
+                "xdist_mongodb_isolation_level",
+                "mongodb_image",
+                "mongodb_service",
+            ):
+                assert request.getfixturevalue(name) is not None
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

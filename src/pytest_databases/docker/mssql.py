@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import tempfile
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import filelock
 import pytest
+from docker.errors import APIError, NotFound
 
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
@@ -91,26 +95,29 @@ def exec_sqlcmd(
     last_code = -1
     last_out = b""
     for binary, extra_flags in SQLCMD_CANDIDATES:
-        result = container.exec_run([
-            binary,
-            *extra_flags,
-            "-b",
-            "-S",
-            "localhost,1433",
-            "-U",
-            user,
-            "-P",
-            password,
-            "-d",
-            database,
-            "-l",
-            "2",
-            "-h",
-            "-1",
-            "-W",
-            "-Q",
-            sql,
-        ])
+        try:
+            result = container.exec_run([
+                binary,
+                *extra_flags,
+                "-b",
+                "-S",
+                "localhost,1433",
+                "-U",
+                user,
+                "-P",
+                password,
+                "-d",
+                database,
+                "-l",
+                "2",
+                "-h",
+                "-1",
+                "-W",
+                "-Q",
+                sql,
+            ])
+        except (APIError, NotFound) as exc:
+            return -1, str(exc).encode()
         code = result.exit_code if result.exit_code is not None else -1
         out = exec_output_to_bytes(result.output)
         if code == 0:
@@ -171,7 +178,7 @@ def provide_mssql_service(
             "ACCEPT_EULA": "Y",
             "MSSQL_TCP_PORT": "1433",
         },
-        timeout=100,
+        timeout=180,
         pause=1,
         transient=xdist_mssql_isolation_level == "server",
     ) as service:
@@ -376,20 +383,28 @@ def _prepare_database(
     online_check_sql = (
         f"SET NOCOUNT ON; SELECT 1 FROM sys.databases WHERE name = {quoted_db} AND state_desc = N'ONLINE';"
     )
+    container_id = getattr(container, "id", None)
+    lock_cm: contextlib.AbstractContextManager[object]
+    if isinstance(container_id, str) and container_id:
+        lock_path = Path(tempfile.gettempdir()) / f"pytest-databases-mssql-{container_id[:12]}.lock"
+        lock_cm = filelock.FileLock(str(lock_path), timeout=120)
+    else:
+        lock_cm = contextlib.nullcontext()
 
     last_output = b""
-    for attempt in range(10):
-        for sql in setup_sql:
-            exit_code, output = exec_sqlcmd(container, sql, password=password)
-            if exit_code != 0:
-                last_output = output
-                break
-        else:
-            verify_code, verify_out = exec_sqlcmd(container, online_check_sql, password=password)
-            if verify_code == 0 and verify_out.strip() == b"1":
-                return
-            last_output = verify_out
-        time.sleep(1 + attempt * 0.5)
+    with lock_cm:
+        for attempt in range(15):
+            for sql in setup_sql:
+                exit_code, output = exec_sqlcmd(container, sql, password=password)
+                if exit_code != 0:
+                    last_output = output
+                    break
+            else:
+                verify_code, verify_out = exec_sqlcmd(container, online_check_sql, password=password)
+                if verify_code == 0 and verify_out.strip() == b"1":
+                    return
+                last_output = verify_out
+            time.sleep(1 + attempt * 0.5)
 
     msg = f"SQL Server database {database!r} could not be prepared. Last output: {last_output!r}"
     raise RuntimeError(msg)

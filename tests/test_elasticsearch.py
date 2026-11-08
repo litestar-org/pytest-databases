@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import sys
+import urllib.error
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 
 from pytest_databases.docker.elastic_search import (
+    _check_cluster_health,
+    _ping_elasticsearch,
     elasticsearch7_responsive,
     elasticsearch8_responsive,
     elasticsearch_7_image,
@@ -203,4 +207,69 @@ def test_elasticsearch_index_round_trip(pytester: pytest.Pytester) -> None:
     """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases")
+    result.assert_outcomes(passed=1)
+
+
+def test_elasticsearch_health_and_ping_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _check_cluster_health and _ping_elasticsearch error branches."""
+
+    def fake_urlopen_non_200(req: object, timeout: float = 2.0) -> object:
+        cm = MagicMock()
+        cm.__enter__.return_value = MagicMock(status=503)
+        return cm
+
+    monkeypatch.setattr("pytest_databases.docker.elastic_search.urllib.request.urlopen", fake_urlopen_non_200)
+    assert _check_cluster_health("127.0.0.1", 9200) is False
+
+    monkeypatch.setattr(
+        "pytest_databases.docker.elastic_search.urllib.request.urlopen",
+        MagicMock(side_effect=urllib.error.URLError("down")),
+    )
+    assert _check_cluster_health("127.0.0.1", 9200) is False
+
+    fake_mod = MagicMock()
+    fake_mod.Elasticsearch.side_effect = OSError("failed")
+    monkeypatch.setitem(sys.modules, "fake_es_mod", fake_mod)
+    assert _ping_elasticsearch("fake_es_mod", "http_auth", "http", "127.0.0.1", 9200, "elastic", "pwd") is False
+
+
+def test_elasticsearch_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all Elasticsearch fixtures execute in-process with mocked docker_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.elastic_search"]
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        mock_ds = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=9200, container=MagicMock())
+        mock_ds.run.side_effect = _run
+        return mock_ds
+
+    def test_fixtures(
+        elasticsearch_service_memory_limit,
+        elasticsearch_7_image,
+        elasticsearch_8_image,
+        elasticsearch_9_image,
+        elasticsearch_7_service,
+        elasticsearch_8_service,
+        elasticsearch_9_service,
+        elasticsearch_service,
+    ):
+        assert elasticsearch_service_memory_limit == "1g"
+        assert "7." in elasticsearch_7_image
+        assert "8." in elasticsearch_8_image
+        assert "9." in elasticsearch_9_image
+        assert elasticsearch_7_service.port == 9200
+        assert elasticsearch_8_service.port == 9200
+        assert elasticsearch_9_service.port == 9200
+        assert elasticsearch_service.port == 9200
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", "-W", "ignore::DeprecationWarning")
     result.assert_outcomes(passed=1)

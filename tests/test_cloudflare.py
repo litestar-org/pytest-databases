@@ -624,3 +624,39 @@ def test_cloudflare_service_live_xdist_database_isolation(
     assert len(records) == 2
     assert {record["namespace"] for record in records} == {"default_0", "default_1"}
     assert len({record["container_id"] for record in records}) == 1
+
+
+def test_cloudflare_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify Cloudflare config and service fixtures execute in-process with mocked provider."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    pytest_plugins = ["pytest_databases.docker.cloudflare"]
+
+    @pytest.fixture(scope="session")
+    def container_service() -> MagicMock:
+        return MagicMock()
+
+    def test_fixtures(request: pytest.FixtureRequest) -> None:
+        mock_svc = MagicMock()
+
+        @contextmanager
+        def fake_svc(*args, **kwargs):
+            yield mock_svc
+
+        with patch("pytest_databases.docker.cloudflare.provide_cloudflare_service", side_effect=fake_svc):
+            assert request.getfixturevalue("xdist_cloudflare_isolation_level") == "database"
+            assert request.getfixturevalue("cloudflare_image")
+            assert request.getfixturevalue("cloudflare_miniflare_version")
+            assert request.getfixturevalue("cloudflare_kv_namespaces") == ("default",)
+            assert request.getfixturevalue("cloudflare_r2_buckets") == ("default",)
+            assert request.getfixturevalue("cloudflare_d1_databases") == ("default",)
+            assert request.getfixturevalue("cloudflare_access_key_id") == "pytest-databases"
+            assert request.getfixturevalue("cloudflare_secret_access_key") == "pytest-databases-secret"
+            assert request.getfixturevalue("cloudflare_startup_timeout") == 300
+            assert request.getfixturevalue("cloudflare_service") is mock_svc
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

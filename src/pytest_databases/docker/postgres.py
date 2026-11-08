@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
+import inspect
 import os
 import time
 import warnings
@@ -296,58 +297,64 @@ def postgres_user() -> str:
     return "postgres"
 
 
-@pytest.fixture(autouse=False, scope="session")
-def postgres_port() -> int | None:
-    """Return an optional pinned host port for the default PostgreSQL container."""
-    return _env_port("POSTGRES_PORT")
+def _make_port_fixture(fixture_name: str, env_var: str, doc: str) -> Any:
+    """Create a session-scoped optional host-port fixture backed by ``env_var``."""
+
+    def _fixture() -> int | None:
+        return _env_port(env_var)
+
+    _fixture.__name__ = fixture_name
+    _fixture.__qualname__ = fixture_name
+    _fixture.__doc__ = doc
+    _fixture.__module__ = __name__
+    return pytest.fixture(autouse=False, scope="session")(_fixture)
 
 
-@pytest.fixture(autouse=False, scope="session")
-def postgres_11_port() -> int | None:
-    """Return an optional pinned host port for PostgreSQL 11."""
-    return _env_port("POSTGRES_11_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_12_port() -> int | None:
-    """Return an optional pinned host port for PostgreSQL 12."""
-    return _env_port("POSTGRES_12_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_13_port() -> int | None:
-    """Return an optional pinned host port for PostgreSQL 13."""
-    return _env_port("POSTGRES_13_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_14_port() -> int | None:
-    """Return an optional pinned host port for PostgreSQL 14."""
-    return _env_port("POSTGRES_14_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_15_port() -> int | None:
-    """Return an optional pinned host port for PostgreSQL 15."""
-    return _env_port("POSTGRES_15_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_16_port() -> int | None:
-    """Return an optional pinned host port for PostgreSQL 16."""
-    return _env_port("POSTGRES_16_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_17_port() -> int | None:
-    """Return an optional pinned host port for PostgreSQL 17."""
-    return _env_port("POSTGRES_17_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_18_port() -> int | None:
-    """Return an optional pinned host port for PostgreSQL 18."""
-    return _env_port("POSTGRES_18_PORT")
+postgres_port = _make_port_fixture(
+    "postgres_port",
+    "POSTGRES_PORT",
+    "Return an optional pinned host port for the default PostgreSQL container.",
+)
+postgres_11_port = _make_port_fixture(
+    "postgres_11_port",
+    "POSTGRES_11_PORT",
+    "Return an optional pinned host port for PostgreSQL 11.",
+)
+postgres_12_port = _make_port_fixture(
+    "postgres_12_port",
+    "POSTGRES_12_PORT",
+    "Return an optional pinned host port for PostgreSQL 12.",
+)
+postgres_13_port = _make_port_fixture(
+    "postgres_13_port",
+    "POSTGRES_13_PORT",
+    "Return an optional pinned host port for PostgreSQL 13.",
+)
+postgres_14_port = _make_port_fixture(
+    "postgres_14_port",
+    "POSTGRES_14_PORT",
+    "Return an optional pinned host port for PostgreSQL 14.",
+)
+postgres_15_port = _make_port_fixture(
+    "postgres_15_port",
+    "POSTGRES_15_PORT",
+    "Return an optional pinned host port for PostgreSQL 15.",
+)
+postgres_16_port = _make_port_fixture(
+    "postgres_16_port",
+    "POSTGRES_16_PORT",
+    "Return an optional pinned host port for PostgreSQL 16.",
+)
+postgres_17_port = _make_port_fixture(
+    "postgres_17_port",
+    "POSTGRES_17_PORT",
+    "Return an optional pinned host port for PostgreSQL 17.",
+)
+postgres_18_port = _make_port_fixture(
+    "postgres_18_port",
+    "POSTGRES_18_PORT",
+    "Return an optional pinned host port for PostgreSQL 18.",
+)
 
 
 @contextmanager
@@ -476,340 +483,172 @@ def provide_postgres_connection(
         yield conn
 
 
-@pytest.fixture(autouse=False, scope="session")
-def postgres_11_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_11_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a PostgreSQL 11 service.
+def _make_postgres_service_fixture(
+    fixture_name: str,
+    *,
+    name: str,
+    port_fixture: str,
+    doc: str,
+    image: str | None = None,
+    image_fixture: str | None = None,
+) -> Any:
+    """Create a session-scoped PostgreSQL family service fixture."""
 
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="postgres:11",
-        name="postgres-11",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_11_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
+    def _fixture(**kwargs: Any) -> Generator[PostgresService, None, None]:
+        resolved_image = kwargs[image_fixture] if image_fixture is not None else str(image)
+        with provide_postgres_service(
+            kwargs["docker_service"],
+            image=resolved_image,
+            name=name,
+            xdist_postgres_isolate=kwargs["xdist_postgres_isolation_level"],
+            host=kwargs["postgres_host"],
+            user=kwargs["postgres_user"],
+            password=kwargs["postgres_password"],
+            host_port=kwargs[port_fixture],
+            template=kwargs["postgres_template_options"],
+        ) as service:
+            yield service
 
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_12_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_12_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a PostgreSQL 12 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="postgres:12",
-        name="postgres-12",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_12_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
+    param_names = ["docker_service"]
+    if image_fixture is not None:
+        param_names.append(image_fixture)
+    param_names.extend([
+        "xdist_postgres_isolation_level",
+        "postgres_host",
+        "postgres_user",
+        "postgres_password",
+        port_fixture,
+        "postgres_template_options",
+    ])
+    _fixture.__signature__ = inspect.Signature([  # type: ignore[attr-defined]
+        inspect.Parameter(param, inspect.Parameter.POSITIONAL_OR_KEYWORD) for param in param_names
+    ])
+    _fixture.__name__ = fixture_name
+    _fixture.__qualname__ = fixture_name
+    _fixture.__doc__ = doc
+    _fixture.__module__ = __name__
+    return pytest.fixture(autouse=False, scope="session")(_fixture)
 
 
-@pytest.fixture(autouse=False, scope="session")
-def postgres_13_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_13_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a PostgreSQL 13 service.
+def _make_postgres_connection_fixture(
+    fixture_name: str,
+    *,
+    service_fixture: str,
+    doc: str,
+) -> Any:
+    """Create a session-scoped deprecated psycopg connection fixture."""
 
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="postgres:13",
-        name="postgres-13",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_13_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
+    def _fixture(**kwargs: Any) -> Generator[Connection[Any], None, None]:
+        with provide_postgres_connection(kwargs[service_fixture], fixture_name=fixture_name) as conn:
+            yield conn
+
+    _fixture.__signature__ = inspect.Signature([  # type: ignore[attr-defined]
+        inspect.Parameter(service_fixture, inspect.Parameter.POSITIONAL_OR_KEYWORD),
+    ])
+    _fixture.__name__ = fixture_name
+    _fixture.__qualname__ = fixture_name
+    _fixture.__doc__ = doc
+    _fixture.__module__ = __name__
+    return pytest.fixture(autouse=False, scope="session")(_fixture)
 
 
-@pytest.fixture(autouse=False, scope="session")
-def postgres_14_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_14_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a PostgreSQL 14 service.
+postgres_11_service = _make_postgres_service_fixture(
+    "postgres_11_service",
+    image="postgres:11",
+    name="postgres-11",
+    port_fixture="postgres_11_port",
+    doc="Provide a PostgreSQL 11 service.",
+)
+postgres_12_service = _make_postgres_service_fixture(
+    "postgres_12_service",
+    image="postgres:12",
+    name="postgres-12",
+    port_fixture="postgres_12_port",
+    doc="Provide a PostgreSQL 12 service.",
+)
+postgres_13_service = _make_postgres_service_fixture(
+    "postgres_13_service",
+    image="postgres:13",
+    name="postgres-13",
+    port_fixture="postgres_13_port",
+    doc="Provide a PostgreSQL 13 service.",
+)
+postgres_14_service = _make_postgres_service_fixture(
+    "postgres_14_service",
+    image="postgres:14",
+    name="postgres-14",
+    port_fixture="postgres_14_port",
+    doc="Provide a PostgreSQL 14 service.",
+)
+postgres_15_service = _make_postgres_service_fixture(
+    "postgres_15_service",
+    image="postgres:15",
+    name="postgres-15",
+    port_fixture="postgres_15_port",
+    doc="Provide a PostgreSQL 15 service.",
+)
+postgres_16_service = _make_postgres_service_fixture(
+    "postgres_16_service",
+    image="postgres:16",
+    name="postgres-16",
+    port_fixture="postgres_16_port",
+    doc="Provide a PostgreSQL 16 service.",
+)
+postgres_17_service = _make_postgres_service_fixture(
+    "postgres_17_service",
+    image="postgres:17",
+    name="postgres-17",
+    port_fixture="postgres_17_port",
+    doc="Provide a PostgreSQL 17 service.",
+)
+postgres_18_service = _make_postgres_service_fixture(
+    "postgres_18_service",
+    image="postgres:18",
+    name="postgres-18",
+    port_fixture="postgres_18_port",
+    doc="Provide a PostgreSQL 18 service.",
+)
 
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="postgres:14",
-        name="postgres-14",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_14_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_15_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_15_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a PostgreSQL 15 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="postgres:15",
-        name="postgres-15",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_15_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_16_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_16_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a PostgreSQL 16 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="postgres:16",
-        name="postgres-16",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_16_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_17_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_17_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a PostgreSQL 17 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="postgres:17",
-        name="postgres-17",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_17_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_18_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_18_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a PostgreSQL 18 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="postgres:18",
-        name="postgres-18",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_18_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_11_connection(
-    postgres_11_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to PostgreSQL 11.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_11_service, fixture_name="postgres_11_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_12_connection(
-    postgres_12_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to PostgreSQL 12.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_12_service, fixture_name="postgres_12_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_13_connection(
-    postgres_13_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to PostgreSQL 13.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_13_service, fixture_name="postgres_13_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_14_connection(
-    postgres_14_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to PostgreSQL 14.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_14_service, fixture_name="postgres_14_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_15_connection(
-    postgres_15_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to PostgreSQL 15.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_15_service, fixture_name="postgres_15_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_16_connection(
-    postgres_16_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to PostgreSQL 16.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_16_service, fixture_name="postgres_16_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_17_connection(
-    postgres_17_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to PostgreSQL 17.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_17_service, fixture_name="postgres_17_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_18_connection(
-    postgres_18_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to PostgreSQL 18.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_18_service, fixture_name="postgres_18_connection") as conn:
-        yield conn
+postgres_11_connection = _make_postgres_connection_fixture(
+    "postgres_11_connection",
+    service_fixture="postgres_11_service",
+    doc="Provide a deprecated psycopg connection to PostgreSQL 11.",
+)
+postgres_12_connection = _make_postgres_connection_fixture(
+    "postgres_12_connection",
+    service_fixture="postgres_12_service",
+    doc="Provide a deprecated psycopg connection to PostgreSQL 12.",
+)
+postgres_13_connection = _make_postgres_connection_fixture(
+    "postgres_13_connection",
+    service_fixture="postgres_13_service",
+    doc="Provide a deprecated psycopg connection to PostgreSQL 13.",
+)
+postgres_14_connection = _make_postgres_connection_fixture(
+    "postgres_14_connection",
+    service_fixture="postgres_14_service",
+    doc="Provide a deprecated psycopg connection to PostgreSQL 14.",
+)
+postgres_15_connection = _make_postgres_connection_fixture(
+    "postgres_15_connection",
+    service_fixture="postgres_15_service",
+    doc="Provide a deprecated psycopg connection to PostgreSQL 15.",
+)
+postgres_16_connection = _make_postgres_connection_fixture(
+    "postgres_16_connection",
+    service_fixture="postgres_16_service",
+    doc="Provide a deprecated psycopg connection to PostgreSQL 16.",
+)
+postgres_17_connection = _make_postgres_connection_fixture(
+    "postgres_17_connection",
+    service_fixture="postgres_17_service",
+    doc="Provide a deprecated psycopg connection to PostgreSQL 17.",
+)
+postgres_18_connection = _make_postgres_connection_fixture(
+    "postgres_18_connection",
+    service_fixture="postgres_18_service",
+    doc="Provide a deprecated psycopg connection to PostgreSQL 18.",
+)
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -858,47 +697,18 @@ def postgres_template_options(
     )
 
 
-@pytest.fixture(autouse=False, scope="session")
-def postgres_service(
-    docker_service: DockerService,
-    postgres_image: str,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    postgres_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide the default PostgreSQL service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image=postgres_image,
-        name="postgres",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=postgres_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def postgres_connection(
-    postgres_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to the default PostgreSQL service.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(postgres_service, fixture_name="postgres_connection") as conn:
-        yield conn
+postgres_service = _make_postgres_service_fixture(
+    "postgres_service",
+    image_fixture="postgres_image",
+    name="postgres",
+    port_fixture="postgres_port",
+    doc="Provide the default PostgreSQL service.",
+)
+postgres_connection = _make_postgres_connection_fixture(
+    "postgres_connection",
+    service_fixture="postgres_service",
+    doc="Provide a deprecated psycopg connection to the default PostgreSQL service.",
+)
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -907,341 +717,127 @@ def pgvector_image() -> str:
     return "pgvector/pgvector:pg18"
 
 
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_port() -> int | None:
-    """Return an optional pinned host port for the default pgvector service."""
-    return _env_port("PGVECTOR_PORT")
+pgvector_port = _make_port_fixture(
+    "pgvector_port",
+    "PGVECTOR_PORT",
+    "Return an optional pinned host port for the default pgvector service.",
+)
+pgvector_13_port = _make_port_fixture(
+    "pgvector_13_port",
+    "PGVECTOR_13_PORT",
+    "Return an optional pinned host port for pgvector PG13.",
+)
+pgvector_14_port = _make_port_fixture(
+    "pgvector_14_port",
+    "PGVECTOR_14_PORT",
+    "Return an optional pinned host port for pgvector PG14.",
+)
+pgvector_15_port = _make_port_fixture(
+    "pgvector_15_port",
+    "PGVECTOR_15_PORT",
+    "Return an optional pinned host port for pgvector PG15.",
+)
+pgvector_16_port = _make_port_fixture(
+    "pgvector_16_port",
+    "PGVECTOR_16_PORT",
+    "Return an optional pinned host port for pgvector PG16.",
+)
+pgvector_17_port = _make_port_fixture(
+    "pgvector_17_port",
+    "PGVECTOR_17_PORT",
+    "Return an optional pinned host port for pgvector PG17.",
+)
+pgvector_18_port = _make_port_fixture(
+    "pgvector_18_port",
+    "PGVECTOR_18_PORT",
+    "Return an optional pinned host port for pgvector PG18.",
+)
 
+pgvector_service = _make_postgres_service_fixture(
+    "pgvector_service",
+    image_fixture="pgvector_image",
+    name="pgvector",
+    port_fixture="pgvector_port",
+    doc="Provide the default pgvector service.",
+)
+pgvector_13_service = _make_postgres_service_fixture(
+    "pgvector_13_service",
+    image="pgvector/pgvector:pg13",
+    name="pgvector-13",
+    port_fixture="pgvector_13_port",
+    doc="Provide a pgvector PG13 service.",
+)
+pgvector_14_service = _make_postgres_service_fixture(
+    "pgvector_14_service",
+    image="pgvector/pgvector:pg14",
+    name="pgvector-14",
+    port_fixture="pgvector_14_port",
+    doc="Provide a pgvector PG14 service.",
+)
+pgvector_15_service = _make_postgres_service_fixture(
+    "pgvector_15_service",
+    image="pgvector/pgvector:pg15",
+    name="pgvector-15",
+    port_fixture="pgvector_15_port",
+    doc="Provide a pgvector PG15 service.",
+)
+pgvector_16_service = _make_postgres_service_fixture(
+    "pgvector_16_service",
+    image="pgvector/pgvector:pg16",
+    name="pgvector-16",
+    port_fixture="pgvector_16_port",
+    doc="Provide a pgvector PG16 service.",
+)
+pgvector_17_service = _make_postgres_service_fixture(
+    "pgvector_17_service",
+    image="pgvector/pgvector:pg17",
+    name="pgvector-17",
+    port_fixture="pgvector_17_port",
+    doc="Provide a pgvector PG17 service.",
+)
+pgvector_18_service = _make_postgres_service_fixture(
+    "pgvector_18_service",
+    image="pgvector/pgvector:pg18",
+    name="pgvector-18",
+    port_fixture="pgvector_18_port",
+    doc="Provide a pgvector PG18 service.",
+)
 
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_13_port() -> int | None:
-    """Return an optional pinned host port for pgvector PG13."""
-    return _env_port("PGVECTOR_13_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_14_port() -> int | None:
-    """Return an optional pinned host port for pgvector PG14."""
-    return _env_port("PGVECTOR_14_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_15_port() -> int | None:
-    """Return an optional pinned host port for pgvector PG15."""
-    return _env_port("PGVECTOR_15_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_16_port() -> int | None:
-    """Return an optional pinned host port for pgvector PG16."""
-    return _env_port("PGVECTOR_16_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_17_port() -> int | None:
-    """Return an optional pinned host port for pgvector PG17."""
-    return _env_port("PGVECTOR_17_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_18_port() -> int | None:
-    """Return an optional pinned host port for pgvector PG18."""
-    return _env_port("PGVECTOR_18_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_service(
-    docker_service: DockerService,
-    pgvector_image: str,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    pgvector_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide the default pgvector service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image=pgvector_image,
-        name="pgvector",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=pgvector_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_13_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    pgvector_13_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a pgvector PG13 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="pgvector/pgvector:pg13",
-        name="pgvector-13",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=pgvector_13_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_14_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    pgvector_14_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a pgvector PG14 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="pgvector/pgvector:pg14",
-        name="pgvector-14",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=pgvector_14_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_15_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    pgvector_15_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a pgvector PG15 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="pgvector/pgvector:pg15",
-        name="pgvector-15",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=pgvector_15_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_16_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    pgvector_16_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a pgvector PG16 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="pgvector/pgvector:pg16",
-        name="pgvector-16",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=pgvector_16_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_17_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    pgvector_17_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a pgvector PG17 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="pgvector/pgvector:pg17",
-        name="pgvector-17",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=pgvector_17_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_18_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    pgvector_18_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a pgvector PG18 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="pgvector/pgvector:pg18",
-        name="pgvector-18",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=pgvector_18_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_connection(
-    pgvector_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to the default pgvector service.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(pgvector_service, fixture_name="pgvector_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_13_connection(
-    pgvector_13_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to pgvector PG13.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(pgvector_13_service, fixture_name="pgvector_13_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_14_connection(
-    pgvector_14_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to pgvector PG14.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(pgvector_14_service, fixture_name="pgvector_14_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_15_connection(
-    pgvector_15_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to pgvector PG15.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(pgvector_15_service, fixture_name="pgvector_15_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_16_connection(
-    pgvector_16_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to pgvector PG16.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(pgvector_16_service, fixture_name="pgvector_16_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_17_connection(
-    pgvector_17_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to pgvector PG17.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(pgvector_17_service, fixture_name="pgvector_17_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def pgvector_18_connection(
-    pgvector_18_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to pgvector PG18.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(pgvector_18_service, fixture_name="pgvector_18_connection") as conn:
-        yield conn
+pgvector_connection = _make_postgres_connection_fixture(
+    "pgvector_connection",
+    service_fixture="pgvector_service",
+    doc="Provide a deprecated psycopg connection to the default pgvector service.",
+)
+pgvector_13_connection = _make_postgres_connection_fixture(
+    "pgvector_13_connection",
+    service_fixture="pgvector_13_service",
+    doc="Provide a deprecated psycopg connection to pgvector PG13.",
+)
+pgvector_14_connection = _make_postgres_connection_fixture(
+    "pgvector_14_connection",
+    service_fixture="pgvector_14_service",
+    doc="Provide a deprecated psycopg connection to pgvector PG14.",
+)
+pgvector_15_connection = _make_postgres_connection_fixture(
+    "pgvector_15_connection",
+    service_fixture="pgvector_15_service",
+    doc="Provide a deprecated psycopg connection to pgvector PG15.",
+)
+pgvector_16_connection = _make_postgres_connection_fixture(
+    "pgvector_16_connection",
+    service_fixture="pgvector_16_service",
+    doc="Provide a deprecated psycopg connection to pgvector PG16.",
+)
+pgvector_17_connection = _make_postgres_connection_fixture(
+    "pgvector_17_connection",
+    service_fixture="pgvector_17_service",
+    doc="Provide a deprecated psycopg connection to pgvector PG17.",
+)
+pgvector_18_connection = _make_postgres_connection_fixture(
+    "pgvector_18_connection",
+    service_fixture="pgvector_18_service",
+    doc="Provide a deprecated psycopg connection to pgvector PG18.",
+)
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -1250,245 +846,93 @@ def paradedb_image() -> str:
     return "paradedb/paradedb:latest-pg18"
 
 
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_port() -> int | None:
-    """Return an optional pinned host port for the default ParadeDB service."""
-    return _env_port("PARADEDB_PORT")
+paradedb_port = _make_port_fixture(
+    "paradedb_port",
+    "PARADEDB_PORT",
+    "Return an optional pinned host port for the default ParadeDB service.",
+)
+paradedb_15_port = _make_port_fixture(
+    "paradedb_15_port",
+    "PARADEDB_15_PORT",
+    "Return an optional pinned host port for ParadeDB PG15.",
+)
+paradedb_16_port = _make_port_fixture(
+    "paradedb_16_port",
+    "PARADEDB_16_PORT",
+    "Return an optional pinned host port for ParadeDB PG16.",
+)
+paradedb_17_port = _make_port_fixture(
+    "paradedb_17_port",
+    "PARADEDB_17_PORT",
+    "Return an optional pinned host port for ParadeDB PG17.",
+)
+paradedb_18_port = _make_port_fixture(
+    "paradedb_18_port",
+    "PARADEDB_18_PORT",
+    "Return an optional pinned host port for ParadeDB PG18.",
+)
 
+paradedb_service = _make_postgres_service_fixture(
+    "paradedb_service",
+    image_fixture="paradedb_image",
+    name="paradedb",
+    port_fixture="paradedb_port",
+    doc="Provide the default ParadeDB service.",
+)
+paradedb_15_service = _make_postgres_service_fixture(
+    "paradedb_15_service",
+    image="paradedb/paradedb:latest-pg15",
+    name="paradedb-15",
+    port_fixture="paradedb_15_port",
+    doc="Provide a ParadeDB PG15 service.",
+)
+paradedb_16_service = _make_postgres_service_fixture(
+    "paradedb_16_service",
+    image="paradedb/paradedb:latest-pg16",
+    name="paradedb-16",
+    port_fixture="paradedb_16_port",
+    doc="Provide a ParadeDB PG16 service.",
+)
+paradedb_17_service = _make_postgres_service_fixture(
+    "paradedb_17_service",
+    image="paradedb/paradedb:latest-pg17",
+    name="paradedb-17",
+    port_fixture="paradedb_17_port",
+    doc="Provide a ParadeDB PG17 service.",
+)
+paradedb_18_service = _make_postgres_service_fixture(
+    "paradedb_18_service",
+    image="paradedb/paradedb:latest-pg18",
+    name="paradedb-18",
+    port_fixture="paradedb_18_port",
+    doc="Provide a ParadeDB PG18 service.",
+)
 
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_15_port() -> int | None:
-    """Return an optional pinned host port for ParadeDB PG15."""
-    return _env_port("PARADEDB_15_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_16_port() -> int | None:
-    """Return an optional pinned host port for ParadeDB PG16."""
-    return _env_port("PARADEDB_16_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_17_port() -> int | None:
-    """Return an optional pinned host port for ParadeDB PG17."""
-    return _env_port("PARADEDB_17_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_18_port() -> int | None:
-    """Return an optional pinned host port for ParadeDB PG18."""
-    return _env_port("PARADEDB_18_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_service(
-    docker_service: DockerService,
-    paradedb_image: str,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    paradedb_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide the default ParadeDB service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image=paradedb_image,
-        name="paradedb",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=paradedb_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_15_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    paradedb_15_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a ParadeDB PG15 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="paradedb/paradedb:latest-pg15",
-        name="paradedb-15",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=paradedb_15_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_16_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    paradedb_16_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a ParadeDB PG16 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="paradedb/paradedb:latest-pg16",
-        name="paradedb-16",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=paradedb_16_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_17_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    paradedb_17_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a ParadeDB PG17 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="paradedb/paradedb:latest-pg17",
-        name="paradedb-17",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=paradedb_17_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_18_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    paradedb_18_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide a ParadeDB PG18 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="paradedb/paradedb:latest-pg18",
-        name="paradedb-18",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=paradedb_18_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_connection(
-    paradedb_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to the default ParadeDB service.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(paradedb_service, fixture_name="paradedb_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_15_connection(
-    paradedb_15_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to ParadeDB PG15.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(paradedb_15_service, fixture_name="paradedb_15_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_16_connection(
-    paradedb_16_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to ParadeDB PG16.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(paradedb_16_service, fixture_name="paradedb_16_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_17_connection(
-    paradedb_17_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to ParadeDB PG17.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(paradedb_17_service, fixture_name="paradedb_17_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def paradedb_18_connection(
-    paradedb_18_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to ParadeDB PG18.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(paradedb_18_service, fixture_name="paradedb_18_connection") as conn:
-        yield conn
+paradedb_connection = _make_postgres_connection_fixture(
+    "paradedb_connection",
+    service_fixture="paradedb_service",
+    doc="Provide a deprecated psycopg connection to the default ParadeDB service.",
+)
+paradedb_15_connection = _make_postgres_connection_fixture(
+    "paradedb_15_connection",
+    service_fixture="paradedb_15_service",
+    doc="Provide a deprecated psycopg connection to ParadeDB PG15.",
+)
+paradedb_16_connection = _make_postgres_connection_fixture(
+    "paradedb_16_connection",
+    service_fixture="paradedb_16_service",
+    doc="Provide a deprecated psycopg connection to ParadeDB PG16.",
+)
+paradedb_17_connection = _make_postgres_connection_fixture(
+    "paradedb_17_connection",
+    service_fixture="paradedb_17_service",
+    doc="Provide a deprecated psycopg connection to ParadeDB PG17.",
+)
+paradedb_18_connection = _make_postgres_connection_fixture(
+    "paradedb_18_connection",
+    service_fixture="paradedb_18_service",
+    doc="Provide a deprecated psycopg connection to ParadeDB PG18.",
+)
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -1497,245 +941,93 @@ def alloydb_omni_image() -> str:
     return "gcr.io/alloydb-omni/alloydbomni:18"
 
 
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_port() -> int | None:
-    """Return an optional pinned host port for the default AlloyDB Omni service."""
-    return _env_port("ALLOYDB_OMNI_PORT")
+alloydb_omni_port = _make_port_fixture(
+    "alloydb_omni_port",
+    "ALLOYDB_OMNI_PORT",
+    "Return an optional pinned host port for the default AlloyDB Omni service.",
+)
+alloydb_omni_15_port = _make_port_fixture(
+    "alloydb_omni_15_port",
+    "ALLOYDB_OMNI_15_PORT",
+    "Return an optional pinned host port for AlloyDB Omni 15.",
+)
+alloydb_omni_16_port = _make_port_fixture(
+    "alloydb_omni_16_port",
+    "ALLOYDB_OMNI_16_PORT",
+    "Return an optional pinned host port for AlloyDB Omni 16.",
+)
+alloydb_omni_17_port = _make_port_fixture(
+    "alloydb_omni_17_port",
+    "ALLOYDB_OMNI_17_PORT",
+    "Return an optional pinned host port for AlloyDB Omni 17.",
+)
+alloydb_omni_18_port = _make_port_fixture(
+    "alloydb_omni_18_port",
+    "ALLOYDB_OMNI_18_PORT",
+    "Return an optional pinned host port for AlloyDB Omni 18.",
+)
 
+alloydb_omni_service = _make_postgres_service_fixture(
+    "alloydb_omni_service",
+    image_fixture="alloydb_omni_image",
+    name="alloydb-omni",
+    port_fixture="alloydb_omni_port",
+    doc="Provide the default AlloyDB Omni service.",
+)
+alloydb_omni_15_service = _make_postgres_service_fixture(
+    "alloydb_omni_15_service",
+    image="gcr.io/alloydb-omni/alloydbomni:15",
+    name="alloydb-omni-15",
+    port_fixture="alloydb_omni_15_port",
+    doc="Provide an AlloyDB Omni 15 service.",
+)
+alloydb_omni_16_service = _make_postgres_service_fixture(
+    "alloydb_omni_16_service",
+    image="gcr.io/alloydb-omni/alloydbomni:16",
+    name="alloydb-omni-16",
+    port_fixture="alloydb_omni_16_port",
+    doc="Provide an AlloyDB Omni 16 service.",
+)
+alloydb_omni_17_service = _make_postgres_service_fixture(
+    "alloydb_omni_17_service",
+    image="gcr.io/alloydb-omni/alloydbomni:17",
+    name="alloydb-omni-17",
+    port_fixture="alloydb_omni_17_port",
+    doc="Provide an AlloyDB Omni 17 service.",
+)
+alloydb_omni_18_service = _make_postgres_service_fixture(
+    "alloydb_omni_18_service",
+    image="gcr.io/alloydb-omni/alloydbomni:18",
+    name="alloydb-omni-18",
+    port_fixture="alloydb_omni_18_port",
+    doc="Provide an AlloyDB Omni 18 service.",
+)
 
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_15_port() -> int | None:
-    """Return an optional pinned host port for AlloyDB Omni 15."""
-    return _env_port("ALLOYDB_OMNI_15_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_16_port() -> int | None:
-    """Return an optional pinned host port for AlloyDB Omni 16."""
-    return _env_port("ALLOYDB_OMNI_16_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_17_port() -> int | None:
-    """Return an optional pinned host port for AlloyDB Omni 17."""
-    return _env_port("ALLOYDB_OMNI_17_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_18_port() -> int | None:
-    """Return an optional pinned host port for AlloyDB Omni 18."""
-    return _env_port("ALLOYDB_OMNI_18_PORT")
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_service(
-    docker_service: DockerService,
-    alloydb_omni_image: str,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    alloydb_omni_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide the default AlloyDB Omni service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image=alloydb_omni_image,
-        name="alloydb-omni",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=alloydb_omni_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_15_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    alloydb_omni_15_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide an AlloyDB Omni 15 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="gcr.io/alloydb-omni/alloydbomni:15",
-        name="alloydb-omni-15",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=alloydb_omni_15_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_16_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    alloydb_omni_16_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide an AlloyDB Omni 16 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="gcr.io/alloydb-omni/alloydbomni:16",
-        name="alloydb-omni-16",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=alloydb_omni_16_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_17_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    alloydb_omni_17_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide an AlloyDB Omni 17 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="gcr.io/alloydb-omni/alloydbomni:17",
-        name="alloydb-omni-17",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=alloydb_omni_17_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_18_service(
-    docker_service: DockerService,
-    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
-    postgres_host: str,
-    postgres_user: str,
-    postgres_password: str,
-    alloydb_omni_18_port: int | None,
-    postgres_template_options: PostgresTemplateOptions,
-) -> Generator[PostgresService, None, None]:
-    """Provide an AlloyDB Omni 18 service.
-
-    Yields:
-        A running :class:`PostgresService` instance.
-    """
-    with provide_postgres_service(
-        docker_service,
-        image="gcr.io/alloydb-omni/alloydbomni:18",
-        name="alloydb-omni-18",
-        xdist_postgres_isolate=xdist_postgres_isolation_level,
-        host=postgres_host,
-        user=postgres_user,
-        password=postgres_password,
-        host_port=alloydb_omni_18_port,
-        template=postgres_template_options,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_connection(
-    alloydb_omni_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to the default AlloyDB Omni service.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(alloydb_omni_service, fixture_name="alloydb_omni_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_15_connection(
-    alloydb_omni_15_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to AlloyDB Omni 15.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(alloydb_omni_15_service, fixture_name="alloydb_omni_15_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_16_connection(
-    alloydb_omni_16_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to AlloyDB Omni 16.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(alloydb_omni_16_service, fixture_name="alloydb_omni_16_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_17_connection(
-    alloydb_omni_17_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to AlloyDB Omni 17.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(alloydb_omni_17_service, fixture_name="alloydb_omni_17_connection") as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=False, scope="session")
-def alloydb_omni_18_connection(
-    alloydb_omni_18_service: PostgresService,
-) -> Generator[Connection[Any], None, None]:
-    """Provide a deprecated psycopg connection to AlloyDB Omni 18.
-
-    Yields:
-        An open ``psycopg.Connection``.
-    """
-    with provide_postgres_connection(alloydb_omni_18_service, fixture_name="alloydb_omni_18_connection") as conn:
-        yield conn
+alloydb_omni_connection = _make_postgres_connection_fixture(
+    "alloydb_omni_connection",
+    service_fixture="alloydb_omni_service",
+    doc="Provide a deprecated psycopg connection to the default AlloyDB Omni service.",
+)
+alloydb_omni_15_connection = _make_postgres_connection_fixture(
+    "alloydb_omni_15_connection",
+    service_fixture="alloydb_omni_15_service",
+    doc="Provide a deprecated psycopg connection to AlloyDB Omni 15.",
+)
+alloydb_omni_16_connection = _make_postgres_connection_fixture(
+    "alloydb_omni_16_connection",
+    service_fixture="alloydb_omni_16_service",
+    doc="Provide a deprecated psycopg connection to AlloyDB Omni 16.",
+)
+alloydb_omni_17_connection = _make_postgres_connection_fixture(
+    "alloydb_omni_17_connection",
+    service_fixture="alloydb_omni_17_service",
+    doc="Provide a deprecated psycopg connection to AlloyDB Omni 17.",
+)
+alloydb_omni_18_connection = _make_postgres_connection_fixture(
+    "alloydb_omni_18_connection",
+    service_fixture="alloydb_omni_18_service",
+    doc="Provide a deprecated psycopg connection to AlloyDB Omni 18.",
+)
 
 
 def _env_port(var_name: str) -> int | None:

@@ -10,6 +10,7 @@ import warnings
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from docker.errors import APIError, NotFound
 
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer
@@ -180,16 +181,19 @@ def _exec_cockroach_sql(
     *,
     database: str = "defaultdb",
 ) -> tuple[int, bytes]:
-    result = container.exec_run([
-        "cockroach",
-        "sql",
-        "--insecure",
-        "--host=localhost:26257",
-        f"--database={database}",
-        "--format=tsv",
-        "-e",
-        sql,
-    ])
+    try:
+        result = container.exec_run([
+            "cockroach",
+            "sql",
+            "--insecure",
+            "--host=localhost:26257",
+            f"--database={database}",
+            "--format=tsv",
+            "-e",
+            sql,
+        ])
+    except (APIError, NotFound) as exc:
+        return -1, str(exc).encode()
     return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
 
 

@@ -6,9 +6,10 @@ import contextlib
 import os
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from docker.errors import APIError, NotFound
 
 from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
@@ -66,9 +67,21 @@ def provide_mariadb_service(
     """
 
     def check(_service: ServiceContainer) -> bool:
-        res = _service.container.exec_run(
-            ["mariadb", "--user=root", f"--password={root_password}", "-e", "SELECT 1"],
-        )
+        try:
+            res = _service.container.exec_run(
+                [
+                    "mariadb",
+                    "--protocol=tcp",
+                    "-h",
+                    "127.0.0.1",
+                    "--user=root",
+                    f"--password={root_password}",
+                    "-e",
+                    "SELECT 1",
+                ],
+            )
+        except (APIError, NotFound):
+            return False
         return res.exit_code == 0
 
     worker_num = get_xdist_worker_num()
@@ -103,6 +116,9 @@ def provide_mariadb_service(
         )
         verify_cmd = [
             "mariadb",
+            "--protocol=tcp",
+            "-h",
+            "127.0.0.1",
             f"--user={user}",
             f"--password={password}",
             db_name,
@@ -111,16 +127,26 @@ def provide_mariadb_service(
         ]
         last_err: bytes = b""
         for attempt in range(15):
-            setup_res = service.container.exec_run(
-                ["mariadb", "--user=root", f"--password={root_password}", "-e", setup_sql],
-            )
-            if setup_res.exit_code == 0:
-                verify_res = service.container.exec_run(verify_cmd)
-                if verify_res.exit_code == 0:
-                    break
-                last_err = exec_output_to_bytes(verify_res.output)
+            try:
+                setup_res = service.container.exec_run(
+                    [
+                        "mariadb",
+                        "--protocol=tcp",
+                        "-h",
+                        "127.0.0.1",
+                        "--user=root",
+                        f"--password={root_password}",
+                        "-e",
+                        setup_sql,
+                    ],
+                )
+                verify_res = service.container.exec_run(verify_cmd) if setup_res.exit_code == 0 else None
+            except (APIError, NotFound) as exc:
+                last_err = str(exc).encode()
             else:
-                last_err = exec_output_to_bytes(setup_res.output)
+                if verify_res is not None and verify_res.exit_code == 0:
+                    break
+                last_err = exec_output_to_bytes(verify_res.output if verify_res is not None else setup_res.output)
             time.sleep(1 + attempt * 0.5)
         else:
             msg = (
@@ -169,166 +195,72 @@ def mariadb_database() -> str:
     return os.getenv("MARIADB_DATABASE", "db")
 
 
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_113_service(
-    docker_service: DockerService,
-    xdist_mariadb_isolation_level: XdistIsolationLevel,
-    mariadb_user: str,
-    mariadb_password: str,
-    mariadb_root_password: str,
-    mariadb_database: str,
-) -> Generator[MariaDBService, None, None]:
-    """Provide a running MariaDB 11.3 container service.
+def _make_mariadb_service_fixture(fixture_name: str, image: str, name: str, doc: str) -> Any:
+    """Create a session-scoped MariaDB service fixture for a specific version tag."""
 
-    Yields:
-        Active MariaDBService instance.
-    """
-    with provide_mariadb_service(
-        docker_service=docker_service,
-        image="mariadb:11.3",
-        name="mariadb-11.3",
-        isolation_level=xdist_mariadb_isolation_level,
-        user=mariadb_user,
-        password=mariadb_password,
-        root_password=mariadb_root_password,
-        database=mariadb_database,
-    ) as service:
-        yield service
+    def _fixture(
+        docker_service: DockerService,
+        xdist_mariadb_isolation_level: XdistIsolationLevel,
+        mariadb_user: str,
+        mariadb_password: str,
+        mariadb_root_password: str,
+        mariadb_database: str,
+    ) -> Generator[MariaDBService, None, None]:
+        with provide_mariadb_service(
+            docker_service=docker_service,
+            image=image,
+            name=name,
+            isolation_level=xdist_mariadb_isolation_level,
+            user=mariadb_user,
+            password=mariadb_password,
+            root_password=mariadb_root_password,
+            database=mariadb_database,
+        ) as service:
+            yield service
 
-
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_114_service(
-    docker_service: DockerService,
-    xdist_mariadb_isolation_level: XdistIsolationLevel,
-    mariadb_user: str,
-    mariadb_password: str,
-    mariadb_root_password: str,
-    mariadb_database: str,
-) -> Generator[MariaDBService, None, None]:
-    """Provide a running MariaDB 11.4 container service.
-
-    Yields:
-        Active MariaDBService instance.
-    """
-    with provide_mariadb_service(
-        docker_service=docker_service,
-        image="mariadb:11.4",
-        name="mariadb-11.4",
-        isolation_level=xdist_mariadb_isolation_level,
-        user=mariadb_user,
-        password=mariadb_password,
-        root_password=mariadb_root_password,
-        database=mariadb_database,
-    ) as service:
-        yield service
+    _fixture.__name__ = fixture_name
+    _fixture.__qualname__ = fixture_name
+    _fixture.__doc__ = doc
+    _fixture.__module__ = __name__
+    return pytest.fixture(autouse=False, scope="session")(_fixture)
 
 
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_118_service(
-    docker_service: DockerService,
-    xdist_mariadb_isolation_level: XdistIsolationLevel,
-    mariadb_user: str,
-    mariadb_password: str,
-    mariadb_root_password: str,
-    mariadb_database: str,
-) -> Generator[MariaDBService, None, None]:
-    """Provide a running MariaDB 11.8 LTS container service.
-
-    Yields:
-        Active MariaDBService instance.
-    """
-    with provide_mariadb_service(
-        docker_service=docker_service,
-        image="mariadb:11.8",
-        name="mariadb-11.8",
-        isolation_level=xdist_mariadb_isolation_level,
-        user=mariadb_user,
-        password=mariadb_password,
-        root_password=mariadb_root_password,
-        database=mariadb_database,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_122_service(
-    docker_service: DockerService,
-    xdist_mariadb_isolation_level: XdistIsolationLevel,
-    mariadb_user: str,
-    mariadb_password: str,
-    mariadb_root_password: str,
-    mariadb_database: str,
-) -> Generator[MariaDBService, None, None]:
-    """Provide a running MariaDB 12.2 container service.
-
-    Yields:
-        Active MariaDBService instance.
-    """
-    with provide_mariadb_service(
-        docker_service=docker_service,
-        image="mariadb:12.2",
-        name="mariadb-12.2",
-        isolation_level=xdist_mariadb_isolation_level,
-        user=mariadb_user,
-        password=mariadb_password,
-        root_password=mariadb_root_password,
-        database=mariadb_database,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_123_service(
-    docker_service: DockerService,
-    xdist_mariadb_isolation_level: XdistIsolationLevel,
-    mariadb_user: str,
-    mariadb_password: str,
-    mariadb_root_password: str,
-    mariadb_database: str,
-) -> Generator[MariaDBService, None, None]:
-    """Provide a running MariaDB 12.3 container service.
-
-    Yields:
-        Active MariaDBService instance.
-    """
-    with provide_mariadb_service(
-        docker_service=docker_service,
-        image="mariadb:12.3",
-        name="mariadb-12.3",
-        isolation_level=xdist_mariadb_isolation_level,
-        user=mariadb_user,
-        password=mariadb_password,
-        root_password=mariadb_root_password,
-        database=mariadb_database,
-    ) as service:
-        yield service
-
-
-@pytest.fixture(autouse=False, scope="session")
-def mariadb_130_service(
-    docker_service: DockerService,
-    xdist_mariadb_isolation_level: XdistIsolationLevel,
-    mariadb_user: str,
-    mariadb_password: str,
-    mariadb_root_password: str,
-    mariadb_database: str,
-) -> Generator[MariaDBService, None, None]:
-    """Provide a running MariaDB 13.0 container service.
-
-    Yields:
-        Active MariaDBService instance.
-    """
-    with provide_mariadb_service(
-        docker_service=docker_service,
-        image="mariadb:13.0",
-        name="mariadb-13.0",
-        isolation_level=xdist_mariadb_isolation_level,
-        user=mariadb_user,
-        password=mariadb_password,
-        root_password=mariadb_root_password,
-        database=mariadb_database,
-    ) as service:
-        yield service
+mariadb_113_service = _make_mariadb_service_fixture(
+    "mariadb_113_service",
+    "mariadb:11.3",
+    "mariadb-11.3",
+    "Provide a running MariaDB 11.3 container service.",
+)
+mariadb_114_service = _make_mariadb_service_fixture(
+    "mariadb_114_service",
+    "mariadb:11.4",
+    "mariadb-11.4",
+    "Provide a running MariaDB 11.4 container service.",
+)
+mariadb_118_service = _make_mariadb_service_fixture(
+    "mariadb_118_service",
+    "mariadb:11.8",
+    "mariadb-11.8",
+    "Provide a running MariaDB 11.8 LTS container service.",
+)
+mariadb_122_service = _make_mariadb_service_fixture(
+    "mariadb_122_service",
+    "mariadb:12.2",
+    "mariadb-12.2",
+    "Provide a running MariaDB 12.2 container service.",
+)
+mariadb_123_service = _make_mariadb_service_fixture(
+    "mariadb_123_service",
+    "mariadb:12.3",
+    "mariadb-12.3",
+    "Provide a running MariaDB 12.3 container service.",
+)
+mariadb_130_service = _make_mariadb_service_fixture(
+    "mariadb_130_service",
+    "mariadb:13.0",
+    "mariadb-13.0",
+    "Provide a running MariaDB 13.0 container service.",
+)
 
 
 @pytest.fixture(autouse=False, scope="session")

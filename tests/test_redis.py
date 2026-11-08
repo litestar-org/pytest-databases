@@ -255,3 +255,55 @@ def test_two({redis_compatible_service}: RedisService) -> None:
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
+
+
+def test_redis_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Verify all Redis, Dragonfly, and KeyDB fixtures execute in-process with mocked docker_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.redis"]
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        mock_ds = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=6379, container=MagicMock())
+        mock_ds.run.side_effect = _run
+        return mock_ds
+
+    def test_fixtures(
+        xdist_redis_isolation_level,
+        redis_image,
+        redis_host,
+        redis_port,
+        redis_service,
+        dragonfly_image,
+        dragonfly_host,
+        dragonfly_port,
+        dragonfly_service,
+        keydb_image,
+        keydb_host,
+        keydb_port,
+        keydb_service,
+    ):
+        assert xdist_redis_isolation_level == "database"
+        assert "redis" in redis_image
+        assert redis_host == "127.0.0.1"
+        assert redis_port == 6379
+        assert redis_service.port == 6379
+        assert "dragonfly" in dragonfly_image
+        assert dragonfly_host == "127.0.0.1"
+        assert dragonfly_port == 6379
+        assert dragonfly_service.port == 6379
+        assert "keydb" in keydb_image
+        assert keydb_host == "127.0.0.1"
+        assert keydb_port == 6379
+        assert keydb_service.port == 6379
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", "-W", "ignore::DeprecationWarning")
+    result.assert_outcomes(passed=1)

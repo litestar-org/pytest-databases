@@ -387,3 +387,114 @@ def test_isolation_two(rustfs_service: RustfsService, rustfs_default_bucket_name
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "secure", "expected_name", "expected_scheme"),
+    [
+        (None, "database", False, "rustfs", "http"),
+        (2, "server", True, "rustfs_2", "https"),
+    ],
+)
+def test_provide_rustfs_service_readiness_and_xdist(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_num: int | None,
+    isolation_level: str,
+    secure: bool,
+    expected_name: str,
+    expected_scheme: str,
+) -> None:
+    """Verify provide_rustfs_service readiness check, endpoint_url, and xdist server mode."""
+    monkeypatch.setattr("pytest_databases.docker.rustfs.get_xdist_worker_num", lambda: worker_num)
+    monkeypatch.setattr("pytest_databases.docker.rustfs.create_s3_bucket", lambda *_a, **_kw: None)
+
+    calls = 0
+
+    def fake_urlopen(url: object, timeout: float = 10.0) -> object:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            msg = "not ready"
+            raise URLError(msg)
+        cm = MagicMock()
+        cm.__enter__.return_value = MagicMock(status=200)
+        return cm
+
+    monkeypatch.setattr("pytest_databases.docker.rustfs.urlopen", fake_urlopen)
+    docker_service = MagicMock()
+    captured_name: list[str] = []
+
+    @contextmanager
+    def fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
+        captured_name.append(str(kwargs["name"]))
+        svc = ServiceContainer(host="127.0.0.1", port=9000, container=MagicMock())
+        check = kwargs["check"]
+        assert callable(check)
+        assert check(svc) is False
+        assert check(svc) is True
+        yield svc
+
+    docker_service.run.side_effect = fake_run
+
+    with provide_rustfs_service(
+        docker_service,
+        access_key="rustfs",
+        secret_key="rustfs123",
+        secure=secure,
+        default_bucket_name="pytest-databases",
+        isolation_level=isolation_level,  # type: ignore[arg-type]
+    ) as service:
+        assert service.endpoint_url == f"{expected_scheme}://127.0.0.1:9000"
+        assert captured_name == [expected_name]
+
+
+def test_rustfs_all_fixtures_inprocess(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify all RustFS fixtures execute in-process with mocked docker_service."""
+    monkeypatch.setenv("RUSTFS_DEFAULT_BUCKET_NAME", "custom-rustfs-bucket")
+    assert unwrap_fixture(rustfs_default_bucket_name)("database") == "custom-rustfs-bucket"
+    monkeypatch.delenv("RUSTFS_DEFAULT_BUCKET_NAME", raising=False)
+
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    import pytest_databases.docker.rustfs as rustfs_mod
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.rustfs"]
+
+    @pytest.fixture(autouse=True, scope="session")
+    def mock_bucket():
+        orig = rustfs_mod.create_s3_bucket
+        rustfs_mod.create_s3_bucket = lambda *a, **kw: None
+        yield
+        rustfs_mod.create_s3_bucket = orig
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        mock_ds = MagicMock()
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=9000, container=MagicMock())
+        mock_ds.run.side_effect = _run
+        return mock_ds
+
+    def test_fixtures(
+        rustfs_image,
+        rustfs_access_key,
+        rustfs_secret_key,
+        rustfs_secure,
+        xdist_rustfs_isolation_level,
+        rustfs_default_bucket_name,
+        rustfs_service,
+    ):
+        assert "rustfs" in rustfs_image
+        assert rustfs_access_key
+        assert rustfs_secret_key
+        assert rustfs_secure is False
+        assert xdist_rustfs_isolation_level == "database"
+        assert rustfs_default_bucket_name == "pytest-databases"
+        assert rustfs_service.port == 9000
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

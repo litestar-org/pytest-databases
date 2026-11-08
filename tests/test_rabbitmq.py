@@ -7,10 +7,12 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, call
 
 import pytest
+from docker.errors import APIError
 
 from pytest_databases.docker import rabbitmq
 from pytest_databases.docker.rabbitmq import RabbitMQService
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
+from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -244,3 +246,71 @@ def test_two(rabbitmq_service: RabbitMQService) -> None:
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
+
+
+def test_rabbitmq_helpers_and_all_fixtures_inprocess(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify RabbitMQ error branches and in-process fixture execution."""
+    container = MagicMock()
+    container.exec_run.side_effect = APIError("exec failed")
+    assert rabbitmq._rabbitmq_responsive(ServiceContainer(host="127.0.0.1", port=5672, container=container)) is False
+
+    container.exec_run.side_effect = [MagicMock(exit_code=1, output=b"list failed")]
+    with pytest.raises(RuntimeError, match="list failed"):
+        rabbitmq._ensure_vhost(container, username="u", vhost="vh")
+
+    container.exec_run.side_effect = [
+        MagicMock(exit_code=0, output=b"vh\n"),
+        MagicMock(exit_code=1, output=b"perm failed"),
+    ]
+    with pytest.raises(RuntimeError, match="perm failed"):
+        rabbitmq._ensure_vhost(container, username="u", vhost="vh")
+
+    monkeypatch.setattr("pytest_databases.docker.rabbitmq.get_xdist_worker_num", lambda: 4)
+    assert unwrap_fixture(rabbitmq.rabbitmq_vhost)("database") == "pytest_databases_4"
+
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    import pytest_databases.docker.rabbitmq as rmq_mod
+    from pytest_databases.types import ServiceContainer
+
+    pytest_plugins = ["pytest_databases.docker.rabbitmq"]
+
+    @pytest.fixture(autouse=True, scope="session")
+    def mock_vhost():
+        orig = rmq_mod._ensure_vhost
+        rmq_mod._ensure_vhost = lambda *a, **kw: None
+        yield
+        rmq_mod._ensure_vhost = orig
+
+    @pytest.fixture(scope="session")
+    def container_service():
+        mock_cs = MagicMock()
+        mock_cs.resolve_port.return_value = 15672
+        @contextmanager
+        def _run(image, **kwargs):
+            yield ServiceContainer(host="127.0.0.1", port=5672, container=MagicMock())
+        mock_cs.run.side_effect = _run
+        return mock_cs
+
+    def test_fixtures(
+        xdist_rabbitmq_isolation_level,
+        rabbitmq_image,
+        rabbitmq_username,
+        rabbitmq_password,
+        rabbitmq_vhost,
+        rabbitmq_service,
+    ):
+        assert xdist_rabbitmq_isolation_level == "database"
+        assert "rabbitmq" in rabbitmq_image
+        assert rabbitmq_username == "pytest-databases"
+        assert rabbitmq_password == "pytest-databases-secret"
+        assert rabbitmq_vhost == "pytest_databases_4"
+        assert rabbitmq_service.port == 5672
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)
