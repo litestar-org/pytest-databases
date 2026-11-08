@@ -155,6 +155,17 @@ Added
   ``xdist_embedded_postgres_isolation_level`` (default ``template``: xdist workers share one cluster and each gets a
   database cloned from the template). ``provide_embedded_postgres_service``, ``resolve_postgres_binaries`` and
   ``PostgresBinaries``.
+* ``cloudflare_service`` (``CloudflareService`` with ``api_base_url``, ``r2_s3_endpoint_url``, ``kv_put()``,
+  ``kv_get()``, ``r2_put()``, ``r2_get()`` and ``d1_query()``) for Cloudflare KV, R2 and D1, backed by Miniflare's
+  Local Explorer API and R2 S3 endpoint in a ``node:22-slim`` container (env ``CLOUDFLARE_IMAGE``, port ``8787``;
+  Miniflare ``5.20261104.0-beta`` is installed from npm on first start unless the image provides it). Fixtures
+  ``cloudflare_image``, ``cloudflare_miniflare_version``, ``cloudflare_kv_namespaces``, ``cloudflare_r2_buckets``,
+  ``cloudflare_d1_databases`` (default ``("default",)``), ``cloudflare_access_key_id``,
+  ``cloudflare_secret_access_key``, ``cloudflare_startup_timeout`` (default ``300``) and
+  ``xdist_cloudflare_isolation_level`` (default ``database``: one container binding ``<name>_<worker>`` for every
+  worker), and ``provide_cloudflare_service``.
+* ``pytest_databases.helpers.http_request(url, *, method, data, headers, timeout)``, which returns ``(status, body)``
+  for container endpoints without going through ``HTTP_PROXY``.
 
 Changed
 ~~~~~~~

@@ -50,6 +50,7 @@
   "compatibility_test_paths": [
     "tests/test_azure_blob.py::test_plugin_imports_without_azure_storage_blob",
     "tests/test_bigquery.py::test_plugin_imports_without_google_cloud_bigquery",
+    "tests/test_cloudflare.py::test_plugin_imports_without_cloudflare_clients",
     "tests/test_cockroachdb.py::test_plugin_imports_without_psycopg",
     "tests/test_db2.py::test_plugin_imports_without_db2_clients",
     "tests/test_elasticsearch.py::test_plugin_imports_without_elasticsearch_clients",
@@ -83,6 +84,12 @@
       "test_paths": ["tests/test_bigquery.py"],
       "images": ["ghcr.io/goccy/bigquery-emulator:latest"],
       "docs_globs": ["docs/supported-databases/bigquery.rst"]
+    },
+    "cloudflare": {
+      "source_globs": ["src/pytest_databases/docker/cloudflare.py"],
+      "test_paths": ["tests/test_cloudflare.py"],
+      "images": ["node:22-slim"],
+      "docs_globs": ["docs/supported-databases/cloudflare.rst"]
     },
     "cockroachdb": {
       "source_globs": ["src/pytest_databases/docker/cockroachdb.py"],

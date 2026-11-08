@@ -62,7 +62,8 @@ def build_bucket_request(
 
     Args:
         method: HTTP method, such as ``PUT`` to create the bucket or ``HEAD`` to check that it exists.
-        endpoint_url: ``http`` or ``https`` endpoint of the S3 service.
+        endpoint_url: ``http`` or ``https`` endpoint of the S3 service. A path, such as ``/cdn-cgi/local/r2/s3``,
+            is kept as the prefix of the bucket path.
         bucket_name: Target bucket.
         access_key: Access key ID.
         secret_key: Secret access key.
@@ -83,7 +84,7 @@ def build_bucket_request(
     signed_at = (timestamp or datetime.now(UTC)).astimezone(UTC)
     amz_date = signed_at.strftime("%Y%m%dT%H%M%SZ")
     date_stamp = signed_at.strftime("%Y%m%d")
-    canonical_uri = f"/{bucket_name}"
+    canonical_uri = f"{parsed.path.rstrip('/')}/{bucket_name}"
     credential_scope = f"{date_stamp}/{region}/s3/aws4_request"
     canonical_headers = f"host:{parsed.netloc}\nx-amz-content-sha256:{EMPTY_PAYLOAD_SHA256}\nx-amz-date:{amz_date}\n"
     canonical_request = f"{method}\n{canonical_uri}\n\n{canonical_headers}\n{SIGNED_HEADERS}\n{EMPTY_PAYLOAD_SHA256}"

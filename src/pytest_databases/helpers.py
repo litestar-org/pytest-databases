@@ -14,7 +14,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
     import pytest
 
@@ -26,6 +26,7 @@ __all__ = (
     "get_xdist_worker_num",
     "http_get_json",
     "http_get_ok",
+    "http_request",
     "simple_string_hash",
     "tcp_port_open",
 )
@@ -164,22 +165,54 @@ def resolve_legacy_platform(request: pytest.FixtureRequest, replacement: str | N
     return request.getfixturevalue("platform")
 
 
+def http_request(
+    url: str,
+    *,
+    method: str = "GET",
+    data: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = 10.0,
+) -> tuple[int, bytes]:
+    """Send an HTTP request to a container endpoint and return its status and body.
+
+    Like the probes, the request bypasses ``HTTP_PROXY`` / ``HTTPS_PROXY``. HTTP error statuses are returned instead of
+    raised, and their response is closed after the body is read.
+
+    Args:
+        url: ``http://`` or ``https://`` URL to request.
+        method: HTTP method.
+        data: Request body, or None to send no body.
+        headers: Request headers.
+        timeout: Socket timeout in seconds.
+
+    Returns:
+        Tuple of ``(status, body)``.
+
+    Raises:
+        ValueError: If ``url`` is not an ``http://`` or ``https://`` URL.
+    """
+    if not url.startswith(("http://", "https://")):
+        msg = f"Only http:// and https:// URLs can be requested, got {url!r}"
+        raise ValueError(msg)
+    request = urllib.request.Request(url, data=data, method=method, headers=dict(headers or {}))
+    try:
+        with _DIRECT_OPENER.open(request, timeout=timeout) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, exc.read()
+        finally:
+            exc.close()
+
+
 def _http_get(url: str, *, timeout: float) -> bytes | None:
     """Return the body of an HTTP ``GET`` of ``url`` when it answers with status 200, otherwise None.
 
     Raises:
         ValueError: If ``url`` is not an ``http://`` or ``https://`` URL.
     """
-    if not url.startswith(("http://", "https://")):
-        msg = f"Only http:// and https:// URLs can be probed, got {url!r}"
-        raise ValueError(msg)
     try:
-        with _DIRECT_OPENER.open(url, timeout=timeout) as response:
-            if response.status != 200:
-                return None
-            return response.read()
-    except urllib.error.HTTPError as exc:
-        exc.close()
-        return None
+        status, body = http_request(url, timeout=timeout)
     except (OSError, http.client.HTTPException):
         return None
+    return body if status == 200 else None
