@@ -351,7 +351,7 @@ def test_helpers_cpu_arch_and_exec_output_and_tcp_probe(
     monkeypatch.setattr("pytest_databases.helpers.platform.machine", lambda: machine)
     assert get_cpu_architecture() == expected_arch
     assert exec_output_to_bytes("hello") == b"hello"
-    assert exec_output_to_bytes(iter([b"hel", b"lo"])) == b"hello"
+    assert exec_output_to_bytes(iter([b"abc", b"def"])) == b"abcdef"
 
     monkeypatch.setattr("pytest_databases.helpers.socket.create_connection", lambda *_a, **_kw: MagicMock())
     assert tcp_port_open("127.0.0.1", 5432) is True

@@ -235,7 +235,9 @@ jobs:
         if: matrix.python-version == '3.12'
         env:
           PROVIDER: ${{ matrix.provider }}
-        run: mv .coverage ".coverage.$PROVIDER"
+        run: |
+          uv run --no-sync coverage combine
+          mv .coverage ".coverage.$PROVIDER"
 
       - name: Upload raw coverage data
         if: matrix.python-version == '3.12'
