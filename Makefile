@@ -8,6 +8,14 @@ SHELL := /bin/bash
 .ONESHELL:
 .EXPORT_ALL_VARIABLES:
 MAKEFLAGS += --no-print-directory
+.SHELLFLAGS := -eu -o pipefail -c
+
+# Rodete (Internal Linux) detection and overrides
+ifneq ($(shell grep -s -q "rodete" /etc/os-release && echo "yes"),)
+export PIP_INDEX_URL=https://pypi.org/simple
+export UV_INDEX_URL=https://pypi.org/simple
+export UV_DEFAULT_INDEX=https://pypi.org/simple
+endif
 
 # -----------------------------------------------------------------------------
 # Display Formatting and Colors
@@ -28,21 +36,24 @@ ERROR := $(shell printf "$(RED)✖$(NC)")
 
 .PHONY: help
 help:                                               ## Display this help text for Makefile
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 # =============================================================================
 # Installation and Environment Setup
 # =============================================================================
 
+.PHONY: setup-env
+setup-env:                                          ## Configure environment (detects Rodete vs standard Linux/macOS)
+	@bash tools/scripts/setup-env.sh
+
 .PHONY: install-uv
 install-uv:                                         ## Install latest version of uv
 	@echo "${INFO} Installing uv..."
 	@curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
-	@uv tool install nodeenv >/dev/null 2>&1
 	@echo "${OK} UV installed successfully"
 
 .PHONY: install
-install: destroy clean                              ## Install the project, dependencies, and pre-commit
+install: destroy clean setup-env                    ## Install the project, dependencies, and hooks
 	@echo "${INFO} Starting fresh installation..."
 	@uv python pin 3.12 >/dev/null 2>&1
 	@uv venv >/dev/null 2>&1
@@ -60,15 +71,16 @@ destroy:                                            ## Destroy the virtual envir
 # =============================================================================
 
 .PHONY: upgrade
-upgrade:                                            ## Upgrade all dependencies to latest stable versions
+upgrade: setup-env                                  ## Upgrade all dependencies to latest stable versions
 	@echo "${INFO} Updating all dependencies... 🔄"
 	@uv lock --upgrade
+	@uv sync --all-extras --dev
 	@echo "${OK} Dependencies updated 🔄"
-	@uv run pre-commit autoupdate
-	@echo "${OK} Updated Pre-commit hooks 🔄"
+	@uvx prek autoupdate --cooldown-days 7 2>/dev/null || uv run pre-commit autoupdate
+	@echo "${OK} Updated pre-commit hooks 🔄"
 
 .PHONY: lock
-lock:                                              ## Rebuild lockfiles from scratch
+lock: setup-env                                     ## Rebuild lockfiles from scratch
 	@echo "${INFO} Rebuilding lockfiles... 🔄"
 	@uv lock --upgrade >/dev/null 2>&1
 	@echo "${OK} Lockfiles updated"
@@ -84,14 +96,58 @@ build:                                             ## Build the package
 	@echo "${OK} Package build complete"
 
 .PHONY: release
-release:                                           ## Bump version and create release tag
+release:                                           ## Bump version and create release (finalize pre-release or bump=major|minor|patch)
 	@echo "${INFO} Preparing for release... 📦"
+	@current_version="$$(grep -E '^current_version = ' pyproject.toml | head -n1 | cut -d'"' -f2)"; \
+	case "$$current_version" in \
+		*-*) \
+			if [ -z "$(bump)" ] || [ "$(bump)" = "pre" ]; then \
+				release_version="$${current_version%%-*}"; \
+				echo "${INFO} Finalizing pre-release $$current_version -> $$release_version..."; \
+				uv run bump-my-version bump --new-version "$$release_version" pre; \
+			else \
+				uv run bump-my-version bump "$(bump)"; \
+			fi \
+			;; \
+		*) \
+			if [ -z "$(bump)" ]; then \
+				echo "${ERROR} Please specify 'bump' parameter for stable releases, e.g., make release bump=minor"; \
+				echo "${INFO} Examples:"; \
+				echo "  make release bump=patch            # 0.19.0 -> 0.19.1"; \
+				echo "  make release bump=minor            # 0.19.0 -> 0.20.0"; \
+				echo "  make release bump=major            # 0.19.0 -> 1.0.0"; \
+				exit 1; \
+			fi; \
+			uv run bump-my-version bump "$(bump)"; \
+			;; \
+	esac
+	@uv lock --upgrade-package pytest-databases >/dev/null 2>&1
 	@make docs
 	@make clean
 	@make build
-	@uv lock --upgrade-package pytest-databases
-	@uv run bump-my-version bump $(bump)
 	@echo "${OK} Release complete 🎉"
+
+.PHONY: pre-release
+pre-release:                                       ## Set pre-release version (use version=X.Y.Z-alpha.N|beta.N|rc.N)
+	@if [ -z "$(version)" ]; then \
+		echo "${ERROR} Please specify 'version' parameter, e.g., make pre-release version=0.20.0-alpha.1"; \
+		echo "${INFO} Examples:"; \
+		echo "  make pre-release version=0.20.0-alpha.1   # First alpha for 0.20.0"; \
+		echo "  make pre-release version=0.20.0-alpha.2   # Next alpha"; \
+		echo "  make pre-release version=0.20.0-beta.1    # First beta"; \
+		echo "  make pre-release version=0.20.0-rc.1      # Release candidate"; \
+		echo "  make release                              # Finalize to 0.20.0"; \
+		exit 1; \
+	fi
+	@echo "${INFO} Setting pre-release version to $(version)... 📦"
+	@make clean
+	@uv run bump-my-version bump --new-version $(version) pre
+	@uv lock --upgrade-package pytest-databases >/dev/null 2>&1
+	@make build
+	@echo "${OK} Pre-release $(version) ready 🎉"
+	@echo "${INFO} Next steps:"
+	@echo "  1. Commit and push changes: git push origin HEAD"
+	@echo "  2. Create GitHub pre-release: gh release create v$(version) --prerelease --generate-notes --title 'v$(version)'"
 
 # =============================================================================
 # Cleaning and Maintenance
@@ -152,17 +208,20 @@ pyright:                                           ## Run pyright
 	@echo "${OK} Pyright checks passed ✨"
 
 .PHONY: type-check
-type-check: mypy pyright                           ## Run all type checking
+type-check: mypy-nocache pyright                   ## Run all type checking
 
 # -----------------------------------------------------------------------------
-# Linting and Formatting
+# Linting, Formatting, and Security
 # -----------------------------------------------------------------------------
+
+.PHONY: prek
+prek:                                              ## Run prek / pre-commit hooks
+	@echo "${INFO} Running pre-commit checks... 🔎"
+	@NODE_OPTIONS="--no-deprecation --disable-warning=ExperimentalWarning" uvx prek run --color=always --all-files 2>/dev/null || NODE_OPTIONS="--no-deprecation --disable-warning=ExperimentalWarning" uv run pre-commit run --color=always --all-files
+	@echo "${OK} Pre-commit checks passed ✨"
 
 .PHONY: pre-commit
-pre-commit:                                        ## Run pre-commit hooks
-	@echo "${INFO} Running pre-commit checks... 🔎"
-	@NODE_OPTIONS="--no-deprecation --disable-warning=ExperimentalWarning" uv run pre-commit run --color=always --all-files
-	@echo "${OK} Pre-commit checks passed ✨"
+pre-commit: prek                                   ## Alias for prek
 
 .PHONY: slotscheck
 slotscheck:                                        ## Run slotscheck
@@ -170,14 +229,21 @@ slotscheck:                                        ## Run slotscheck
 	@uv run slotscheck src/pytest_databases
 	@echo "${OK} Slots check passed ✨"
 
+.PHONY: zizmor
+zizmor:                                            ## Audit GitHub Actions workflows with zizmor
+	@echo "${INFO} Auditing GitHub Actions workflows (zizmor)... 🛡️"
+	@uv run zizmor --strict-collection .github/workflows
+	@echo "${OK} Workflow security audit passed ✨"
+
 .PHONY: fix
 fix:                                               ## Run code formatters
 	@echo "${INFO} Running code formatters... 🔧"
 	@uv run ruff check --fix --unsafe-fixes
+	@uv run ruff format
 	@echo "${OK} Code formatting complete ✨"
 
 .PHONY: lint
-lint: pre-commit type-check slotscheck             ## Run all linting checks
+lint: prek type-check slotscheck zizmor            ## Run all linting, typing, and security checks
 
 .PHONY: check-all
 check-all: lint test coverage                      ## Run all checks (lint, test, coverage)
@@ -193,7 +259,7 @@ docs-clean:                                        ## Clean documentation build
 	@echo "${OK} Documentation assets cleaned"
 
 .PHONY: docs-serve
-docs-serve:                              ## Serve documentation locally
+docs-serve:                                        ## Serve documentation locally
 	@echo "${INFO} Starting documentation server... 📚"
 	@uv run sphinx-autobuild docs docs/_build/ -j auto --watch src/pytest_databases --watch docs --watch tests --watch CONTRIBUTING.rst --open-browser
 

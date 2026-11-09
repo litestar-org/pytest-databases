@@ -3,61 +3,54 @@ MinIO
 
 Integration with `MinIO <https://min.io>`_, an S3-compatible object storage service.
 
-This integration uses the official `MinIO Python Client <https://min.io/docs/minio/linux/developers/python/minio-py.html>`_ to interact with MinIO, which provides S3-compatible object storage for testing and development.
-
 Installation
 ------------
 
 .. code-block:: bash
 
-   pip install pytest-databases[minio]
+   pip install pytest-databases
+
+Install your preferred S3 or MinIO client library (for example ``minio`` or ``boto3``) alongside ``pytest-databases``.
 
 Docker Image
 ------------
 
-`Official MinIO Docker Image <https://quay.io/minio/minio>`_
+* `Chainguard MinIO Docker Image <https://images.chainguard.dev/directory/image/minio/overview>`_:
+  ``cgr.dev/chainguard/minio:latest`` (override via ``minio_image``)
 
-Configuration
--------------
-
-* ``MINIO_ACCESS_KEY``: Access key for MinIO (default: "minio")
-* ``MINIO_SECRET_KEY``: Secret key for MinIO (default: "minio123")
-* ``MINIO_SECURE``: Whether to use HTTPS (default: "false")
+The fixture creates the default bucket with a signed S3 ``PUT`` request before yielding, so no ``mc`` client
+container is needed. Use ``MinioService.endpoint_url`` as the S3 endpoint and ``MinioService.ensure_bucket(name)`` to
+create more buckets.
 
 Usage Example
 -------------
 
 .. code-block:: python
 
-    import pytest
     from minio import Minio
     from pytest_databases.docker.minio import MinioService
 
     pytest_plugins = ["pytest_databases.docker.minio"]
 
-    def test(minio_service: MinioService) -> None:
+    def test_minio_service(minio_service: MinioService, minio_default_bucket_name: str) -> None:
         client = Minio(
             endpoint=minio_service.endpoint,
             access_key=minio_service.access_key,
             secret_key=minio_service.secret_key,
             secure=minio_service.secure,
         )
-        client.make_bucket("test-bucket")
-        assert client.bucket_exists("test-bucket")
-
-    def test(minio_client: Minio) -> None:
-        minio_client.make_bucket("test-bucket")
-        assert minio_client.bucket_exists("test-bucket")
+        assert client.bucket_exists(minio_default_bucket_name)
 
 Available Fixtures
 ------------------
 
-* ``minio_access_key``: The access key for MinIO defaults to os.getenv("MINIO_ACCESS_KEY", "minio").
-* ``minio_secret_key``: The secret key for MinIO defaults to os.getenv("MINIO_SECRET_KEY", "minio123").
-* ``minio_secure``: Whether to use HTTPS for MinIO defaults to os.getenv("MINIO_SECURE", "false").
-* ``minio_service``: A fixture that provides a MinIO service.
-* ``minio_client``: A fixture that provides a MinIO client.
-* ``minio_default_bucket_name``: A fixture that provides the default bucket name.
+* ``minio_image``: Container image for the MinIO server (default: ``cgr.dev/chainguard/minio:latest``).
+* ``minio_access_key``: Access key for MinIO (default: ``minio``; override via ``MINIO_ACCESS_KEY``).
+* ``minio_secret_key``: Secret key for MinIO (default: ``minio123``; override via ``MINIO_SECRET_KEY``).
+* ``minio_secure``: Whether to use HTTPS for MinIO (default: ``False``; override via ``MINIO_SECURE``).
+* ``minio_default_bucket_name``: Default bucket automatically provisioned on startup (default: ``pytest-databases``,
+  suffixed with the worker number under ``pytest-xdist``; override via ``MINIO_DEFAULT_BUCKET_NAME``).
+* ``minio_service``: Provides a running ``MinioService`` instance.
 
 Service API
 -----------

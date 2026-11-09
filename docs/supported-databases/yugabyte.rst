@@ -8,7 +8,7 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[yugabyte]
+   pip install pytest-databases
 
 The fixture provides a running Yugabyte service and validates availability with Yugabyte's bundled tools. Use the
 service attributes with the PostgreSQL-compatible client, ORM, or application configuration you normally use.

@@ -14,40 +14,52 @@
 
 # Pytest Databases
 
-Ready-made database fixtures for your pytest tests.
+Ready-made database and cloud emulator fixtures for your pytest tests.
 
 ## Features
 
-- 🚀 Easy-to-use database fixtures
-- 🔄 Support for multiple database types
-- 🐳 Docker integration for isolated testing environments
-- ⚡ Fast and efficient test execution
-- 🔧 Highly configurable
+- 🚀 Clientless container fixtures with zero required database driver dependencies in the base package
+- 🔄 Support for 20+ relational, NoSQL, analytical, streaming, and cloud emulator services
+- 🐳 Docker and Podman runtime support with deterministic session ownership and `pytest-xdist` isolation
+- ⚡ Fast readiness checks using standard library probes and in-container CLI tools
+- 🔧 Configurable via pytest CLI options, `pyproject.toml`, and environment variables
 
-`pytest-databases` uses the Docker Python SDK to manage the startup and shutdown of database services in containers. The following databases are currently available:
+`pytest-databases` manages the startup and shutdown of database and cloud emulator services in Docker or Podman containers. The following services are available:
 
-- **Postgres**: Version 12, 13, 14, 15, 16, 17 and 18 are available
-- **MySQL**: Version 5.6, 5.7 and 8 are available
-- **Oracle**: Version 18c XE and 23C Free are available
-- **SQL Server**: Version 2022 is available
-- **Google AlloyDB Omni**: Simplified Omni installation for easy testing.
-- **Google Spanner**: The latest cloud-emulator from Google is available
-- **Google BigQuery**: Unofficial BigQuery emulator
-- **CockroachDB**: Version latest is available
-- **Redis**: Latest version
-- **Valkey**: Latest version
-- **Dragonfly**: Latest version
-- **KeyDB**: Latest version
-- **Elasticsearch**: Version 7 and 8 are available
-- **Azure blob storage**: Via azurite
-- **Minio**: Latest version
+- **PostgreSQL / pgvector / ParadeDB**: PostgreSQL 11–18, pgvector, and ParadeDB
+- **Google AlloyDB Omni**: PostgreSQL-compatible AlloyDB Omni 15–18
+- **MySQL**: MySQL 5.6, 5.7, 8.0, 8.4 LTS, 9.6, and 9.7
+- **MariaDB**: MariaDB 11.3, 11.4 LTS, 11.8 LTS, 12.2, 12.3, and 13.0
+- **Dolt**: Versioned MySQL-compatible database
+- **Oracle Database**: Oracle 18c XE, 23ai Free, and Autonomous Database Free (23ai) with wallet extraction
+- **Microsoft SQL Server**: SQL Server 2022 and 2025
+- **IBM Db2**: Db2 Community Edition 12.1 (`icr.io/db2_community/db2:12.1.5.0`)
+- **Google Cloud Spanner**: Cloud Spanner emulator
+- **Google BigQuery**: BigQuery emulator (`goccy/bigquery-emulator`)
+- **Snowflake**: Embucket Snowflake-compatible SQL emulator (`embucket/embucket:0.2.2`)
+- **CockroachDB**: Distributed SQL database
+- **YugabyteDB**: Distributed PostgreSQL-compatible database
+- **MongoDB**: Document database
+- **GizmoSQL**: Apache Arrow Flight SQL service (DuckDB and SQLite backends)
+- **Redis / Valkey / Dragonfly / KeyDB**: In-memory key-value stores
+- **Elasticsearch**: Elasticsearch 7, 8, and 9
+- **Azure Blob Storage**: Azurite emulator
+- **MinIO and RustFS**: S3-compatible object storage
+- **Redpanda**: Kafka-compatible streaming platform
+- **LocalStack**: LocalStack-compatible AWS emulator (default image MiniStack `ministackorg/ministack:latest`)
+- **Google Cloud Pub/Sub**: Cloud Pub/Sub emulator
+- **RabbitMQ**: RabbitMQ 4.3 with the management plugin
+- **Floci**: Floci emulators for AWS, Azure, GCP, and OCI, one container per cloud
+- **SAP ASE (Sybase)**: SAP Adaptive Server Enterprise 16.0 (`datagrip/sybase:16.0`)
+- **SAP SQL Anywhere**: SQL Anywhere 16 (`jaschweder/sybase:latest`)
+- **Cloudflare KV, R2, and D1**: Miniflare 5 Local Explorer and R2 S3 APIs in a `node:22-slim` container
+- **PostgreSQL template databases**: build the schema once and clone it per test database (`"template"` isolation)
+- **Embedded PostgreSQL**: local `initdb`/`postgres` binaries without a container runtime (`embedded-postgres` extra)
 
 ## Installation
 
-Quick install for postgres:
-
 ```bash
-pip install pytest-databases[postgres]
+pip install pytest-databases
 ```
 
 ## Quick Start
@@ -64,6 +76,7 @@ pytest_plugins = ["pytest_databases.docker.postgres"]
 from pytest_databases.docker.postgres import PostgresService
 import psycopg
 
+
 def test_one(postgres_service: PostgresService) -> None:
     with psycopg.connect(
         f"postgresql://{postgres_service.user}:{postgres_service.password}@{postgres_service.host}:{postgres_service.port}/{postgres_service.database}",
@@ -79,7 +92,7 @@ Full documentation is available at [https://litestar-org.github.io/pytest-databa
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.rst) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 

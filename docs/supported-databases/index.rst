@@ -7,9 +7,11 @@ This section provides detailed information on the supported databases, including
    :maxdepth: 1
 
    postgres
+   embedded_postgres
    mysql
    mariadb
    dolt
+   doltgres
    oracle
    sqlserver
    spanner
@@ -24,3 +26,13 @@ This section provides detailed information on the supported databases, including
    azure_blob_storage
    minio
    rustfs
+   redpanda
+   localstack
+   pubsub
+   rabbitmq
+   db2
+   floci
+   snowflake
+   sybase
+   sqlanywhere
+   cloudflare

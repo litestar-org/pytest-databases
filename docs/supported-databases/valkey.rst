@@ -8,9 +8,9 @@ Installation
 
 .. code-block:: bash
 
-   pip install pytest-databases[valkey] valkey
+   pip install pytest-databases valkey
 
-The ``valkey`` Python client is no longer pulled by ``pytest-databases[valkey]`` — the fixture validates the container via the bundled ``valkey-cli`` invoked through ``container.exec_run`` — so install your own client alongside ``pytest-databases``.
+The ``valkey`` extra no longer installs the ``valkey`` client. Readiness is verified over a Python stdlib TCP socket using the RESP protocol, so install your own client alongside ``pytest-databases``.
 
 Usage Example
 -------------
@@ -39,6 +39,11 @@ Available Fixtures
 * ``valkey_host``: The host name for the Valkey service.
 * ``valkey_image``: The Docker image to use for Valkey.
 * ``valkey_service``: A fixture that provides a ``ValkeyService`` (``host``, ``port``, ``container``, ``db``).
+* ``xdist_valkey_isolation_level``: ``database`` (default) or ``server``.
+
+Under ``pytest-xdist`` with ``database`` isolation, workers share one container and each worker uses its own
+logical database (``ValkeyService.db``). Every 16 workers get an additional shared container. With ``server``
+isolation every worker gets its own container.
 
 Service API
 -----------

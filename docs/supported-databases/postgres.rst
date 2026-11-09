@@ -1,49 +1,126 @@
 PostgreSQL
 ==========
 
-Integration with `PostgreSQL <https://www.postgresql.org/>`_ using the `PostgreSQL Docker Image <https://hub.docker.com/_/postgres>`_, Google's `AlloyDB Omni <https://cloud.google.com/alloydb/omni?hl=en>`_, `pgvector Docker Image <https://hub.docker.com/r/ankane/pgvector>`_, or `ParadeDB Docker Image <https://hub.docker.com/r/paradedb/paradedb>`_
+Integration with `PostgreSQL <https://www.postgresql.org/>`_ using the `PostgreSQL Docker Image <https://hub.docker.com/_/postgres>`_, Google's `AlloyDB Omni <https://cloud.google.com/alloydb/omni?hl=en>`_, `pgvector Docker Image <https://hub.docker.com/r/pgvector/pgvector>`_, or `ParadeDB Docker Image <https://hub.docker.com/r/paradedb/paradedb>`_.
 
 Installation
 ------------
 
+The PostgreSQL service fixtures validate readiness and create per-worker databases using the ``psql`` CLI bundled inside the container image, then confirm the published host port accepts TCP connections, so no Python client driver is required to start the service:
+
 .. code-block:: bash
 
-    pip install pytest-databases[postgres]
+    pip install pytest-databases
 
 Usage Example
 -------------
 
 .. code-block:: python
 
-    import pytest
     import psycopg
     from pytest_databases.docker.postgres import PostgresService
 
     pytest_plugins = ["pytest_databases.docker.postgres"]
 
-    def test(postgres_service: PostgresService) -> None:
+
+    def test_postgres(postgres_service: PostgresService) -> None:
         with psycopg.connect(
-            f"postgresql://{postgres_service.user}:{postgres_service.password}@{postgres_service.host}:{postgres_service.port}/{postgres_service.database}"
+            f"postgresql://{postgres_service.user}:{postgres_service.password}"
+            f"@{postgres_service.host}:{postgres_service.port}/{postgres_service.database}"
         ) as conn:
             db_open = conn.execute("SELECT 1").fetchone()
             assert db_open is not None and db_open[0] == 1
 
-    def test(postgres_connection: psycopg.Connection) -> None:
-        postgres_connection.execute("CREATE TABLE if not exists simple_table as SELECT 1")
-        result = postgres_connection.execute("select * from simple_table").fetchone()
-        assert result is not None and result[0] == 1
+
+    def test_template_clone(postgres_service: PostgresService) -> None:
+        cloned_db = postgres_service.clone_template_database("test_clone_db")
+        try:
+            assert cloned_db == "test_clone_db"
+        finally:
+            postgres_service.drop_database_force(cloned_db)
+
+Template Database Acceleration
+------------------------------
+
+Suites with heavy migrations or seed data can build the schema once and clone it for each test database. PostgreSQL
+creates the clone with ``CREATE DATABASE ... TEMPLATE``, a file-level copy of the template database, so no
+migration runs again.
+
+Set ``xdist_postgres_isolation_level`` to ``"template"`` and return the schema from ``postgres_template_setup``. The
+first process to reach the container builds the template under a file lock; every other worker waits and clones it.
+The service database (``pytest_databases``, or ``pytest_databases_<worker>`` under ``pytest-xdist``) is a fresh
+clone, with or without ``pytest-xdist``. Every PostgreSQL family service (versioned PostgreSQL, pgvector, ParadeDB,
+AlloyDB Omni) honors these fixtures.
+
+.. code-block:: python
+
+    import pytest
+    from pytest_databases.docker.postgres import PostgresService
+    from pytest_databases.types import PostgresXdistIsolationLevel
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+
+    @pytest.fixture(scope="session")
+    def xdist_postgres_isolation_level() -> PostgresXdistIsolationLevel:
+        return "template"
+
+
+    @pytest.fixture(scope="session")
+    def postgres_template_setup() -> list[str]:
+        return [
+            "CREATE TABLE users (id serial PRIMARY KEY, name text)",
+            "INSERT INTO users (name) VALUES ('alice'), ('bob')",
+        ]
+
+
+    def test_worker_database(postgres_service: PostgresService) -> None:
+        assert postgres_service.database.startswith("pytest_databases")
+
+``postgres_template_setup`` accepts SQL statements, ``pathlib.Path`` objects pointing at ``.sql`` files, or a callable
+that receives a :class:`~pytest_databases.docker.postgres.PostgresService` pointed at the staging database. The SQL
+text and file contents are hashed into the template name (``pytest_databases_template_<digest>``), so a changed
+schema builds a new template even when the container is reused with ``--keep-containers``. A callable cannot be
+hashed; return its inputs (migration directories, files, or a version string) from
+``postgres_template_fingerprint_sources`` so they become part of the name.
+
+The same helpers are available on :class:`~pytest_databases.docker.postgres.PostgresService` for custom fixtures:
+
+.. code-block:: python
+
+    from pytest_databases.docker.postgres import PostgresService
+
+
+    def test_custom_template(postgres_service: PostgresService) -> None:
+        template = postgres_service.ensure_template(
+            "app_template",
+            setup_sql="CREATE TABLE items (id serial PRIMARY KEY)",
+        )
+        worker_db = postgres_service.create_worker_database_from_template(template, "items_test")
+        try:
+            assert worker_db == "items_test"
+        finally:
+            postgres_service.drop_database_force(worker_db)
+
+``sweep_worker_databases(prefix)`` drops every non-template database whose name starts with ``prefix`` (``_`` is
+matched literally, ``*_staging`` databases are kept). It also drops databases that other workers are still using, so
+call it only at the end of a session.
 
 Available Fixtures
 ------------------
 
-* ``postgres_host``: The PostgreSQL host address (defaults to "127.0.0.1", can be overridden with ``POSTGRES_HOST`` environment variable).
+* ``postgres_host``: The PostgreSQL host address (defaults to ``"127.0.0.1"``, can be overridden with ``POSTGRES_HOST`` environment variable).
 * ``postgres_user``: The PostgreSQL user.
 * ``postgres_password``: The PostgreSQL password.
-* ``postgres_database``: The PostgreSQL database name to use.
-* ``postgres_image``: The Docker image to use for PostgreSQL.
+* ``postgres_image``: The Docker image to use for PostgreSQL (defaults to ``"postgres:18"``).
 * ``postgres_port``: Optional host-side port pin (default ``None``, override via ``POSTGRES_PORT`` env).
-* ``postgres_service``: A fixture that provides a PostgreSQL service.
-* ``postgres_connection``: A fixture that provides a PostgreSQL connection.
+* ``postgres_template_name``: Template name prefix for ``"template"`` isolation (``None`` means ``"pytest_databases_template"``).
+* ``postgres_template_setup``: SQL statements, ``.sql`` paths, or a callable that builds the template (default ``None``).
+* ``postgres_template_fingerprint_sources``: Extra strings, bytes, files, or directories hashed into the template name (default ``()``).
+* ``postgres_template_lock_dir``: Directory for the template lock file (``None`` means the system temp directory).
+* ``postgres_template_options``: A :class:`~pytest_databases.docker.postgres.PostgresTemplateOptions` combining the four fixtures above; every family service requests it.
+* ``postgres_service``: A fixture that provides a :class:`~pytest_databases.docker.postgres.PostgresService` instance.
+* ``postgres_connection``: Deprecated fixture that yields a ``psycopg.Connection``.
 
 The following version-specific fixtures are also available. Each has its own
 ``*_port`` fixture and matching env var so multiple versions can be pinned in
@@ -83,41 +160,19 @@ ParadeDB extends PostgreSQL with BM25 full-text search and analytics extensions.
 AlloyDB Omni
 ^^^^^^^^^^^^
 
-* ``alloydb_omni_image``, ``alloydb_omni_service``, ``alloydb_omni_connection``, ``alloydb_omni_port`` (env: ``ALLOYDB_OMNI_PORT``) — default image ``google/alloydbomni:17``
+* ``alloydb_omni_image``, ``alloydb_omni_service``, ``alloydb_omni_connection``, ``alloydb_omni_port`` (env: ``ALLOYDB_OMNI_PORT``) — default image ``gcr.io/alloydb-omni/alloydbomni:18``
 * ``alloydb_omni_15_service``, ``alloydb_omni_15_connection``, ``alloydb_omni_15_port`` (env: ``ALLOYDB_OMNI_15_PORT``)
 * ``alloydb_omni_16_service``, ``alloydb_omni_16_connection``, ``alloydb_omni_16_port`` (env: ``ALLOYDB_OMNI_16_PORT``)
 * ``alloydb_omni_17_service``, ``alloydb_omni_17_connection``, ``alloydb_omni_17_port`` (env: ``ALLOYDB_OMNI_17_PORT``)
+* ``alloydb_omni_18_service``, ``alloydb_omni_18_connection``, ``alloydb_omni_18_port`` (env: ``ALLOYDB_OMNI_18_PORT``)
 
 Configuration
 -------------
 
 PostgreSQL services can be configured using environment variables:
 
-* ``POSTGRES_HOST``: The host address for the PostgreSQL container (default: "127.0.0.1")
+* ``POSTGRES_HOST``: The host address for the PostgreSQL container (default: ``"127.0.0.1"``)
 * ``POSTGRES_PORT`` / ``POSTGRES_NN_PORT`` / ``PGVECTOR_PORT`` / ``PGVECTOR_NN_PORT`` / ``PARADEDB_PORT`` / ``PARADEDB_NN_PORT`` / ``ALLOYDB_OMNI_PORT`` / ``ALLOYDB_OMNI_NN_PORT``: Pin a specific host-side port for the matching service fixture. When unset, Docker picks a random free port (the default). See GitHub issue #131.
-
-Example usage with custom host:
-
-.. code-block:: bash
-
-    export POSTGRES_HOST="192.168.1.100"
-    pytest
-
-Pinning a host port (rootless Docker workaround for #131):
-
-.. code-block:: bash
-
-    export PGVECTOR_18_PORT=5432
-    pytest tests/test_my_pgvector_thing.py
-
-.. note::
-
-   If a container with the target name already exists, its existing port
-   mapping wins and the ``*_port`` request is silently ignored. This is the
-   pre-existing container-reuse behavior documented in GitHub issue #131
-   and is what some downstream workarounds rely on. A clean session always
-   honors the new port because ``docker_service`` stops all
-   ``pytest_databases``-labelled containers at session entry.
 
 Service API
 -----------

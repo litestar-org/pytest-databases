@@ -1,6 +1,101 @@
+"""Tests for MySQL container service fixtures."""
+
 from __future__ import annotations
 
+import warnings
+from contextlib import contextmanager
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
+
 import pytest
+from docker.errors import APIError, NotFound
+
+from pytest_databases.docker import mysql as mysql_mod
+from pytest_databases.docker.mysql import provide_mysql_service
+from pytest_databases.types import ServiceContainer
+from tests.conftest import assert_legacy_platform_handling, unwrap_fixture
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+
+def test_mysql_performance_schema_and_native_platform() -> None:
+    """Verify provide_mysql_service enables performance_schema and forwards a native (None) platform."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
+    mock_docker.run.return_value.__enter__.return_value = ServiceContainer(
+        host="127.0.0.1",
+        port=33306,
+        container=mock_container,
+    )
+
+    with provide_mysql_service(
+        docker_service=mock_docker,
+        image="mysql:9.7",
+        name="mysql-9.7",
+        isolation_level="database",
+        platform=None,
+        user="app",
+        password="secret",
+        root_password="secret",
+        database="db",
+    ) as service:
+        assert service.port == 33306
+
+    assert mock_docker.run.call_args.kwargs["command"] == "--performance-schema=ON"
+    assert mock_docker.run.call_args.kwargs["platform"] is None
+
+
+def _user_platform() -> str:
+    return "linux/arm64"
+
+
+@pytest.mark.parametrize(
+    ("platform_func", "expected_platform", "expected_warnings"),
+    [
+        (_user_platform, "linux/arm64", 1),
+        (mysql_mod.platform, None, 0),
+    ],
+)
+def test_mysql_8_services_honor_legacy_platform_override(
+    monkeypatch: pytest.MonkeyPatch,
+    platform_func: object,
+    expected_platform: str | None,
+    expected_warnings: int,
+) -> None:
+    """Verify MySQL 8+ services run natively unless a user-defined ``platform`` override is visible."""
+    captured: dict[str, object] = {}
+
+    @contextmanager
+    def fake_provide(**kwargs: object) -> Generator[str, None, None]:
+        captured.update(kwargs)
+        yield "service"
+
+    monkeypatch.setattr(mysql_mod, "provide_mysql_service", fake_provide)
+    request = MagicMock()
+    request._fixturemanager.getfixturedefs.return_value = [SimpleNamespace(func=platform_func)]
+    request.getfixturevalue.return_value = "linux/arm64"
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        fixture_gen = unwrap_fixture(mysql_mod.mysql_8_service)(
+            request, MagicMock(), "database", "app", "pw", "pw", "db"
+        )
+        assert next(fixture_gen) == "service"
+
+    deprecations = [w for w in record if issubclass(w.category, DeprecationWarning)]
+    assert len(deprecations) == expected_warnings
+    if expected_warnings:
+        assert "multi-arch" in str(deprecations[0].message)
+    assert captured["platform"] == expected_platform
+
+
+@pytest.mark.parametrize("mode", ["default", "override", "legacy"])
+def test_mysql_platform_and_legacy_platform_fixture(pytester: pytest.Pytester, mode: str) -> None:
+    """Verify mysql_platform defaults to x86_64, honors a legacy platform override, and the bare shim warns once."""
+    assert_legacy_platform_handling(pytester, "pytest_databases.docker.mysql", "mysql_platform", "linux/x86_64", mode)
 
 
 @pytest.mark.parametrize(
@@ -9,9 +104,11 @@ import pytest
         "mysql_8_service",
         "mysql_56_service",
         "mysql_57_service",
+        "mysql_97_service",
     ],
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> None:
+    """Verify mysql_service starts and executes SQL queries."""
     pytester.makepyfile(f"""
     pytest_plugins = ["pytest_databases.docker.mysql"]
 
@@ -41,6 +138,7 @@ def test_service_fixture(pytester: pytest.Pytester, service_fixture: str) -> Non
 
 
 def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
+    """Verify mysql_service isolates databases per pytest-xdist worker."""
     pytester.makepyfile("""
     pytest_plugins = ["pytest_databases.docker.mysql"]
 
@@ -70,6 +168,7 @@ def test_xdist_isolate_database(pytester: pytest.Pytester) -> None:
 
 
 def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
+    """Verify mysql_service isolates server containers per pytest-xdist worker."""
     pytester.makepyfile("""
     import pytest
     pytest_plugins = ["pytest_databases.docker.mysql"]
@@ -101,3 +200,121 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "expected_name", "expected_db"),
+    [
+        (1, "database", "mysql-8", "pytest_databases_1"),
+        (2, "server", "mysql-8_2", "pytest_databases"),
+    ],
+)
+def test_provide_mysql_service_xdist_and_retry_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_num: int,
+    isolation_level: str,
+    expected_name: str,
+    expected_db: str,
+) -> None:
+    """Verify provide_mysql_service xdist modes, readiness check, and setup retry failure."""
+    monkeypatch.setattr("pytest_databases.docker.mysql.time.sleep", lambda _s: None)
+    monkeypatch.setattr("pytest_databases.docker.mysql.get_xdist_worker_num", lambda: worker_num)
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
+    svc_container = ServiceContainer(host="127.0.0.1", port=33306, container=mock_container)
+    mock_docker.run.return_value.__enter__.return_value = svc_container
+
+    with provide_mysql_service(
+        docker_service=mock_docker,
+        image="mysql:8",
+        name="mysql-8",
+        isolation_level=isolation_level,  # type: ignore[arg-type]
+        platform=None,
+        user="app",
+        password="secret",
+        root_password="secret",
+        database="db",
+    ) as service:
+        assert service.db == expected_db
+
+    check = mock_docker.run.call_args.kwargs["check"]
+    assert mock_docker.run.call_args.kwargs["name"] == expected_name
+    assert check(svc_container) is True
+    mock_container.exec_run.side_effect = APIError("not ready")
+    assert check(svc_container) is False
+
+    mock_container.exec_run.side_effect = [APIError("transient"), MagicMock(exit_code=1, output=b"err")] * 10
+    with (
+        pytest.raises(RuntimeError, match="after 15 attempts"),
+        provide_mysql_service(
+            docker_service=mock_docker,
+            image="mysql:8",
+            name="mysql-8",
+            isolation_level="database",
+            platform=None,
+            user="app",
+            password="secret",
+            root_password="secret",
+            database="db",
+        ),
+    ):
+        pass
+
+    mock_container.exec_run.side_effect = NotFound("gone")
+    with (
+        pytest.raises(RuntimeError, match="after 15 attempts"),
+        provide_mysql_service(
+            docker_service=mock_docker,
+            image="mysql:8",
+            name="mysql-8",
+            isolation_level="database",
+            platform=None,
+            user="app",
+            password="secret",
+            root_password="secret",
+            database="db",
+        ),
+    ):
+        pass
+
+
+def test_mysql_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Exercise all MySQL session fixtures in-process with a mocked provide_mysql_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+    from pytest_databases.docker import mysql as mysql_mod
+    from pytest_databases.docker.mysql import MySQLService
+
+    pytest_plugins = ["pytest_databases.docker.mysql"]
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        return MagicMock()
+
+    @contextmanager
+    def _fake_provide(**kwargs):
+        yield MySQLService(
+            host="127.0.0.1",
+            port=3306,
+            container=MagicMock(),
+            db=kwargs["database"],
+            user=kwargs["user"],
+            password=kwargs["password"],
+        )
+
+    def test_all(request):
+        with patch.object(mysql_mod, "provide_mysql_service", _fake_provide):
+            for name in mysql_mod.__all__:
+                if name in {"MySQLService", "provide_mysql_service", "platform"}:
+                    continue
+                val = request.getfixturevalue(name)
+                if name != "mysql_platform":
+                    assert val is not None
+            with pytest.deprecated_call():
+                assert request.getfixturevalue("platform") == "linux/x86_64"
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)

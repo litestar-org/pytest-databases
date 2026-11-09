@@ -3,6 +3,285 @@ Changelog
 
 All notable changes to this project will be documented in this file.
 
+0.20.0 (unreleased)
+-------------------
+
+Added
+~~~~~
+
+* ``MinioService.endpoint_url`` and ``RustfsService.endpoint_url`` (``http://`` or ``https://`` per ``secure``),
+  and ``MinioService.ensure_bucket(name)`` / ``RustfsService.ensure_bucket(name)`` to create extra buckets.
+* ``minio_image`` (default ``cgr.dev/chainguard/minio:latest``) and ``rustfs_image`` (default
+  ``rustfs/rustfs:latest``) fixtures; overriding them changes the image ``minio_service`` / ``rustfs_service`` start.
+* Python 3.14 and 3.15 classifiers.
+* Podman support. The runtime is resolved from ``PYTEST_DATABASES_CONTAINER_RUNTIME_ENDPOINT``, ``DOCKER_HOST``,
+  ``CONTAINER_HOST``, the current Docker context, the default Docker socket, Podman connection files, and the
+  rootless and rootful Podman sockets, preferring Docker in ``auto`` mode.
+* ``--container-runtime`` option and ``container_runtime`` ini setting (``auto``, ``docker`` or ``podman``); the
+  ``PYTEST_DATABASES_CONTAINER_RUNTIME`` environment variable sets the same choice.
+* ``container_runtime``, ``container_client`` and ``container_service`` fixtures. ``docker_client`` and
+  ``docker_service`` remain as aliases, and ``DockerService`` is an alias of ``ContainerService``.
+* ``ContainerRuntimeConfig``, ``RuntimeType``, ``RuntimeCandidate``, ``RuntimeResolutionError``,
+  ``derive_session_owner_id``, ``stop_owned_containers``, ``stop_all_containers`` and the ``MANAGED_LABEL``,
+  ``OWNER_LABEL`` and ``SERVICE_LABEL`` constants exported from ``pytest_databases``.
+* ``PYTEST_DATABASES_NAMESPACE`` environment variable, appended to the session owner ID so concurrent runs from the
+  same checkout do not share containers.
+* ``ContainerService.run_container``, ``resolve_port``, ``get_internal_network_ip`` and the ``extra_ports``
+  argument of ``ContainerService.run``.
+* ``xdist_spanner_isolation_level`` (default ``database``), ``spanner_project``, ``spanner_instance_name`` and
+  ``spanner_database_name`` fixtures, ``SpannerService.rest_port`` / ``rest_endpoint``,
+  ``provide_spanner_service`` and ``bootstrap_spanner_emulator(host, rest_port, ...)``.
+* Keyword-only ``ContainerService.run`` arguments ``wait_for_health``, ``entrypoint``, ``privileged``,
+  ``ipc_mode``, ``cap_add``, ``devices``, ``hostname`` and ``volumes``, forwarded to the container runtime;
+  ``command`` also accepts a list.
+* ``wait_for_container_health(container, service_name, timeout, pause)``, which waits for ``State.Health.Status`` to
+  become ``healthy`` and fails at once when the image defines no ``HEALTHCHECK``. ``run(wait_for_health=True)`` uses
+  it before the other readiness checks.
+* ``--keep-containers`` option and ``PYTEST_DATABASES_KEEP_CONTAINERS`` environment variable to leave session
+  containers running after pytest exits, plus ``should_keep_containers(config)``.
+* ``gizmosql_duckdb_service`` and ``gizmosql_sqlite_service`` fixtures (``gizmosql_service`` stays the DuckDB
+  service), ``GizmoSQLService.backend`` and ``connection_kwargs``, and ``exec_gizmosql``.
+* ``alloydb_omni_18_service``, ``alloydb_omni_18_connection`` and ``alloydb_omni_18_port`` (env
+  ``ALLOYDB_OMNI_18_PORT``).
+* ``exec_psql``, ``create_worker_database``, ``make_connection_string``, ``clone_template_database`` and
+  ``drop_database_force`` in ``pytest_databases.docker.postgres``, plus ``PostgresService.clone_template_database``
+  and ``PostgresService.drop_database_force``.
+* ``pytest_databases.helpers.tcp_port_open(host, port, timeout)``.
+* ``ensure_azurite_container``, ``azurite_container_exists`` and ``build_shared_key_authorization`` in
+  ``pytest_databases.docker.azure_blob`` for stdlib SharedKey-signed Azurite requests.
+* ``query_bigquery_emulator``, ``provide_bigquery_service`` and ``provide_bigquery_client`` in
+  ``pytest_databases.docker.bigquery``.
+* ``elasticsearch_9_service`` with ``elasticsearch_7_image``, ``elasticsearch_8_image`` and ``elasticsearch_9_image``
+  (default ``elasticsearch:9.5.5``) fixtures, and ``provide_elasticsearch_service``.
+* ``mariadb_118_service`` (``mariadb:11.8``), ``mariadb_123_service`` (``mariadb:12.3``), ``mariadb_130_service``
+  (``mariadb:13.0``) and ``provide_mariadb_service``.
+* ``mysql_97_service`` (``mysql:9.7``) and ``provide_mysql_service``.
+* ``mssql_2022_service`` and ``mssql_2025_service`` with ``mssql_2022_image`` and ``mssql_2025_image`` (default
+  ``mcr.microsoft.com/mssql/server:2025-latest``), ``exec_sqlcmd`` (tries the ``mssql-tools18``, ``mssql-tools`` and
+  ``PATH`` ``sqlcmd`` binaries) and ``provide_mssql_service``.
+* ``xdist_oracle_isolation_level`` (default ``database``), ``oracle_user``, ``oracle_password`` and
+  ``oracle_system_password`` fixtures, ``ensure_oracle_user`` and ``provide_oracle_service``.
+* ``provide_cockroachdb_service``, ``provide_mongodb_service`` and ``provide_dolt_service``; ``dolt_image`` fixture
+  (default ``dolthub/dolt-sql-server:latest``).
+* ``mysql_platform``, ``dolt_platform`` and ``bigquery_platform`` fixtures. ``mysql_56_service`` /
+  ``mysql_57_service``, ``dolt_service`` and ``bigquery_service`` read their container platform from these.
+* ``redpanda_service`` (``RedpandaService`` with ``bootstrap_servers`` and ``topic_prefix``), ``redpanda_image``
+  (default ``docker.redpanda.com/redpandadata/redpanda:v26.1.13``, env ``REDPANDA_IMAGE``), ``redpanda_port`` (env
+  ``REDPANDA_PORT``), ``xdist_redpanda_isolation_level`` (default ``database``), ``provide_redpanda_service`` and
+  ``fetch_kafka_brokers``. The broker advertises the host port the runtime maps.
+* ``localstack_service`` (``LocalStackService`` with ``endpoint_url``, credentials, ``resource_prefix`` and
+  ``exec_aws_cli()``), ``provide_localstack_service`` and the ``localstack_image``, ``localstack_auth_token``,
+  ``localstack_region``, ``localstack_access_key``, ``localstack_secret_key``, ``localstack_services``,
+  ``localstack_resource_prefix`` and ``xdist_localstack_isolation_level`` fixtures (each with a ``LOCALSTACK_*``
+  environment variable). The default image is MiniStack (``ministackorg/ministack:latest``); set
+  ``LOCALSTACK_IMAGE`` and ``LOCALSTACK_AUTH_TOKEN`` for a LocalStack image.
+* ``pytest_databases.helpers.http_get_ok(url, *, timeout)`` and ``http_get_json(url, *, timeout)`` HTTP readiness
+  probes.
+* ``pubsub_service`` (``PubSubService`` with ``project``, ``emulator_host`` and ``endpoint``), ``pubsub_image``
+  (default ``gcr.io/google.com/cloudsdktool/google-cloud-cli:577.0.0-emulators``, env ``PUBSUB_IMAGE``),
+  ``pubsub_project``, ``xdist_pubsub_isolation_level`` (default ``database``: one emulator, a project per worker) and
+  ``provide_pubsub_service``.
+* ``rabbitmq_service`` (``RabbitMQService`` with ``amqp_url``, ``management_port`` and ``management_url``),
+  ``rabbitmq_image`` (default ``rabbitmq:4.3-management``), ``rabbitmq_username``, ``rabbitmq_password``,
+  ``rabbitmq_vhost``, ``xdist_rabbitmq_isolation_level`` (default ``database``: one broker, a virtual host per worker)
+  and ``provide_rabbitmq_service``.
+* ``db2_service`` (``Db2Service`` with ``dsn``, ``connection_config``, ``exec_sql()`` and
+  ``create_worker_database()``), ``db2_image`` (default ``icr.io/db2_community/db2:12.1.5.0``, env ``DB2_IMAGE``),
+  ``db2_dbname``, ``db2_username``, ``db2_password``, ``db2_startup_timeout``, ``xdist_db2_isolation_level`` (default
+  ``database``: one container, a ``ptdb_<worker>`` database per worker), ``exec_db2_sql``, ``create_worker_database``,
+  ``validate_db2_database_name`` and ``provide_db2_service``. The container runs privileged. ``db2_4k_device_support``
+  (default ``True``, env ``DB2_4K_DEVICE_SUPPORT``) sets ``DB2_4K_DEVICE_SUPPORT=ON`` and ``DB2_DIRECT_IO=NO`` before
+  the first ``db2start`` so the database is created on storage with 4096-byte logical sectors.
+* ``oracle_adb_service`` (``OracleADBService`` with TLS, mTLS, ORDS and MongoDB API ports, ``wallet_dir``,
+  ``ords_url``, ``apex_url``, ``sql_developer_url``, ``mongo_uri``, ``extract_wallet()`` and ``enable_ords_schema()``)
+  for Oracle Autonomous Database Free (default ``container-registry.oracle.com/database/adb-free:latest-23ai``, env
+  ``ORACLE_ADB_IMAGE``), the ``oracle_adb_image``, ``oracle_adb_workload_type``, ``oracle_adb_hostname``,
+  ``oracle_adb_tz``, ``oracle_adb_password``, ``oracle_adb_admin_password``, ``oracle_adb_wallet_password``,
+  ``oracle_adb_wallet_dir``, ``oracle_adb_volumes``, ``oracle_adb_devices`` and ``oracle_adb_filesystemio_options``
+  fixtures, and ``provide_oracle_adb_service``, ``ensure_oracle_adb_user``, ``enable_oracle_ords_schema``,
+  ``extract_adb_wallet``, ``parse_tnsnames``, ``rewrite_tnsnames`` and ``rewrite_sqlnet_ora``.
+  ``oracle_adb_filesystemio_options`` (default ``NONE``, env ``ORACLE_ADB_FILESYSTEMIO_OPTIONS``) rewrites the server
+  parameter file before the database starts so the instance opens on storage with 4096-byte logical sectors.
+* Floci cloud emulators in ``pytest_databases.docker.floci``: ``floci_aws_service`` (``FlociAWSService``, image
+  ``floci/floci:2.4.0``, port ``4566``), ``floci_az_service`` (``FlociAzureService`` with ``blob_endpoint``,
+  ``floci/floci-az:0.16.0``, port ``4577``), ``floci_gcp_service`` (``FlociGCPService`` with ``ensure_bucket()``,
+  ``storage_emulator_host`` and ``pubsub_emulator_host``, ``floci/floci-gcp:0.12.0``, port ``4588``) and
+  ``floci_oci_service`` (``FlociOCIService`` with ``ensure_bucket()``, ``floci/floci-oci:0.6.0``, port ``4599``), with
+  ``floci_<cloud>_image`` fixtures (env ``FLOCI_AWS_IMAGE``, ``FLOCI_AZ_IMAGE``, ``FLOCI_GCP_IMAGE``,
+  ``FLOCI_OCI_IMAGE``), ``floci_aws_region``, ``floci_aws_access_key``, ``floci_aws_secret_key``,
+  ``floci_az_account_name``, ``floci_az_account_key``, ``floci_gcp_project``, ``floci_oci_namespace`` (default
+  ``floci-local``), ``floci_oci_region``, ``floci_oci_compartment_id``, ``floci_resource_prefix``,
+  ``xdist_floci_isolation_level`` (default ``database``: one container per cloud), ``provide_floci_container``,
+  ``check_floci_health``, ``ensure_gcs_bucket``, ``ensure_oci_bucket``, ``FLOCI_CONTAINER_PORTS`` and
+  ``FLOCI_HEALTH_PATHS``.
+* ``snowflake_service`` (``SnowflakeService`` with ``endpoint``, ``connection_kwargs``, ``login()`` and ``query()``)
+  for the Embucket Snowflake-compatible emulator (default ``embucket/embucket:0.2.2``, env ``SNOWFLAKE_IMAGE``, port
+  ``3000``), the ``snowflake_image``, ``snowflake_user``, ``snowflake_password``, ``snowflake_account``,
+  ``snowflake_database``, ``snowflake_schema``, ``snowflake_warehouse``, ``snowflake_role`` and
+  ``xdist_snowflake_isolation_level`` (default ``database``: one container, a ``public_<worker>`` schema per worker)
+  fixtures, and ``provide_snowflake_service``, ``check_snowflake_health``, ``login_snowflake_emulator`` and
+  ``query_snowflake_emulator``. ``query()`` logs in as ``snowflake_user`` and runs in ``snowflake_database`` /
+  ``snowflake_schema``.
+* ``sybase_service`` (``SybaseService`` with ``connection_config``, ``dsn``, ``exec_sql()`` and
+  ``create_worker_database()``) for SAP ASE (default ``datagrip/sybase:16.0``, env ``SYBASE_IMAGE``, port ``5000``),
+  the ``sybase_image``, ``sybase_user``, ``sybase_password``, ``sybase_database``, ``sybase_startup_timeout`` and
+  ``xdist_sybase_isolation_level`` (default ``database``: one container and a ``<sybase_database>_<worker>``
+  database per worker, ``pytestdb_<worker>`` when ``sybase_database`` is ``master``) fixtures, and
+  ``provide_sybase_service``, ``exec_isql``, ``create_worker_database`` and ``validate_sybase_database_name``.
+* ``sqlanywhere_service`` (``SQLAnywhereService`` with ``connection_config``, ``dsn`` and ``exec_sql()``) for SAP SQL
+  Anywhere (default ``jaschweder/sybase:latest``, env ``SQLANYWHERE_IMAGE``, port ``2638``), the
+  ``sqlanywhere_image``, ``sqlanywhere_user``, ``sqlanywhere_password``, ``sqlanywhere_database``,
+  ``sqlanywhere_server``, ``sqlanywhere_startup_timeout`` and ``xdist_sqlanywhere_isolation_level`` (default and only
+  supported value ``server``: one container per worker) fixtures, the ``sqlanywhere_client_libs`` fixture (extracts
+  the native client libraries and sets ``SQLANY16`` / ``SQLANY_API_DLL`` for the session), and
+  ``provide_sqlanywhere_service``, ``exec_dbisql``, ``extract_sqlanywhere_client_libs`` and
+  ``sqlanywhere_client_environment``.
+* ``"template"`` value for ``xdist_postgres_isolation_level`` (typed ``PostgresXdistIsolationLevel``): one container,
+  a template database built once under a file lock, and the service database cloned from it with
+  ``CREATE DATABASE ... TEMPLATE``, with or without ``pytest-xdist``, for every PostgreSQL family service. Fixtures
+  ``postgres_template_name``, ``postgres_template_setup`` (SQL statements, ``.sql`` paths, or a callable),
+  ``postgres_template_fingerprint_sources``, ``postgres_template_lock_dir`` and ``postgres_template_options``
+  (``PostgresTemplateOptions``); the setup SQL and file contents are hashed into the template name
+  (``pytest_databases_template_<digest>``). ``PostgresService.ensure_template()``,
+  ``create_worker_database_from_template()``, ``sweep_worker_databases()`` and ``compute_fingerprint()``.
+* ``pytest_databases.embedded.postgres``: ``embedded_postgres_service`` (``EmbeddedPostgresService`` with ``dsn``,
+  ``connection_config``, ``exec_sql()`` and the same template helpers as ``PostgresService``) runs local ``initdb`` /
+  ``postgres`` binaries with trust authentication on a loopback port, without a container runtime or ``psql``.
+  Binaries come from ``embedded_postgres_bin_dir``, ``PG_BIN_DIR``, the new ``embedded-postgres`` extra (``pgembed``
+  on Python 3.12+, ``pgserver`` on 3.11), the ``PATH``, ``pg_config --bindir``, or common install directories.
+  Fixtures ``embedded_postgres_user``, ``embedded_postgres_database``, ``embedded_postgres_port``,
+  ``embedded_postgres_bin_dir``, ``embedded_postgres_template_name``, ``embedded_postgres_template_setup``,
+  ``embedded_postgres_template_fingerprint_sources``, ``embedded_postgres_template_lock_dir`` and
+  ``xdist_embedded_postgres_isolation_level`` (default ``template``: xdist workers share one cluster and each gets a
+  database cloned from the template). ``provide_embedded_postgres_service``, ``resolve_postgres_binaries`` and
+  ``PostgresBinaries``.
+* ``cloudflare_service`` (``CloudflareService`` with ``api_base_url``, ``r2_s3_endpoint_url``, ``kv_put()``,
+  ``kv_get()``, ``r2_put()``, ``r2_get()`` and ``d1_query()``) for Cloudflare KV, R2 and D1, backed by Miniflare's
+  Local Explorer API and R2 S3 endpoint in a ``node:22-slim`` container (env ``CLOUDFLARE_IMAGE``, port ``8787``;
+  Miniflare ``5.20261104.0-beta`` is installed from npm on first start unless the image provides it). Fixtures
+  ``cloudflare_image``, ``cloudflare_miniflare_version``, ``cloudflare_kv_namespaces``, ``cloudflare_r2_buckets``,
+  ``cloudflare_d1_databases`` (default ``("default",)``), ``cloudflare_access_key_id``,
+  ``cloudflare_secret_access_key``, ``cloudflare_startup_timeout`` (default ``300``) and
+  ``xdist_cloudflare_isolation_level`` (default ``database``: one container binding ``<name>_<worker>`` for every
+  worker), and ``provide_cloudflare_service``.
+* ``pytest_databases.helpers.http_request(url, *, method, data, headers, timeout)``, which returns ``(status, body)``
+  for container endpoints without going through ``HTTP_PROXY``.
+
+Changed
+~~~~~~~
+
+* Default MinIO image changed from ``quay.io/minio/minio`` to ``cgr.dev/chainguard/minio:latest``.
+* ``minio_service`` and ``rustfs_service`` create the default bucket with an AWS SigV4-signed HTTP ``PUT`` from the
+  test process. The ``minio/mc:latest`` and ``rustfs/rc:latest`` helper containers (run with
+  ``network_mode="host"``) are no longer pulled or started. With ``minio_secure`` / ``rustfs_secure`` enabled the
+  request skips TLS certificate verification.
+* Containers start with a dynamic host port retry when the runtime reports the port is already in use, and a
+  container that exits during startup fails the fixture at once with its last log lines.
+* ``ContainerService.run(shm_size=...)`` is now passed to the container runtime (it was accepted and ignored) and
+  also accepts size strings such as ``"2g"``.
+* Without ``pytest-xdist``, an interpreter-exit hook stops the session's containers if pytest exits before its
+  normal teardown.
+* ``spanner_service`` creates the emulator instance and database through the emulator REST API (port 9020) instead of
+  running the ``gcr.io/google.com/cloudsdktool/cloud-sdk:slim`` image. Under ``pytest-xdist`` with the default
+  ``database`` isolation, workers share one emulator and each gets ``emulator-test-database_<worker>``.
+* ``yugabyte_service`` readiness verifies the database inside the service container and probes the mapped port,
+  instead of starting a second ``ysqlsh`` container with ``network_mode="host"``.
+* ``redis_service``, ``dragonfly_service``, ``keydb_service`` and ``valkey_service`` check readiness with a RESP
+  ``PING`` over a stdlib socket; the ``redis`` and ``valkey`` packages are no longer imported by the plugin.
+* Under ``pytest-xdist`` with the default ``database`` isolation, Redis-family services give each worker logical
+  database ``<worker> % 16`` and start an extra shared container (``<service>_shared_<n>``) for every 16 workers,
+  instead of using database ``<worker>`` in one container.
+* ``valkey_service`` under ``pytest-xdist`` with the default ``database`` isolation now shares one container and
+  gives each worker its own logical database (``ValkeyService.db``), instead of starting a container per worker.
+* ``gizmosql_service`` checks readiness by running ``SELECT 4242`` through ``gizmosql_client`` inside the container
+  and matching the exact value; ``adbc-driver-flightsql`` is no longer imported by the plugin.
+* GizmoSQL container names include the backend (``gizmosql-duckdb``, ``gizmosql-sqlite``); under ``pytest-xdist``
+  every worker still gets its own container per backend for both isolation levels.
+* Postgres-family services (``postgres_*``, ``pgvector_*``, ``paradedb_*``, ``alloydb_omni_*``) check readiness
+  with ``psql`` inside the container followed by a TCP probe of the published port, and create the per-worker
+  database with ``psql``; ``psycopg`` is no longer imported by the plugin.
+* Default ``alloydb_omni_image`` changed from ``google/alloydbomni:17`` to ``gcr.io/alloydb-omni/alloydbomni:18``.
+* ``alloydb_omni_15_service``, ``alloydb_omni_16_service`` and ``alloydb_omni_17_service`` pull from
+  ``gcr.io/alloydb-omni/alloydbomni:<version>`` instead of ``google/alloydbomni:<version>``.
+* ``azure_blob_service`` checks readiness and creates its default container with stdlib HTTP requests signed with
+  SharedKey; ``azure-storage-blob`` is no longer imported by the plugin.
+* ``bigquery_service`` checks readiness with a stdlib HTTP query against the emulator REST API; the Google Cloud
+  libraries are no longer imported by the plugin. ``bigquery_client`` now closes its client at teardown.
+* Under ``pytest-xdist`` with the default ``database`` isolation, ``bigquery_service`` starts one shared emulator and
+  gives each worker its own dataset (``BigQueryService.dataset`` = ``test-dataset_<worker>``), instead of one
+  emulator per worker with ``test-dataset``. Read the dataset from ``BigQueryService.dataset``.
+* Under ``pytest-xdist`` with the default ``database`` isolation, Oracle services start one shared container per
+  version and give each worker its own user, so ``OracleService.user`` is ``app_<worker>`` instead of ``app``. Set
+  ``xdist_oracle_isolation_level`` to ``server`` for the previous container per worker.
+* ``dolt_service`` and ``mysql_8_service`` / ``mysql_84_service`` / ``mysql_96_service`` run the native image
+  platform instead of ``linux/x86_64``. ``mysql_56_service`` and ``mysql_57_service`` keep ``linux/x86_64``.
+* MySQL and MariaDB services start with ``--performance-schema=ON``.
+* ``elasticsearch_service_memory_limit`` default changed from ``500m`` to ``1g`` and is now applied to the
+  Elasticsearch containers (0.19.0 always used ``1g``).
+* ``mssql_service`` reuses the ``mssql_2022_service`` container when ``mssql_image`` equals ``mssql_2022_image``,
+  and SQL Server services wait until the per-worker database is ``ONLINE``.
+* ``elasticsearch_service`` and ``oracle_startup_connection`` resolve again; in 0.19.0 they requested the undefined
+  fixtures ``elasticsearch8_service`` and ``oracle_23ai_startup_connection``.
+* The deprecated ``@contextmanager`` connection helpers warn with ``stacklevel=3``, which attributes the warning to
+  the fixture rather than ``contextlib``.
+
+Deprecated
+~~~~~~~~~~
+
+* ``pytest_databases.docker.valkey.valkey_responsive``; use ``pytest_databases.docker.redis.redis_responsive``.
+  Removal in 1.0.0.
+* ``gizmosql_connection``; use ``gizmosql_service`` with its ``uri`` and ``connection_kwargs`` and open your own
+  ADBC Flight SQL connection. Removal in 1.0.0.
+* Postgres-family ``*_connection`` fixtures (``postgres_connection``, ``postgres_<version>_connection``,
+  ``pgvector_*_connection``, ``paradedb_*_connection``, ``alloydb_omni_*_connection``); use the matching
+  ``*_service`` fixture and open your own ``psycopg`` connection. Removal in 1.0.0.
+* ``azure_blob_container_client`` and ``azure_blob_async_container_client``; use ``azure_blob_service`` and build
+  your own ``ContainerClient`` from ``connection_string``. Removal in 1.0.0.
+* ``bigquery_client``, ``BigQueryService.credentials``, ``BigQueryService.client_options`` and the
+  ``credentials`` argument of ``BigQueryService`` (now ignored); build ``AnonymousCredentials()`` and
+  ``ClientOptions(api_endpoint=service.endpoint)`` yourself. Removal in 1.0.0.
+* ``cockroachdb_connection``; use ``cockroachdb_service`` and open your own ``psycopg`` connection. Removal in 1.0.0.
+* ``mongodb_connection`` and ``mongodb_database``; use ``mongodb_service`` and open your own ``pymongo`` client.
+  Each now emits a single warning. Removal in 1.0.0.
+* ``oracle_18c_connection``, ``oracle_23ai_connection``, ``oracle_startup_connection`` and ``oracle_responsive``;
+  use ``oracle_service`` (or the versioned services) and open your own ``oracledb`` connection. Removal in 1.0.0.
+* ``spanner_connection``, ``SpannerService.credentials``, ``SpannerService.client_options`` and the ``credentials``
+  argument of ``SpannerService`` (now ignored); build the client, ``AnonymousCredentials()`` and
+  ``ClientOptions(api_endpoint=service.endpoint)`` yourself. Removal in 1.0.0.
+* ``elasticsearch7_responsive`` and ``elasticsearch8_responsive``; the Elasticsearch services check readiness
+  without a client. Removal in 1.0.0.
+* The bare ``platform`` fixture and overriding it. A ``platform`` override defined outside ``pytest_databases`` is
+  still honored by the MySQL, Dolt and BigQuery services with one warning; override ``mysql_platform``,
+  ``dolt_platform`` or ``bigquery_platform`` instead. Removal in 1.0.0.
+* ``DockerServiceRegistry``; use the ``docker_service`` fixture. Removal in 1.0.0.
+
+Breaking
+~~~~~~~~
+
+* ``requires-python`` raised from ``>=3.9`` to ``>=3.11``. Python 3.9 and 3.10 are no longer supported.
+* The ``all`` optional extra has been removed; install the specific provider extras or client packages directly.
+* Container names changed from ``pytest_databases_<service>`` to ``pytest_databases_<service>_<owner>``, where
+  ``<owner>`` is derived from the pytest root path (plus ``PYTEST_DATABASES_NAMESPACE``). Scripts that address
+  containers by the old name must filter on the ``pytest_databases.service`` label instead.
+* Container labels changed from the list ``["pytest_databases"]`` to a mapping with ``pytest_databases``,
+  ``pytest_databases.owner`` and ``pytest_databases.service`` keys.
+* Session start and end only remove containers carrying this session's ``pytest_databases.owner`` label, instead
+  of every container labelled ``pytest_databases``. Use ``stop_all_containers`` for the previous behavior.
+* ``get_docker_host()`` returns the endpoint of the resolved runtime instead of parsing ``docker context ls``, and
+  raises ``RuntimeResolutionError`` when no Docker or Podman endpoint is reachable.
+* Under ``pytest-xdist`` with the default ``database`` isolation, ``minio_default_bucket_name`` and
+  ``rustfs_default_bucket_name`` are now ``pytest-databases-<worker>`` (previously ``pytest-databases`` for all
+  workers). Read the bucket from the fixture instead of hard-coding it.
+* A failure to create the MinIO or RustFS default bucket now raises ``RuntimeError`` during fixture setup instead of
+  being ignored.
+* ``azure_blob_service`` creates the ``azure_blob_default_container_name`` container (``pytest-databases``) before
+  yielding, so ``azure_blob_container_client.create_container()`` on the default container now raises
+  ``ResourceExistsError``. Drop the call or guard it with ``exists()``.
+* The ``cockroachdb`` (``psycopg``), ``elasticsearch7``, ``elasticsearch8``, ``mongodb`` (``pymongo``), ``oracle``
+  (``oracledb``) and ``valkey`` extras no longer install a driver, because the services check readiness without
+  one. If you use the deprecated ``cockroachdb_connection``, ``mongodb_connection``, ``mongodb_database`` or
+  ``oracle_*_connection`` fixtures, install ``psycopg``, ``pymongo`` or ``oracledb`` directly.
+
 0.19.0 (2026-05-23)
 -------------------
 

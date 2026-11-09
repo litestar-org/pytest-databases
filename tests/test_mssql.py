@@ -1,11 +1,33 @@
+"""Tests for Microsoft SQL Server container service fixtures."""
+
 from __future__ import annotations
 
-import pytest
+from contextlib import contextmanager
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
-from tests.conftest import PLATFORM_PROCESSOR
+import pytest
+from docker.errors import APIError
+
+from pytest_databases.docker import mssql
+from pytest_databases.docker.mssql import (
+    MSSQLService,
+    _prepare_database,
+    exec_sqlcmd,
+    mssql_2022_image,
+    mssql_2025_image,
+    mssql_service,
+    provide_mssql_service,
+)
+from pytest_databases.types import ServiceContainer
+from tests.conftest import PLATFORM_PROCESSOR, unwrap_fixture
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 def test_plugin_imports_without_pymssql(pytester: pytest.Pytester) -> None:
+    """Verify mssql plugin imports cleanly without pymssql installed."""
     pytester.makepyfile("""
     import builtins
 
@@ -28,8 +50,69 @@ def test_plugin_imports_without_pymssql(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
+def test_mssql_sqlcmd_fallback_and_images() -> None:
+    """Verify exec_sqlcmd falls back across sqlcmd binary locations and image fixtures exist."""
+    assert unwrap_fixture(mssql_2022_image)() == "mcr.microsoft.com/mssql/server:2022-latest"
+    assert unwrap_fixture(mssql_2025_image)() == "mcr.microsoft.com/mssql/server:2025-latest"
+
+    mock_container = MagicMock()
+    mock_container.exec_run.side_effect = [
+        MagicMock(exit_code=127, output=b"executable file not found"),
+        MagicMock(exit_code=0, output=b"1\n"),
+    ]
+    exit_code, output = exec_sqlcmd(mock_container, "SELECT 1")
+    assert exit_code == 0
+    assert output == b"1\n"
+    assert mock_container.exec_run.call_count == 2
+    first_cmd = mock_container.exec_run.call_args_list[0].args[0]
+    second_cmd = mock_container.exec_run.call_args_list[1].args[0]
+    assert first_cmd[0] == "/opt/mssql-tools18/bin/sqlcmd"
+    assert second_cmd[0] == "/opt/mssql-tools/bin/sqlcmd"
+
+
+@pytest.mark.parametrize(
+    ("image", "expected_name"),
+    [
+        ("mcr.microsoft.com/mssql/server:2022-latest", "mssql-2022"),
+        ("mcr.microsoft.com/mssql/server:2019-latest", "mssql"),
+    ],
+)
+def test_mssql_service_reuses_2022_container_for_default_image(
+    monkeypatch: pytest.MonkeyPatch,
+    image: str,
+    expected_name: str,
+) -> None:
+    """Verify mssql_service shares the mssql_2022_service container only when it runs the 2022 image."""
+    captured: dict[str, object] = {}
+
+    @contextmanager
+    def fake_provide(**kwargs: object) -> Generator[str, None, None]:
+        captured.update(kwargs)
+        yield "service"
+
+    monkeypatch.setattr(mssql, "provide_mssql_service", fake_provide)
+    fixture_gen = unwrap_fixture(mssql_service)(
+        MagicMock(),
+        "database",
+        image,
+        "mcr.microsoft.com/mssql/server:2022-latest",
+        "sa",
+        "secret",
+        "db",
+    )
+
+    assert next(fixture_gen) == "service"
+    assert captured["name"] == expected_name
+    assert captured["image"] == image
+
+
 @pytest.fixture(scope="module")
 def mssql_test_helpers() -> str:
+    """Return shared SQL Server sqlcmd test helper code.
+
+    Returns:
+        Helper Python source code string.
+    """
     return """
     def run_mssql(service, sql, database=None):
         prefix = "" if sql.lstrip().upper().startswith(("ALTER", "CREATE", "DROP")) else "SET NOCOUNT ON; "
@@ -57,7 +140,9 @@ def mssql_test_helpers() -> str:
 
 
 @pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="SQL Server container image is not supported on ARM")
-def test_service_fixture(pytester: pytest.Pytester, mssql_test_helpers: str) -> None:
+@pytest.mark.parametrize("service_fixture", ["mssql_service", "mssql_2022_service", "mssql_2025_service"])
+def test_service_fixture(pytester: pytest.Pytester, mssql_test_helpers: str, service_fixture: str) -> None:
+    """Verify each SQL Server service fixture starts and executes T-SQL queries with custom credentials."""
     pytester.makepyfile(f"""
     import pytest
 
@@ -77,15 +162,16 @@ def test_service_fixture(pytester: pytest.Pytester, mssql_test_helpers: str) -> 
 
     {mssql_test_helpers}
 
-    def test(mssql_service):
-        assert mssql_service.user == "custom_mssql_user"
-        assert mssql_service.password == "Custom-secret1"
-        assert mssql_service.database == "custom_mssql_database"
-        assert run_mssql(mssql_service, "SELECT 1 AS is_available") == ["1"]
-        run_mssql(mssql_service, "CREATE TABLE simple_table (the_value int)")
-        run_mssql(mssql_service, "INSERT INTO simple_table VALUES (1)")
-        assert run_mssql(mssql_service, "SELECT the_value FROM simple_table") == ["1"]
-        run_mssql(mssql_service, "DROP TABLE simple_table")
+    def test({service_fixture}):
+        service = {service_fixture}
+        assert service.user == "custom_mssql_user"
+        assert service.password == "Custom-secret1"
+        assert service.database == "custom_mssql_database"
+        assert run_mssql(service, "SELECT 1 AS is_available") == ["1"]
+        run_mssql(service, "CREATE TABLE simple_table (the_value int)")
+        run_mssql(service, "INSERT INTO simple_table VALUES (1)")
+        assert run_mssql(service, "SELECT the_value FROM simple_table") == ["1"]
+        run_mssql(service, "DROP TABLE simple_table")
     """)
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
@@ -94,6 +180,7 @@ def test_service_fixture(pytester: pytest.Pytester, mssql_test_helpers: str) -> 
 
 @pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="SQL Server container image is not supported on ARM")
 def test_xdist_isolate_database(pytester: pytest.Pytester, mssql_test_helpers: str) -> None:
+    """Verify mssql_service isolates databases per pytest-xdist worker."""
     pytester.makepyfile(f"""
     pytest_plugins = ["pytest_databases.docker.mssql"]
 
@@ -112,6 +199,7 @@ def test_xdist_isolate_database(pytester: pytest.Pytester, mssql_test_helpers: s
 
 @pytest.mark.skipif(PLATFORM_PROCESSOR == "arm", reason="SQL Server container image is not supported on ARM")
 def test_xdist_isolate_server(pytester: pytest.Pytester, mssql_test_helpers: str) -> None:
+    """Verify mssql_service isolates server containers per pytest-xdist worker."""
     pytester.makepyfile(f"""
     import pytest
 
@@ -132,3 +220,107 @@ def test_xdist_isolate_server(pytester: pytest.Pytester, mssql_test_helpers: str
 
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2", "-vv")
     result.assert_outcomes(passed=2)
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "user", "expected_name", "expected_db"),
+    [
+        (None, "database", "sa", "mssql", "db"),
+        (1, "database", "custom_user", "mssql", "db_1"),
+        (2, "server", "sa", "mssql_2", "db"),
+    ],
+)
+def test_provide_mssql_service_and_prepare_database_branches(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_num: int | None,
+    isolation_level: str,
+    user: str,
+    expected_name: str,
+    expected_db: str,
+) -> None:
+    """Verify provide_mssql_service xdist modes, custom user creation, and retry exhaustion."""
+    monkeypatch.setattr("pytest_databases.docker.mssql.time.sleep", lambda _s: None)
+    monkeypatch.setattr("pytest_databases.docker.mssql.get_xdist_worker_num", lambda: worker_num)
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
+    svc_container = ServiceContainer(host="127.0.0.1", port=1433, container=mock_container)
+    mock_docker.run.return_value.__enter__.return_value = svc_container
+
+    with provide_mssql_service(
+        docker_service=mock_docker,
+        xdist_mssql_isolation_level=isolation_level,  # type: ignore[arg-type]
+        image="mcr.microsoft.com/mssql/server:2022-latest",
+        name="mssql",
+        mssql_user=user,
+        mssql_password="Secret-password1",
+        mssql_database="db",
+    ) as service:
+        assert isinstance(service, MSSQLService)
+        assert service.database == expected_db
+
+    check = mock_docker.run.call_args.kwargs["check"]
+    assert mock_docker.run.call_args.kwargs["name"] == expected_name
+    assert check(svc_container) is True
+    mock_container.exec_run.side_effect = APIError("boom")
+    assert check(svc_container) is False
+
+    mock_container.exec_run.side_effect = None
+    mock_container.exec_run.return_value = MagicMock(exit_code=1, output=b"not ready")
+    with pytest.raises(RuntimeError, match="could not be prepared"):
+        _prepare_database(
+            mock_container,
+            database="db",
+            user="sa",
+            password="Secret-password1",
+        )
+
+    mock_container.exec_run.side_effect = [
+        MagicMock(exit_code=0, output=b""),
+        MagicMock(exit_code=1, output=b"login err"),
+    ] * 15
+    with pytest.raises(RuntimeError, match="could not be prepared"):
+        _prepare_database(
+            mock_container,
+            database="db",
+            user="custom_user",
+            password="Secret-password1",
+        )
+
+
+def test_mssql_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
+    """Exercise all MSSQL session fixtures in-process with a mocked provide_mssql_service."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+    import pytest
+    from pytest_databases.docker import mssql as mssql_mod
+    from pytest_databases.docker.mssql import MSSQLService
+
+    pytest_plugins = ["pytest_databases.docker.mssql"]
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        return MagicMock()
+
+    @contextmanager
+    def _fake_provide(**kwargs):
+        yield MSSQLService(
+            host="127.0.0.1",
+            port=1433,
+            container=MagicMock(),
+            database=kwargs["mssql_database"],
+            user=kwargs["mssql_user"],
+            password=kwargs["mssql_password"],
+        )
+
+    def test_all(request):
+        with patch.object(mssql_mod, "provide_mssql_service", _fake_provide):
+            for name in mssql_mod.__all__:
+                if name.isupper() or name in {"MSSQLService", "provide_mssql_service", "exec_sqlcmd"}:
+                    continue
+                val = request.getfixturevalue(name)
+                assert val is not None
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)
