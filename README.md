@@ -31,7 +31,7 @@ Ready-made database and cloud emulator fixtures for your pytest tests.
 - **MySQL**: MySQL 5.6, 5.7, 8.0, 8.4 LTS, 9.6, and 9.7
 - **MariaDB**: MariaDB 11.3, 11.4 LTS, 11.8 LTS, 12.2, 12.3, and 13.0
 - **Dolt**: Versioned MySQL-compatible database
-- **Oracle Database**: Oracle 18c XE, 23ai Free, and Autonomous Database Free (23ai) with wallet extraction
+- **Oracle Database**: Oracle 18c XE, Oracle AI Database 26ai Free, and Autonomous AI Database Free (26ai) with wallet extraction
 - **Microsoft SQL Server**: SQL Server 2022 and 2025
 - **IBM Db2**: Db2 Community Edition 12.1 (`icr.io/db2_community/db2:12.1.5.0`)
 - **Google Cloud Spanner**: Cloud Spanner emulator

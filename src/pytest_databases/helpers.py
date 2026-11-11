@@ -8,17 +8,23 @@ import json
 import os
 import platform
 import socket
+import tempfile
 import urllib.error
 import urllib.request
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import filelock
+
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Callable, Iterator, Mapping, Sequence
 
     import pytest
 
 __all__ = (
+    "TRUE_VALUES",
+    "env_port",
     "exec_output_to_bytes",
     "get_cpu_architecture",
     "get_xdist_worker_count",
@@ -27,10 +33,14 @@ __all__ = (
     "http_get_json",
     "http_get_ok",
     "http_request",
+    "read_init_scripts",
+    "resolve_legacy_platform",
+    "run_container_init_once",
     "simple_string_hash",
     "tcp_port_open",
 )
 
+TRUE_VALUES: set[str] = {"True", "true", "1", "yes", "y", "Y", "T", "on", "enabled", "ok"}
 _DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -203,6 +213,95 @@ def http_request(
             return exc.code, exc.read()
         finally:
             exc.close()
+
+
+def env_port(var_name: str) -> int | None:
+    """Return an integer TCP port from environment variable ``var_name`` when set and non-empty.
+
+    Args:
+        var_name: Environment variable name to inspect.
+
+    Returns:
+        Parsed integer port, or ``None`` when unset or empty.
+
+    Raises:
+        ValueError: If the environment variable is non-integer or outside ``1..65535``.
+    """
+    value = os.environ.get(var_name)
+    if not value:
+        return None
+    port = int(value)
+    if port < 1 or port > 65535:
+        msg = f"{var_name} must be between 1 and 65535, got {port}."
+        raise ValueError(msg)
+    return port
+
+
+def read_init_scripts(scripts: str | Path | Sequence[str | Path] | None) -> tuple[str, ...]:
+    """Normalize initialization SQL/JS statements and script file paths into non-empty UTF-8 strings.
+
+    ``Path`` entries are read from disk as UTF-8 text; ``str`` entries are treated as literal script
+    statements so multiline SQL or JS text never collides with filesystem lookups.
+
+    Args:
+        scripts: Single statement string, ``Path`` to a script file, sequence of strings/paths, or ``None``.
+
+    Returns:
+        Ordered tuple of non-empty script strings.
+    """
+    if scripts is None:
+        return ()
+    items: Sequence[str | Path] = (scripts,) if isinstance(scripts, (str, Path)) else scripts
+    resolved: list[str] = []
+    for item in items:
+        content = item.read_text(encoding="utf-8") if isinstance(item, Path) else item
+        if content.strip():
+            resolved.append(content)
+    return tuple(resolved)
+
+
+def run_container_init_once(
+    container: object,
+    scope: str,
+    fingerprint: str,
+    action: Callable[[], None],
+    *,
+    timeout: float = 180.0,
+    lock_dir: Path | str | None = None,
+) -> bool:
+    """Execute ``action`` at most once per ``(container.id, scope, fingerprint)`` across workers.
+
+    When ``container.id`` is not a non-empty string (for example on lightweight unit-test doubles),
+    ``action`` runs directly without creating lock or marker files on disk.
+
+    Args:
+        container: Container handle exposing an ``id`` attribute, or an external endpoint identifier string.
+        scope: Logical resource scope inside the container (such as ``"mysql:db_0"`` or ``"sybase:mda"``).
+        fingerprint: Digest or key distinguishing distinct initialization payloads on the same scope.
+        action: Callback performing the initialization work; exceptions propagate without writing the marker.
+        timeout: Maximum seconds to wait for the cross-worker file lock.
+        lock_dir: Optional directory for lock and completion marker files.
+
+    Returns:
+        ``True`` when ``action`` executed in this call, ``False`` when a prior caller already completed it.
+    """
+    container_id = container if isinstance(container, str) else getattr(container, "id", None)
+    if not isinstance(container_id, str) or not container_id:
+        action()
+        return True
+    key = simple_string_hash(f"{container_id}:{scope}:{fingerprint}")
+    base_dir = Path(lock_dir) if lock_dir is not None else Path(tempfile.gettempdir())
+    base_dir.mkdir(parents=True, exist_ok=True)
+    done_path = base_dir / f"pytest-databases-init-{key}.done"
+    if done_path.exists():
+        return False
+    lock_path = base_dir / f"pytest-databases-init-{key}.lock"
+    with filelock.FileLock(str(lock_path), timeout=timeout):
+        if done_path.exists():
+            return False
+        action()
+        done_path.write_text("ok\n", encoding="utf-8")
+        return True
 
 
 def _http_get(url: str, *, timeout: float) -> bytes | None:

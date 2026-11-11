@@ -1,8 +1,9 @@
 Oracle
 ======
 
-Integration with `Oracle Database <https://www.oracle.com/database/>`_ and
-Oracle Autonomous Database Free (``adb-free:latest-23ai``).
+Integration with `Oracle AI Database <https://www.oracle.com/database/>`_ (18c XE
+and 26ai Free) and Oracle Autonomous AI Database Free
+(``adb-free:latest-26ai``).
 
 Installation
 ------------
@@ -39,11 +40,11 @@ Usage Example
            res = cur.fetchone()[0]
            assert res == 1
 
-Autonomous Database Free (23ai)
--------------------------------
+Autonomous AI Database Free (26ai)
+----------------------------------
 
 ``oracle_adb_service`` starts the official
-``container-registry.oracle.com/database/adb-free:latest-23ai`` container image,
+``container-registry.oracle.com/database/adb-free:latest-26ai`` container image,
 exposes all four Autonomous Database ports (``1521`` TLS, ``1522`` mTLS,
 ``8443`` ORDS / APEX / SQL Developer Web HTTPS, and ``27017`` Oracle Database
 API for MongoDB), provisions the test user via the ``ADMIN`` account on the
@@ -96,25 +97,80 @@ The wallet and endpoints are available on the service:
        entries = parse_tnsnames((oracle_adb_service.wallet_dir / "tnsnames.ora").read_text(encoding="utf-8"))
        assert "myatp_high" in entries
 
+Parallel Execution
+------------------
+
+By default, ``xdist_oracle_isolation_level`` returns ``"database"``. Under
+``pytest-xdist``, workers share one container per Oracle flavor
+(``oracle26ai``, ``oracle18c``, and ``oracle_adb``) and each worker receives
+an isolated user named ``<oracle_user>_<worker>`` (for example ``app_0`` and
+``app_1``). Both single-process and ``pytest-xdist`` sessions provision the
+active user via :func:`~pytest_databases.docker.oracle.ensure_oracle_user`
+under a cross-worker file lock with identical ``CONNECT``, ``RESOURCE``, and
+``DBA`` roles plus ``QUOTA UNLIMITED ON USERS``, idempotently tolerating
+``ORA-01920`` and retrying transient ``ORA-*`` startup or lock errors.
+
+:meth:`~pytest_databases.docker.oracle.OracleService.exec_sql` and
+:func:`~pytest_databases.docker.oracle.exec_oracle_sql` run SQL or PL/SQL
+through in-container ``sqlplus`` against either a pluggable database service
+or ``CDB$ROOT`` (``cdb_root=True`` / ``sqlplus -L -S / as sysdba``). Custom
+fixtures calling :func:`~pytest_databases.docker.oracle.provide_oracle_service`
+or :func:`~pytest_databases.docker.oracle.provide_oracle_adb_service` can also
+pass ``host_port``, ``env``, ``volumes``, ``shm_size``, ``mem_limit``, and
+one-shot ``init_sql`` scripts.
+
+High-concurrency suites that open unpooled per-test connections against the
+shared container (for example, SQLAlchemy ``NullPool`` across large test suites
+without ``oracledb`` ``retry_count``) can briefly exhaust TNS listener handlers
+and fail with ``ORA-12516`` (``DPY-6000``). Resolve listener contention using
+either of the following options:
+
+1. Enable connection pooling instead of ``NullPool``, or configure ``oracledb``
+   ``retry_count`` and ``retry_delay`` in your driver connection arguments so
+   transient listener refusals retry automatically.
+2. Override ``xdist_oracle_isolation_level`` to return ``"server"`` so each
+   worker runs a dedicated transient container and listener (at higher memory
+   and startup cost):
+
+.. code-block:: python
+
+   import pytest
+   from pytest_databases.types import XdistIsolationLevel
+
+
+   @pytest.fixture(scope="session")
+   def xdist_oracle_isolation_level() -> XdistIsolationLevel:
+       return "server"
+
 Available Fixtures
 ------------------
 
-* ``oracle_user``: The application username created in the Oracle container.
-* ``oracle_password``: The application user password.
-* ``oracle_system_password``: The Oracle system password.
-* ``oracle_service``: Alias for the latest supported Oracle service.
+* ``oracle_user``: The application username created in the Oracle container (default: ``"app"``, env ``ORACLE_USER``).
+* ``oracle_password``: The application user password (default: ``"super-secret"``, env ``ORACLE_PASSWORD``).
+* ``oracle_system_password``: The Oracle system password (default: ``"super-secret"``, env ``ORACLE_SYSTEM_PASSWORD``).
+* ``oracle_port``: Optional pinned host port for the default Oracle container (default: ``None``, env ``ORACLE_PORT``).
+* ``xdist_oracle_isolation_level``: Worker isolation mode: ``"database"`` (default,
+  shared container with per-worker users) or ``"server"`` (one transient container
+  per worker).
+* ``oracle_startup_timeout``: Startup timeout in seconds for ``oracle_18c_service``
+  and ``oracle_26ai_service`` (default ``180``, env
+  ``ORACLE_STARTUP_TIMEOUT``; non-integer or non-positive values raise ``ValueError``).
+* ``oracle_adb_startup_timeout``: Startup timeout in seconds for
+  ``oracle_adb_service`` (default ``420``, env ``ORACLE_ADB_STARTUP_TIMEOUT``;
+  non-integer or non-positive values raise ``ValueError``).
+* ``oracle_service``: Alias for the latest supported Oracle service (``oracle_26ai_service``).
 
 The following version-specific and Autonomous Database fixtures are also available:
 
-* ``oracle_18c_image``, ``oracle_18c_service_name``, ``oracle_18c_service``: Oracle 18c XE
-* ``oracle_23ai_image``, ``oracle_23ai_service_name``, ``oracle_23ai_service``: Oracle 23ai Free
+* ``oracle_18c_image``, ``oracle_18c_service_name``, ``oracle_18c_port`` (env ``ORACLE_18C_PORT``), ``oracle_18c_service``: Oracle 18c XE
+* ``oracle_26ai_image`` (default ``gvenzl/oracle-free:23-slim-faststart``, delivering the ``23.26.x`` Oracle AI Database 26ai Free release line; env ``ORACLE_26AI_IMAGE``), ``oracle_26ai_service_name`` (default ``FREEPDB1``, env ``ORACLE_26AI_SERVICE_NAME``), ``oracle_26ai_port`` (env ``ORACLE_26AI_PORT``, falling back to ``oracle_port``), ``oracle_26ai_service``: Oracle AI Database 26ai Free. The ``v0.19.0`` ``oracle_23ai_image``, ``oracle_23ai_service_name``, ``oracle_23ai_service``, and ``oracle_23ai_connection`` fixtures (and external overrides of ``oracle_23ai_image``, ``oracle_23ai_service_name``, and ``oracle_23ai_service``) remain available as deprecated aliases until ``v1.0.0``.
 * ``oracle_adb_image``, ``oracle_adb_workload_type`` (``ATP``, ``ADW``, ``AJD``, ``APEX``),
   ``oracle_adb_hostname``, ``oracle_adb_tz``, ``oracle_adb_password``,
   ``oracle_adb_admin_password``, ``oracle_adb_wallet_password``,
   ``oracle_adb_wallet_dir``, ``oracle_adb_volumes``, ``oracle_adb_devices``,
   ``oracle_adb_filesystemio_options`` (default ``NONE``, env ``ORACLE_ADB_FILESYSTEMIO_OPTIONS``),
-  ``oracle_adb_service``:
-  Oracle Autonomous Database Free (23ai)
+  ``oracle_adb_port`` (env ``ORACLE_ADB_PORT``), ``oracle_adb_service``:
+  Oracle Autonomous AI Database Free (26ai)
 
 Service API
 -----------

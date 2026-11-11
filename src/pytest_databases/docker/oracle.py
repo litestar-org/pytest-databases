@@ -5,10 +5,12 @@ from __future__ import annotations
 import contextlib
 import importlib
 import io
+import math
 import os
 import re
 import shlex
 import tarfile
+import tempfile
 import time
 import warnings
 from dataclasses import dataclass
@@ -16,14 +18,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+import filelock
 import pytest
 
 from pytest_databases._service import ContainerService
-from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
+from pytest_databases.helpers import (
+    env_port,
+    exec_output_to_bytes,
+    get_xdist_worker_num,
+    read_init_scripts,
+    run_container_init_once,
+    simple_string_hash,
+    tcp_port_open,
+)
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Mapping, Sequence
 
     from docker.models.containers import Container
 
@@ -46,31 +57,42 @@ __all__ = [
     "enable_oracle_ords_schema",
     "ensure_oracle_adb_user",
     "ensure_oracle_user",
+    "exec_oracle_sql",
     "extract_adb_wallet",
     "oracle_18c_connection",
     "oracle_18c_image",
+    "oracle_18c_port",
     "oracle_18c_service",
     "oracle_18c_service_name",
     "oracle_23ai_connection",
     "oracle_23ai_image",
     "oracle_23ai_service",
     "oracle_23ai_service_name",
+    "oracle_26ai_connection",
+    "oracle_26ai_image",
+    "oracle_26ai_port",
+    "oracle_26ai_service",
+    "oracle_26ai_service_name",
     "oracle_adb_admin_password",
     "oracle_adb_devices",
     "oracle_adb_filesystemio_options",
     "oracle_adb_hostname",
     "oracle_adb_image",
     "oracle_adb_password",
+    "oracle_adb_port",
     "oracle_adb_service",
+    "oracle_adb_startup_timeout",
     "oracle_adb_tz",
     "oracle_adb_volumes",
     "oracle_adb_wallet_dir",
     "oracle_adb_wallet_password",
     "oracle_adb_workload_type",
     "oracle_password",
+    "oracle_port",
     "oracle_responsive",
     "oracle_service",
     "oracle_startup_connection",
+    "oracle_startup_timeout",
     "oracle_system_password",
     "oracle_user",
     "parse_tnsnames",
@@ -84,7 +106,7 @@ __all__ = [
 ORACLE_USER = "app"
 ORACLE_PASSWORD = "super-secret"
 ORACLE_SYSTEM_PASSWORD = "super-secret"
-DEFAULT_ORACLE_ADB_IMAGE = "container-registry.oracle.com/database/adb-free:latest-23ai"
+DEFAULT_ORACLE_ADB_IMAGE = "container-registry.oracle.com/database/adb-free:latest-26ai"
 DEFAULT_ORACLE_ADB_PASSWORD = "Welcome12345!"
 DEFAULT_ORACLE_ADB_WALLET_PATH = "/u01/app/oracle/wallets/tls_wallet"
 DEFAULT_ORACLE_ADB_FILESYSTEMIO_OPTIONS = "NONE"
@@ -131,6 +153,22 @@ _TNS_PARAM_PATTERNS: dict[str, re.Pattern[str]] = {
     "port": re.compile(r"\(\s*PORT\s*=\s*(\d+)\s*\)", re.IGNORECASE),
     "service_name": re.compile(r"\(\s*SERVICE_NAME\s*=\s*([^)\s]+)\s*\)", re.IGNORECASE),
 }
+_TRANSIENT_ORACLE_ERROR_MARKERS: tuple[str, ...] = (
+    "ora-01033",
+    "ora-01034",
+    "ora-12514",
+    "ora-12516",
+    "ora-12519",
+    "ora-12520",
+    "ora-12528",
+    "ora-00054",
+    "ora-00060",
+    "ora-04021",
+)
+_SQLPLUS_ERROR_PATTERN: re.Pattern[bytes] = re.compile(
+    rb"^(?:ORA-\d{5}:|PLS-\d{5}:|SP2-\d{4}:)",
+    re.MULTILINE,
+)
 
 
 @dataclass
@@ -141,6 +179,60 @@ class OracleService(ServiceContainer):
     password: str
     system_password: str
     service_name: str
+
+    def exec_sql(
+        self,
+        sql: str,
+        *,
+        user: str | None = None,
+        password: str | None = None,
+        service_name: str | None = None,
+        as_sysdba: bool = False,
+        cdb_root: bool = False,
+        whenever_sqlerror: str = "EXIT SQL.SQLCODE",
+        retry_transient: bool = False,
+    ) -> tuple[int, bytes]:
+        """Execute ``sql`` via in-container ``sqlplus`` against this Oracle service.
+
+        Args:
+            sql: SQL statement or PL/SQL script to run.
+            user: Optional login override (defaults to ``"sys"`` when ``as_sysdba`` is set, else ``self.user``).
+            password: Optional password override (defaults to ``system_password`` for administrative execution).
+            service_name: Optional TNS/PDB service override (defaults to ``self.service_name``).
+            as_sysdba: Connect with ``AS SYSDBA`` administrative privileges over TNS.
+            cdb_root: Connect directly to ``CDB$ROOT`` via OS authentication (``sqlplus -L -S / as sysdba``).
+            whenever_sqlerror: SQL*Plus ``WHENEVER SQLERROR`` directive.
+            retry_transient: Retry boundedly on transient listener/startup/catalog lock errors.
+
+        Returns:
+            Tuple of ``(exit_code, output_bytes)``.
+        """
+        if cdb_root:
+            return exec_oracle_sql(
+                self.container,
+                sql,
+                as_sysdba=True,
+                whenever_sqlerror=whenever_sqlerror,
+                retry_transient=retry_transient,
+            )
+        default_user = "sys" if as_sysdba else self.user
+        resolved_user = default_user if user is None else user
+        if password is not None:
+            resolved_password = password
+        elif as_sysdba or resolved_user.lower() in {"sys", "system", "admin"}:
+            resolved_password = self.system_password
+        else:
+            resolved_password = self.password
+        return exec_oracle_sql(
+            self.container,
+            sql,
+            service_name=self.service_name if service_name is None else service_name,
+            user=resolved_user,
+            password=resolved_password,
+            as_sysdba=as_sysdba,
+            whenever_sqlerror=whenever_sqlerror,
+            retry_transient=retry_transient,
+        )
 
 
 @dataclass
@@ -387,6 +479,10 @@ def ensure_oracle_user(
 ) -> bool:
     """Ensure an Oracle application user exists with appropriate tablespace quota and roles.
 
+    Existing users (``ORA-01920``) have their password synchronized (tolerating ``ORA-28007`` when password-reuse
+    rules reject the current password) and unlocked before applying grants and tablespace quota. Transient Oracle
+    startup, listener, or lock errors are retried via ``_run_sqlplus_with_retry``.
+
     Args:
         container: The container instance.
         user: Effective username to create.
@@ -397,37 +493,41 @@ def ensure_oracle_user(
     Returns:
         ``True`` if the SQL*Plus provisioning command exited cleanly.
     """
+    escaped_password = password.replace("'", "''")
+    create_user = f'CREATE USER {user} IDENTIFIED BY "{escaped_password}"'
+    reset_password = f'ALTER USER {user} IDENTIFIED BY "{escaped_password}"'
     setup_script = "\n".join([
-        f'CREATE USER {user} IDENTIFIED BY "{password}";',
+        "BEGIN",
+        f"  EXECUTE IMMEDIATE '{create_user}';",
+        "EXCEPTION",
+        "  WHEN OTHERS THEN",
+        "    IF SQLCODE != -1920 THEN",
+        "      RAISE;",
+        "    END IF;",
+        "    BEGIN",
+        f"      EXECUTE IMMEDIATE '{reset_password}';",
+        "    EXCEPTION",
+        "      WHEN OTHERS THEN",
+        "        IF SQLCODE != -28007 THEN",
+        "          RAISE;",
+        "        END IF;",
+        "    END;",
+        "END;",
+        "/",
+        f"ALTER USER {user} ACCOUNT UNLOCK;",
         f"GRANT CONNECT, RESOURCE, DBA TO {user};",
         f"ALTER USER {user} QUOTA UNLIMITED ON USERS;",
     ])
-    exit_code, _ = _exec_sqlplus(
+    exit_code, _ = _run_sqlplus_with_retry(
         container,
         user="sys",
         password=system_password,
         service_name=service_name,
         sql=setup_script,
         as_sysdba=True,
-        whenever_sqlerror="CONTINUE",
+        whenever_sqlerror="EXIT SQL.SQLCODE",
     )
     return exit_code == 0
-
-
-_TRANSIENT_ORACLE_ERROR_MARKERS: tuple[str, ...] = (
-    "ora-01033",
-    "ora-01034",
-    "ora-12514",
-    "ora-12528",
-    "ora-00054",
-    "ora-04021",
-)
-
-
-def _is_transient_oracle_error(output: bytes) -> bool:
-    """Return whether ``output`` contains a transient Oracle startup or dictionary lock error."""
-    decoded = output.decode(errors="replace").lower()
-    return any(marker in decoded for marker in _TRANSIENT_ORACLE_ERROR_MARKERS)
 
 
 def ensure_oracle_adb_user(
@@ -453,8 +553,11 @@ def ensure_oracle_adb_user(
     Raises:
         RuntimeError: If creating, unlocking, or granting privileges to the user fails.
     """
-    create_user = f'CREATE USER {user} IDENTIFIED BY "{password}" DEFAULT TABLESPACE DATA TEMPORARY TABLESPACE TEMP'
-    reset_password = f'ALTER USER {user} IDENTIFIED BY "{password}"'
+    escaped_password = password.replace("'", "''")
+    create_user = (
+        f'CREATE USER {user} IDENTIFIED BY "{escaped_password}" DEFAULT TABLESPACE DATA TEMPORARY TABLESPACE TEMP'
+    )
+    reset_password = f'ALTER USER {user} IDENTIFIED BY "{escaped_password}"'
     setup_script = "\n".join([
         "BEGIN",
         f"  EXECUTE IMMEDIATE '{create_user}';",
@@ -477,21 +580,15 @@ def ensure_oracle_adb_user(
         f"GRANT CONNECT, RESOURCE, DWROLE, UNLIMITED TABLESPACE TO {user};",
         f"ALTER USER {user} QUOTA UNLIMITED ON DATA;",
     ])
-    exit_code = -1
-    output = b""
-    for attempt in range(5):
-        exit_code, output = _exec_sqlplus(
-            container,
-            user="admin",
-            password=admin_password,
-            service_name=service_name,
-            sql=setup_script,
-            as_sysdba=False,
-        )
-        if exit_code == 0 or not _is_transient_oracle_error(output):
-            break
-        if attempt < 4:
-            time.sleep(0.5 * (attempt + 1))
+    exit_code, output = _run_sqlplus_with_retry(
+        container,
+        user="admin",
+        password=admin_password,
+        service_name=service_name,
+        sql=setup_script,
+        as_sysdba=False,
+        whenever_sqlerror="EXIT SQL.SQLCODE",
+    )
     if exit_code != 0:
         msg = f"Failed to provision Oracle ADB user {user!r} (exit {exit_code}): {output.decode(errors='replace').strip()}"
         raise RuntimeError(msg)
@@ -520,38 +617,101 @@ def enable_oracle_ords_schema(
         RuntimeError: If ``ORDS.ENABLE_SCHEMA`` fails.
     """
     schema_upper = user.upper()
-    pattern = (url_mapping_pattern or user).lower()
+    escaped_schema = schema_upper.replace("'", "''")
+    escaped_pattern = (url_mapping_pattern or user).lower().replace("'", "''")
     auth_literal = "TRUE" if auto_rest_auth else "FALSE"
     plsql = (
         "BEGIN "
         "ORDS.ENABLE_SCHEMA("
         "p_enabled => TRUE, "
-        f"p_schema => '{schema_upper}', "
+        f"p_schema => '{escaped_schema}', "
         "p_url_mapping_type => 'BASE_PATH', "
-        f"p_url_mapping_pattern => '{pattern}', "
+        f"p_url_mapping_pattern => '{escaped_pattern}', "
         f"p_auto_rest_auth => {auth_literal}"
         "); "
         "COMMIT; "
         "END;\n/"
     )
-    exit_code = -1
-    output = b""
-    for attempt in range(5):
-        exit_code, output = _exec_sqlplus(
+    exit_code, output = _run_sqlplus_with_retry(
+        container,
+        user=user,
+        password=password,
+        service_name=service_name,
+        sql=plsql,
+        as_sysdba=False,
+        whenever_sqlerror="EXIT SQL.SQLCODE",
+    )
+    if exit_code != 0:
+        msg = f"Failed to REST-enable schema {schema_upper!r} (exit {exit_code}): {output.decode(errors='replace').strip()}"
+        raise RuntimeError(msg)
+
+
+def exec_oracle_sql(
+    container: Container,
+    sql: str,
+    *,
+    service_name: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
+    as_sysdba: bool = False,
+    whenever_sqlerror: str = "EXIT SQL.SQLCODE",
+    retry_transient: bool = False,
+) -> tuple[int, bytes]:
+    """Execute SQL or PL/SQL inside a running Oracle container via ``sqlplus``.
+
+    Supports both TNS service/PDB execution (``user/password@//localhost:1521/service``) and
+    OS-authenticated ``CDB$ROOT`` execution (``sqlplus -L -S / as sysdba`` when ``as_sysdba=True``
+    and ``service_name``, ``user``, and ``password`` are omitted). Modulo-256 zero exit codes on
+    ``ORA-``/``PLS-``/``SP2-`` errors are normalized to ``1`` unless ``whenever_sqlerror="CONTINUE"``.
+
+    Args:
+        container: Running Oracle container handle.
+        sql: SQL statement or PL/SQL block.
+        service_name: Target PDB or service name (omit with ``as_sysdba=True`` for ``CDB$ROOT``).
+        user: Database username (omit with ``as_sysdba=True`` for OS authentication).
+        password: User password.
+        as_sysdba: Connect with ``AS SYSDBA`` administrative privileges.
+        whenever_sqlerror: SQL*Plus ``WHENEVER SQLERROR`` directive.
+        retry_transient: Retry boundedly on transient listener, startup, or catalog lock errors.
+
+    Returns:
+        Tuple of ``(exit_code, output_bytes)``.
+
+    Raises:
+        ValueError: If TNS execution is missing ``service_name``, ``user``, or ``password``.
+    """
+    if service_name is None and user is None and password is None and as_sysdba:
+        return _exec_sqlplus_os_sysdba(
+            container,
+            sql,
+            whenever_sqlerror=whenever_sqlerror,
+            retry_transient=retry_transient,
+        )
+    if not service_name or not user or password is None:
+        msg = (
+            "exec_oracle_sql requires 'service_name', 'user', and 'password' unless executing against "
+            "CDB$ROOT via as_sysdba=True with all three omitted."
+        )
+        raise ValueError(msg)
+    if retry_transient:
+        return _run_sqlplus_with_retry(
             container,
             user=user,
             password=password,
             service_name=service_name,
-            sql=plsql,
-            as_sysdba=False,
+            sql=sql,
+            as_sysdba=as_sysdba,
+            whenever_sqlerror=whenever_sqlerror,
         )
-        if exit_code == 0 or not _is_transient_oracle_error(output):
-            break
-        if attempt < 4:
-            time.sleep(0.5 * (attempt + 1))
-    if exit_code != 0:
-        msg = f"Failed to REST-enable schema {schema_upper!r} (exit {exit_code}): {output.decode(errors='replace').strip()}"
-        raise RuntimeError(msg)
+    return _exec_sqlplus(
+        container,
+        user=user,
+        password=password,
+        service_name=service_name,
+        sql=sql,
+        as_sysdba=as_sysdba,
+        whenever_sqlerror=whenever_sqlerror,
+    )
 
 
 @contextlib.contextmanager
@@ -564,8 +724,21 @@ def provide_oracle_service(
     password: str,
     system_password: str,
     isolation_level: XdistIsolationLevel = "database",
+    *,
+    host_port: int | None = None,
+    env: Mapping[str, str] | None = None,
+    volumes: dict[str, dict[str, str]] | list[str] | None = None,
+    shm_size: int | str | None = None,
+    mem_limit: str | None = None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
+    timeout: int = 180,
+    pause: float = 1.0,
 ) -> Generator[OracleService, None, None]:
-    """Start and manage an Oracle database container with schema or server isolation.
+    """Start and manage an Oracle database container with consistent privilege provisioning.
+
+    Both single-process and ``pytest-xdist`` runs run :func:`ensure_oracle_user` against
+    ``effective_user`` so ``APP_USER`` always receives identical ``CONNECT``, ``RESOURCE``,
+    ``DBA``, and ``QUOTA UNLIMITED ON USERS`` privileges regardless of concurrency mode.
 
     Args:
         docker_service: The container service manager.
@@ -576,42 +749,37 @@ def provide_oracle_service(
         password: Application user password.
         system_password: Administrative SYS password.
         isolation_level: xdist isolation strategy (database or server).
+        host_port: Optional pinned host TCP port for listener port 1521.
+        env: Optional extra container environment variables merged over defaults.
+        volumes: Optional container volume mounts.
+        shm_size: Optional ``/dev/shm`` size (important for larger Oracle SGA configurations).
+        mem_limit: Optional container memory limit (for example ``"4g"``).
+        init_sql: Optional SQL/PLSQL statement, file path, or sequence executed once per target user/PDB.
+        timeout: Maximum startup wait time in seconds.
+        pause: Sleep interval in seconds between readiness polling attempts.
 
     Yields:
         An OracleService handle configured for the active worker.
-    """
-    worker_num = get_xdist_worker_num()
-    effective_user = user
-    if worker_num is not None:
-        if isolation_level == "server":
-            name = f"{name}_{worker_num}"
-        else:
-            effective_user = f"{user}_{worker_num}"
 
+    Raises:
+        ValueError: If ``timeout`` is not a positive integer or ``pause`` is not a positive finite number.
+    """
+    _validate_positive_timeout(timeout, name="timeout")
+    pause = _validate_positive_pause(pause, name="pause")
+    worker_num, resolved_name, effective_user = _resolve_oracle_targets(name, user, isolation_level)
     user_provisioned = False
 
     def check(_service: ServiceContainer) -> bool:
         nonlocal user_provisioned
-        if effective_user != user and not user_provisioned:
-            sys_exit, sys_out = _exec_sqlplus(
+        if not tcp_port_open(_service.host, _service.port):
+            return False
+        if not user_provisioned:
+            if not _provision_oracle_app_user(
                 _service.container,
-                user="sys",
-                password=system_password,
+                user=effective_user,
+                password=password,
                 service_name=service_name,
-                sql="SELECT 1 FROM dual",
-                as_sysdba=True,
-            )
-            if sys_exit != 0 or sys_out.strip() != b"1":
-                return False
-            if (
-                ensure_oracle_user(
-                    _service.container,
-                    user=effective_user,
-                    password=password,
-                    service_name=service_name,
-                    system_password=system_password,
-                )
-                is False
+                system_password=system_password,
             ):
                 return False
             user_provisioned = True
@@ -626,17 +794,25 @@ def provide_oracle_service(
 
     with docker_service.run(
         image=image,
-        name=name,
+        name=resolved_name,
         check=check,
         container_port=1521,
-        timeout=60,
+        host_port=host_port,
+        timeout=timeout,
+        pause=pause,
         transient=worker_num is not None and isolation_level == "server",
-        env={
-            "ORACLE_PASSWORD": system_password,
-            "APP_USER_PASSWORD": password,
-            "APP_USER": user,
-        },
+        volumes=volumes,
+        shm_size=shm_size,
+        mem_limit=mem_limit,
+        env=_build_oracle_env(user=user, password=password, system_password=system_password, extra_env=env),
     ) as service:
+        _apply_oracle_init_sql(
+            service.container,
+            service_name=service_name,
+            user=effective_user,
+            password=password,
+            init_sql=init_sql,
+        )
         yield OracleService(
             host=service.host,
             port=service.port,
@@ -662,12 +838,19 @@ def provide_oracle_adb_service(
     isolation_level: XdistIsolationLevel = "database",
     *,
     tz: str = "UTC",
+    host_port: int | None = None,
+    env: Mapping[str, str] | None = None,
     wallet_dir: Path | None = None,
     volumes: dict[str, dict[str, str]] | list[str] | None = None,
     devices: list[str] | None = None,
+    shm_size: int | str | None = None,
+    mem_limit: str | None = None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
     filesystemio_options: str | None = DEFAULT_ORACLE_ADB_FILESYSTEMIO_OPTIONS,
+    timeout: int = 420,
+    pause: float = 2.0,
 ) -> Generator[OracleADBService, None, None]:
-    """Start and manage an Oracle Autonomous Database Free (23ai) container.
+    """Start and manage an Oracle Autonomous AI Database Free (26ai) container.
 
     The image's server parameter file sets ``filesystemio_options`` to direct I/O, which cannot open the control
     files when the container storage has 4096-byte logical sectors (``ORA-27072``, ``ORA-00202``, then
@@ -687,19 +870,29 @@ def provide_oracle_adb_service(
         wallet_password: Password protecting the container's TLS/mTLS wallet.
         isolation_level: xdist isolation strategy (database or server).
         tz: Database timezone passed via ``MY_TZ`` (defaults to ``UTC``).
+        host_port: Optional pinned host TCP port for listener port 1521.
+        env: Optional extra container environment variables merged over defaults.
         wallet_dir: Optional host directory where the container wallet will be extracted automatically.
         volumes: Optional container volume mounts (e.g. for ``/u01/app/oracle/wallets/tls_wallet``).
         devices: Optional device mappings for the container runtime host (for example ``["/dev/fuse"]``).
+        shm_size: Optional ``/dev/shm`` size forwarded to container creation.
+        mem_limit: Optional container memory limit forwarded to container creation.
+        init_sql: Optional SQL/PLSQL statement, file path, or sequence executed once per target user/service.
         filesystemio_options: ``filesystemio_options`` value written to the server parameter file before the
             database starts (``NONE``, ``ASYNC``, ``DIRECTIO``, or ``SETALL``), or ``None`` for the image default.
+        timeout: Maximum startup wait time in seconds.
+        pause: Sleep interval in seconds between readiness polling attempts.
 
     Yields:
         An OracleADBService handle configured for the active worker.
 
     Raises:
-        ValueError: If ``workload_type`` is not ``ATP``, ``ADW``, ``AJD``, or ``APEX``, or ``filesystemio_options``
-            is not a valid ``filesystemio_options`` value.
+        ValueError: If ``workload_type`` is not ``ATP``, ``ADW``, ``AJD``, or ``APEX``, ``filesystemio_options``
+            is not a valid ``filesystemio_options`` value, ``timeout`` is not a positive integer, or ``pause`` is
+            not a positive finite number.
     """
+    _validate_positive_timeout(timeout, name="timeout")
+    pause = _validate_positive_pause(pause, name="pause")
     normalized_workload = workload_type.strip().upper()
     if normalized_workload not in _WORKLOAD_SERVICE_MAP:
         msg = f"Unknown Oracle ADB workload type {workload_type!r}; expected one of {', '.join(_WORKLOAD_SERVICE_MAP)}"
@@ -712,42 +905,22 @@ def provide_oracle_adb_service(
     service_names = _WORKLOAD_SERVICE_MAP[normalized_workload]
     default_service_name = f"{service_names[0]}.adb.oraclecloud.com"
 
-    worker_num = get_xdist_worker_num()
-    effective_user = user
-    if worker_num is not None:
-        if isolation_level == "server":
-            name = f"{name}_{worker_num}"
-        else:
-            effective_user = f"{user}_{worker_num}"
-
+    worker_num, resolved_name, effective_user = _resolve_oracle_targets(name, user, isolation_level)
     user_provisioned = False
 
     def check(_service: ServiceContainer) -> bool:
         nonlocal user_provisioned
+        if not tcp_port_open(_service.host, _service.port):
+            return False
         if not user_provisioned:
-            admin_exit, admin_out = _exec_sqlplus(
-                _service.container,
-                user="admin",
-                password=system_password,
-                service_name=default_service_name,
-                sql="SELECT 1 FROM dual",
-                as_sysdba=False,
-            )
-            if admin_exit != 0 or admin_out.strip() != b"1":
-                return False
-            ensure_oracle_adb_user(
+            if not _provision_oracle_adb_app_user(
                 _service.container,
                 user=effective_user,
                 password=password,
                 service_name=default_service_name,
                 admin_password=system_password,
-            )
-            enable_oracle_ords_schema(
-                _service.container,
-                user=effective_user,
-                password=password,
-                service_name=default_service_name,
-            )
+            ):
+                return False
             user_provisioned = True
         exit_code, output = _exec_sqlplus(
             _service.container,
@@ -760,38 +933,38 @@ def provide_oracle_adb_service(
 
     with docker_service.run(
         image=image,
-        name=name,
+        name=resolved_name,
         check=check,
         container_port=1521,
+        host_port=host_port,
         extra_ports={1522: None, 8443: None, 27017: None},
-        timeout=420,
-        pause=2.0,
+        timeout=timeout,
+        pause=pause,
         transient=worker_num is not None and isolation_level == "server",
         hostname=hostname,
         cap_add=["SYS_ADMIN"],
         devices=devices,
         volumes=volumes,
+        shm_size=shm_size,
+        mem_limit=mem_limit,
         entrypoint=entrypoint,
         command=command,
-        env={
-            "WORKLOAD_TYPE": normalized_workload,
-            "WALLET_PASSWORD": wallet_password,
-            "ADMIN_PASSWORD": system_password,
-            "MY_TZ": tz,
-        },
+        env=_build_oracle_adb_env(
+            workload=normalized_workload,
+            wallet_password=wallet_password,
+            admin_password=system_password,
+            tz=tz,
+            extra_env=env,
+        ),
     ) as service:
-        tls_port = ContainerService.resolve_port(service.container, 1522)
-        ords_port = ContainerService.resolve_port(service.container, 8443)
-        mongo_port = ContainerService.resolve_port(service.container, 27017)
-        extracted_wallet_dir: Path | None = None
-        if wallet_dir is not None:
-            extracted_wallet_dir = extract_adb_wallet(
-                service.container,
-                wallet_dir,
-                host=service.host,
-                port=service.port,
-                tls_port=tls_port,
-            )
+        _apply_oracle_init_sql(
+            service.container,
+            service_name=default_service_name,
+            user=effective_user,
+            password=password,
+            init_sql=init_sql,
+        )
+        tls_port, ords_port, mongo_port, extracted_wallet_dir = _resolve_adb_endpoints(service, wallet_dir)
         yield OracleADBService(
             host=service.host,
             port=service.port,
@@ -817,15 +990,56 @@ def xdist_oracle_isolation_level() -> XdistIsolationLevel:
 
 
 @pytest.fixture(autouse=False, scope="session")
+def oracle_26ai_image(request: pytest.FixtureRequest) -> str:
+    """Container image for Oracle AI Database 26ai Free (``23.26.x`` track on ``gvenzl/oracle-free``)."""
+    default = os.getenv("ORACLE_26AI_IMAGE", "gvenzl/oracle-free:23-slim-faststart")
+    return str(_resolve_legacy_oracle_23ai_override(request, "oracle_23ai_image", "oracle_26ai_image", default))
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_26ai_service_name(request: pytest.FixtureRequest) -> str:
+    """Default PDB service name for Oracle AI Database 26ai Free."""
+    default = os.getenv("ORACLE_26AI_SERVICE_NAME", "FREEPDB1")
+    return str(
+        _resolve_legacy_oracle_23ai_override(
+            request,
+            "oracle_23ai_service_name",
+            "oracle_26ai_service_name",
+            default,
+        )
+    )
+
+
+@pytest.fixture(autouse=False, scope="session")
 def oracle_23ai_image() -> str:
-    """Container image for Oracle Database 23ai Free."""
-    return "gvenzl/oracle-free:23-slim-faststart"
+    """Deprecated alias for ``oracle_26ai_image`` preserved for v0.19.0 callers.
+
+    .. deprecated:: 0.20.0
+        Use ``oracle_26ai_image`` instead. ``oracle_23ai_image`` will be removed in v1.0.0.
+    """
+    warnings.warn(
+        "The 'oracle_23ai_image' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'oracle_26ai_image' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return os.getenv("ORACLE_26AI_IMAGE", "gvenzl/oracle-free:23-slim-faststart")
 
 
 @pytest.fixture(autouse=False, scope="session")
 def oracle_23ai_service_name() -> str:
-    """Default PDB service name for Oracle Database 23ai Free."""
-    return "FREEPDB1"
+    """Deprecated alias for ``oracle_26ai_service_name`` preserved for v0.19.0 callers.
+
+    .. deprecated:: 0.20.0
+        Use ``oracle_26ai_service_name`` instead. ``oracle_23ai_service_name`` will be removed in v1.0.0.
+    """
+    warnings.warn(
+        "The 'oracle_23ai_service_name' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'oracle_26ai_service_name' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return os.getenv("ORACLE_26AI_SERVICE_NAME", "FREEPDB1")
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -842,7 +1056,7 @@ def oracle_18c_service_name() -> str:
 
 @pytest.fixture(autouse=False, scope="session")
 def oracle_adb_image() -> str:
-    """Container image for Oracle Autonomous Database Free (23ai)."""
+    """Container image for Oracle Autonomous AI Database Free (26ai)."""
     return os.getenv("ORACLE_ADB_IMAGE", DEFAULT_ORACLE_ADB_IMAGE)
 
 
@@ -916,45 +1130,86 @@ def oracle_adb_devices() -> list[str] | None:
 @pytest.fixture(autouse=False, scope="session")
 def oracle_user() -> str:
     """Default application username for Oracle."""
-    return ORACLE_USER
+    return os.getenv("ORACLE_USER", ORACLE_USER)
 
 
 @pytest.fixture(autouse=False, scope="session")
 def oracle_password() -> str:
     """Default application password for Oracle."""
-    return ORACLE_PASSWORD
+    return os.getenv("ORACLE_PASSWORD", ORACLE_PASSWORD)
 
 
 @pytest.fixture(autouse=False, scope="session")
 def oracle_system_password() -> str:
     """Default administrative SYS password for Oracle."""
-    return ORACLE_SYSTEM_PASSWORD
+    return os.getenv("ORACLE_SYSTEM_PASSWORD", ORACLE_SYSTEM_PASSWORD)
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_23ai_service(
+def oracle_port() -> int | None:
+    """Optional pinned host port for the default Oracle container (``ORACLE_PORT``)."""
+    return env_port("ORACLE_PORT")
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_26ai_port(oracle_port: int | None) -> int | None:
+    """Optional pinned host port for Oracle AI Database 26ai Free (``ORACLE_26AI_PORT`` or ``ORACLE_PORT``)."""
+    pinned = env_port("ORACLE_26AI_PORT")
+    return oracle_port if pinned is None else pinned
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_18c_port() -> int | None:
+    """Optional pinned host port for Oracle 18c XE (``ORACLE_18C_PORT``)."""
+    return env_port("ORACLE_18C_PORT")
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_adb_port() -> int | None:
+    """Optional pinned host port for Oracle ADB-Free (``ORACLE_ADB_PORT``)."""
+    return env_port("ORACLE_ADB_PORT")
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_startup_timeout() -> int:
+    """Startup timeout in seconds for Oracle Database 18c and 26ai containers."""
+    return _parse_timeout("ORACLE_STARTUP_TIMEOUT", 180)
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_adb_startup_timeout() -> int:
+    """Startup timeout in seconds for Oracle Autonomous AI Database Free containers."""
+    return _parse_timeout("ORACLE_ADB_STARTUP_TIMEOUT", 420)
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_26ai_service(
     docker_service: DockerService,
     xdist_oracle_isolation_level: XdistIsolationLevel,
-    oracle_23ai_image: str,
-    oracle_23ai_service_name: str,
+    oracle_26ai_image: str,
+    oracle_26ai_service_name: str,
     oracle_user: str,
     oracle_password: str,
     oracle_system_password: str,
+    oracle_startup_timeout: int,
+    oracle_26ai_port: int | None,
 ) -> Generator[OracleService, None, None]:
-    """Session fixture providing an Oracle Database 23ai Free container service.
+    """Session fixture providing an Oracle AI Database 26ai Free container service.
 
     Yields:
         An OracleService handle.
     """
     with provide_oracle_service(
-        image=oracle_23ai_image,
-        name="oracle23ai",
-        service_name=oracle_23ai_service_name,
+        image=oracle_26ai_image,
+        name="oracle26ai",
+        service_name=oracle_26ai_service_name,
         user=oracle_user,
         password=oracle_password,
         system_password=oracle_system_password,
         docker_service=docker_service,
         isolation_level=xdist_oracle_isolation_level,
+        host_port=oracle_26ai_port,
+        timeout=oracle_startup_timeout,
     ) as service:
         yield service
 
@@ -968,6 +1223,8 @@ def oracle_18c_service(
     oracle_user: str,
     oracle_password: str,
     oracle_system_password: str,
+    oracle_startup_timeout: int,
+    oracle_18c_port: int | None,
 ) -> Generator[OracleService, None, None]:
     """Session fixture providing an Oracle Database 18c XE container service.
 
@@ -983,6 +1240,8 @@ def oracle_18c_service(
         system_password=oracle_system_password,
         docker_service=docker_service,
         isolation_level=xdist_oracle_isolation_level,
+        host_port=oracle_18c_port,
+        timeout=oracle_startup_timeout,
     ) as service:
         yield service
 
@@ -1003,8 +1262,10 @@ def oracle_adb_service(
     oracle_adb_volumes: dict[str, dict[str, str]] | list[str] | None,
     oracle_adb_devices: list[str] | None,
     oracle_adb_filesystemio_options: str | None,
+    oracle_adb_startup_timeout: int,
+    oracle_adb_port: int | None,
 ) -> Generator[OracleADBService, None, None]:
-    """Session fixture providing an Oracle Autonomous Database Free (23ai) container service.
+    """Session fixture providing an Oracle Autonomous AI Database Free (26ai) container service.
 
     Yields:
         An OracleADBService handle.
@@ -1021,18 +1282,36 @@ def oracle_adb_service(
         wallet_password=oracle_adb_wallet_password,
         isolation_level=xdist_oracle_isolation_level,
         tz=oracle_adb_tz,
+        host_port=oracle_adb_port,
         wallet_dir=oracle_adb_wallet_dir,
         volumes=oracle_adb_volumes,
         devices=oracle_adb_devices,
         filesystemio_options=oracle_adb_filesystemio_options,
+        timeout=oracle_adb_startup_timeout,
     ) as service:
         yield service
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_service(oracle_23ai_service: OracleService) -> OracleService:
-    """Alias for the latest default Oracle service (23ai)."""
-    return oracle_23ai_service
+def oracle_23ai_service(oracle_26ai_service: OracleService) -> OracleService:
+    """Deprecated alias for ``oracle_26ai_service`` preserved for v0.19.0 callers.
+
+    .. deprecated:: 0.20.0
+        Use ``oracle_26ai_service`` or ``oracle_service`` instead. ``oracle_23ai_service`` will be removed in v1.0.0.
+    """
+    warnings.warn(
+        "The 'oracle_23ai_service' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'oracle_26ai_service' or 'oracle_service' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return oracle_26ai_service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_service(request: pytest.FixtureRequest) -> OracleService:
+    """Alias for the latest default Oracle service (26ai)."""
+    return _resolve_legacy_oracle_23ai_service(request)
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -1047,25 +1326,80 @@ def oracle_18c_connection(oracle_18c_service: OracleService) -> Generator[Any, N
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_23ai_connection(oracle_23ai_service: OracleService) -> Generator[Any, None, None]:
-    """Deprecated ``oracledb`` connection fixture for Oracle 23ai Free.
+def oracle_23ai_connection(request: pytest.FixtureRequest) -> Generator[Any, None, None]:
+    """Deprecated ``oracledb`` connection fixture preserved for v0.19.0 callers.
+
+    .. deprecated:: 0.20.0
+        Create an ``oracledb`` connection from ``oracle_service`` or ``oracle_26ai_service`` instead.
+        ``oracle_23ai_connection`` will be removed in v1.0.0.
 
     Yields:
         An open ``oracledb.Connection``.
     """
-    with _open_oracle_connection(oracle_23ai_service, "oracle_23ai_connection") as conn:
+    service = _resolve_legacy_oracle_23ai_service(request)
+    with _open_oracle_connection(service, "oracle_23ai_connection") as conn:
         yield conn
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_startup_connection(oracle_23ai_service: OracleService) -> Generator[Any, None, None]:
-    """Deprecated alias for ``oracle_23ai_connection`` preserved for v0.19.0 callers.
+def oracle_26ai_connection(oracle_26ai_service: OracleService) -> Generator[Any, None, None]:
+    """Deprecated ``oracledb`` connection fixture for Oracle AI Database 26ai Free.
 
     Yields:
         An open ``oracledb.Connection``.
     """
-    with _open_oracle_connection(oracle_23ai_service, "oracle_startup_connection") as conn:
+    with _open_oracle_connection(oracle_26ai_service, "oracle_26ai_connection") as conn:
         yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_startup_connection(oracle_26ai_service: OracleService) -> Generator[Any, None, None]:
+    """Deprecated alias for ``oracle_26ai_connection`` preserved for v0.19.0 callers.
+
+    Yields:
+        An open ``oracledb.Connection``.
+    """
+    with _open_oracle_connection(oracle_26ai_service, "oracle_startup_connection") as conn:
+        yield conn
+
+
+def _has_external_fixture_override(request: pytest.FixtureRequest, name: str) -> bool:
+    """Return whether ``name`` is overridden by a fixture defined outside ``pytest_databases``."""
+    fixturedefs = request._fixturemanager.getfixturedefs(name, request._pyfuncitem)
+    return bool(fixturedefs and not fixturedefs[-1].func.__module__.startswith("pytest_databases."))
+
+
+def _resolve_legacy_oracle_23ai_override(
+    request: pytest.FixtureRequest,
+    legacy_name: str,
+    replacement: str,
+    default: Any,
+) -> Any:
+    """Return an external override of a deprecated ``oracle_23ai_*`` fixture, or ``default``."""
+    if not _has_external_fixture_override(request, legacy_name):
+        return default
+    warnings.warn(
+        f"Overriding the '{legacy_name}' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        f"Override '{replacement}' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return request.getfixturevalue(legacy_name)
+
+
+def _resolve_legacy_oracle_23ai_service(request: pytest.FixtureRequest) -> OracleService:
+    """Return a user override of ``oracle_23ai_service`` when present, otherwise ``oracle_26ai_service``."""
+    if _has_external_fixture_override(request, "oracle_23ai_service"):
+        warnings.warn(
+            "Overriding the 'oracle_23ai_service' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+            "Override 'oracle_26ai_service' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        legacy_service: OracleService = request.getfixturevalue("oracle_23ai_service")
+        return legacy_service
+    service: OracleService = request.getfixturevalue("oracle_26ai_service")
+    return service
 
 
 @contextlib.contextmanager
@@ -1163,6 +1497,220 @@ def _adb_filesystemio_command(filesystemio_options: str) -> str:
     )
 
 
+def _resolve_oracle_targets(
+    name: str,
+    user: str,
+    isolation_level: XdistIsolationLevel,
+) -> tuple[int | None, str, str]:
+    """Resolve ``(worker_num, container_name, effective_user)`` for Oracle services."""
+    worker_num = get_xdist_worker_num()
+    if worker_num is None:
+        return None, name, user
+    if isolation_level == "server":
+        return worker_num, f"{name}_{worker_num}", user
+    return worker_num, name, f"{user}_{worker_num}"
+
+
+def _oracle_user_lock(
+    container: Container, *, service_name: str, user: str
+) -> contextlib.AbstractContextManager[object]:
+    """Return a cross-process file lock serializing Oracle user provisioning per container/PDB/user."""
+    container_id = getattr(container, "id", None)
+    if not isinstance(container_id, str) or not container_id:
+        return contextlib.nullcontext()
+    digest = simple_string_hash(f"{service_name}:{user.lower()}")[:12]
+    lock_path = Path(tempfile.gettempdir()) / f"pytest-databases-oracle-user-{container_id[:12]}-{digest}.lock"
+    return filelock.FileLock(str(lock_path), timeout=180.0)
+
+
+def _provision_oracle_app_user(
+    container: Container,
+    *,
+    user: str,
+    password: str,
+    service_name: str,
+    system_password: str,
+) -> bool:
+    """Ensure ``user`` exists with ``CONNECT, RESOURCE, DBA`` and unlimited ``USERS`` quota."""
+    sys_exit, sys_out = _exec_sqlplus(
+        container,
+        user="sys",
+        password=system_password,
+        service_name=service_name,
+        sql="SELECT 1 FROM dual",
+        as_sysdba=True,
+    )
+    if sys_exit != 0 or sys_out.strip() != b"1":
+        return False
+    with _oracle_user_lock(container, service_name=service_name, user=user):
+        return ensure_oracle_user(
+            container,
+            user=user,
+            password=password,
+            service_name=service_name,
+            system_password=system_password,
+        )
+
+
+def _provision_oracle_adb_app_user(
+    container: Container,
+    *,
+    user: str,
+    password: str,
+    service_name: str,
+    admin_password: str,
+) -> bool:
+    """Ensure ``user`` exists and is ORDS-enabled inside an Oracle ADB-Free container."""
+    admin_exit, admin_out = _exec_sqlplus(
+        container,
+        user="admin",
+        password=admin_password,
+        service_name=service_name,
+        sql="SELECT 1 FROM dual",
+        as_sysdba=False,
+    )
+    if admin_exit != 0 or admin_out.strip() != b"1":
+        return False
+    with _oracle_user_lock(container, service_name=service_name, user=user):
+        ensure_oracle_adb_user(
+            container,
+            user=user,
+            password=password,
+            service_name=service_name,
+            admin_password=admin_password,
+        )
+        enable_oracle_ords_schema(
+            container,
+            user=user,
+            password=password,
+            service_name=service_name,
+        )
+    return True
+
+
+def _build_oracle_env(
+    *,
+    user: str,
+    password: str,
+    system_password: str,
+    extra_env: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Compose container environment variables for Oracle Database 18c and 26ai images."""
+    container_env: dict[str, str] = {
+        "ORACLE_PASSWORD": system_password,
+        "APP_USER_PASSWORD": password,
+        "APP_USER": user,
+    }
+    if extra_env:
+        container_env.update(extra_env)
+    return container_env
+
+
+def _build_oracle_adb_env(
+    *,
+    workload: str,
+    wallet_password: str,
+    admin_password: str,
+    tz: str,
+    extra_env: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Compose container environment variables for Oracle Autonomous Database Free images."""
+    container_env: dict[str, str] = {
+        "WORKLOAD_TYPE": workload,
+        "WALLET_PASSWORD": wallet_password,
+        "ADMIN_PASSWORD": admin_password,
+        "MY_TZ": tz,
+    }
+    if extra_env:
+        container_env.update(extra_env)
+    return container_env
+
+
+def _resolve_adb_endpoints(
+    service: ServiceContainer,
+    wallet_dir: Path | None,
+) -> tuple[int, int, int, Path | None]:
+    """Resolve mapped TLS/ORDS/Mongo ports and optionally extract the ADB wallet."""
+    tls_port = ContainerService.resolve_port(service.container, 1522)
+    ords_port = ContainerService.resolve_port(service.container, 8443)
+    mongo_port = ContainerService.resolve_port(service.container, 27017)
+    extracted: Path | None = None
+    if wallet_dir is not None:
+        extracted = extract_adb_wallet(
+            service.container,
+            wallet_dir,
+            host=service.host,
+            port=service.port,
+            tls_port=tls_port,
+        )
+    return tls_port, ords_port, mongo_port, extracted
+
+
+def _apply_oracle_init_sql(
+    container: Container,
+    *,
+    service_name: str,
+    user: str,
+    password: str,
+    init_sql: str | Path | Sequence[str | Path] | None,
+) -> None:
+    """Execute ``init_sql`` scripts once per ``(container, service_name, user)``."""
+    statements = read_init_scripts(init_sql)
+    if not statements:
+        return
+    fingerprint = simple_string_hash("\n/\n".join(statements))
+
+    def _run() -> None:
+        for statement in statements:
+            code, output = exec_oracle_sql(
+                container,
+                statement,
+                service_name=service_name,
+                user=user,
+                password=password,
+                retry_transient=True,
+            )
+            if code != 0:
+                detail = output.decode(errors="replace").strip()
+                msg = f"Oracle init_sql failed for {user!r} on {service_name!r} (exit {code}): {detail}"
+                raise RuntimeError(msg)
+
+    run_container_init_once(container, f"oracle:{service_name}:{user.lower()}", fingerprint, _run)
+
+
+def _exec_sqlplus_os_sysdba(
+    container: Container,
+    sql: str,
+    *,
+    whenever_sqlerror: str = "EXIT SQL.SQLCODE",
+    retry_transient: bool = False,
+) -> tuple[int, bytes]:
+    """Execute SQL*Plus against ``CDB$ROOT`` via OS authentication (``sqlplus -L -S / as sysdba``)."""
+    attempts = 5 if retry_transient else 1
+    script = "\n".join([
+        "SET HEADING OFF FEEDBACK OFF PAGESIZE 0 VERIFY OFF ECHO OFF",
+        "WHENEVER OSERROR EXIT 9",
+        f"WHENEVER SQLERROR {whenever_sqlerror}",
+        _normalize_sqlplus_statement(sql),
+        "EXIT",
+        "",
+    ])
+    command = f"printf '%s' {shlex.quote(script)} | sqlplus -L -S / as sysdba"
+    exit_code = -1
+    output = b""
+    for attempt in range(attempts):
+        result = container.exec_run(["bash", "-lc", command])
+        exit_code = result.exit_code if result.exit_code is not None else -1
+        output = exec_output_to_bytes(result.output)
+        if exit_code == 0 and whenever_sqlerror.strip().upper() != "CONTINUE" and _SQLPLUS_ERROR_PATTERN.search(output):
+            exit_code = 1
+        if exit_code == 0 or not _is_transient_oracle_error(output):
+            return exit_code, output
+        if attempt < attempts - 1:
+            time.sleep(0.5 * (attempt + 1))
+    return exit_code, output
+
+
 def _exec_sqlplus(
     container: Container,
     user: str,
@@ -1198,4 +1746,127 @@ def _exec_sqlplus(
     connect_string = f"{user}/{password}@//localhost:1521/{service_name}{auth_suffix}"
     command = f"printf '%s' {shlex.quote(script)} | sqlplus -L -S {shlex.quote(connect_string)}"
     result = container.exec_run(["bash", "-lc", command])
-    return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
+    exit_code = result.exit_code if result.exit_code is not None else -1
+    output = exec_output_to_bytes(result.output)
+    if exit_code == 0 and whenever_sqlerror.strip().upper() != "CONTINUE" and _SQLPLUS_ERROR_PATTERN.search(output):
+        exit_code = 1
+    return exit_code, output
+
+
+def _is_transient_oracle_error(output: bytes) -> bool:
+    """Return whether ``output`` contains a transient Oracle startup, listener, or catalog lock error."""
+    decoded = output.decode(errors="replace").lower()
+    return any(marker in decoded for marker in _TRANSIENT_ORACLE_ERROR_MARKERS)
+
+
+def _run_sqlplus_with_retry(
+    container: Container,
+    *,
+    user: str,
+    password: str,
+    service_name: str,
+    sql: str,
+    as_sysdba: bool = False,
+    whenever_sqlerror: str = "EXIT SQL.SQLCODE",
+    attempts: int = 5,
+) -> tuple[int, bytes]:
+    """Execute SQL*Plus inside ``container`` with bounded retries on transient Oracle errors.
+
+    Args:
+        container: The container instance.
+        user: Database user or ``sys``.
+        password: User password.
+        service_name: Oracle service or PDB name.
+        sql: SQL statement or script.
+        as_sysdba: Whether to connect with SYSDBA administrative privileges.
+        whenever_sqlerror: SQL*Plus ``WHENEVER SQLERROR`` directive.
+        attempts: Maximum number of attempts before returning the final result.
+
+    Returns:
+        Tuple of exit code and output bytes.
+
+    Raises:
+        ValueError: If ``attempts`` is less than ``1``.
+    """
+    if attempts < 1:
+        msg = f"attempts must be >= 1, got {attempts!r}"
+        raise ValueError(msg)
+    exit_code = -1
+    output = b""
+    for attempt in range(attempts):
+        exit_code, output = _exec_sqlplus(
+            container,
+            user=user,
+            password=password,
+            service_name=service_name,
+            sql=sql,
+            as_sysdba=as_sysdba,
+            whenever_sqlerror=whenever_sqlerror,
+        )
+        if exit_code == 0 or not _is_transient_oracle_error(output):
+            return exit_code, output
+        if attempt < attempts - 1:
+            time.sleep(0.5 * (attempt + 1))
+    return exit_code, output
+
+
+def _validate_positive_timeout(value: int, *, name: str) -> int:
+    """Validate that a timeout configuration value is a positive integer.
+
+    Args:
+        value: Candidate timeout value in seconds.
+        name: Parameter or environment variable name used in error messages.
+
+    Returns:
+        The validated positive integer timeout.
+
+    Raises:
+        ValueError: If ``value`` is a boolean, not an ``int``, or less than or equal to zero.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        msg = f"{name} must be a positive integer, got {value!r}"
+        raise ValueError(msg)
+    return value
+
+
+def _validate_positive_pause(value: float, *, name: str) -> float:
+    """Validate that a readiness polling interval is a positive finite number.
+
+    Args:
+        value: Candidate polling sleep interval in seconds.
+        name: Parameter name used in error messages.
+
+    Returns:
+        The validated positive polling interval as a ``float``.
+
+    Raises:
+        ValueError: If ``value`` is a boolean, not numeric, non-finite, or less than or equal to zero.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        msg = f"{name} must be a positive finite number, got {value!r}"
+        raise ValueError(msg)
+    return float(value)
+
+
+def _parse_timeout(env_var: str, default: int) -> int:
+    """Parse and validate a positive integer timeout from an environment variable.
+
+    Args:
+        env_var: Environment variable name to read.
+        default: Default timeout in seconds when ``env_var`` is unset.
+
+    Returns:
+        The parsed positive integer timeout.
+
+    Raises:
+        ValueError: If the configured or default value is not a positive integer.
+    """
+    raw = os.getenv(env_var)
+    if raw is None:
+        return _validate_positive_timeout(default, name=env_var)
+    try:
+        parsed = int(raw)
+    except ValueError as exc:
+        msg = f"{env_var} must be a positive integer, got {raw!r}"
+        raise ValueError(msg) from exc
+    return _validate_positive_timeout(parsed, name=env_var)

@@ -11,16 +11,25 @@ import tempfile
 import time
 from contextlib import ExitStack, contextmanager, suppress
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import filelock
 import pytest
 
-from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num, tcp_port_open
+from pytest_databases.helpers import (
+    TRUE_VALUES,
+    env_port,
+    exec_output_to_bytes,
+    get_xdist_worker_num,
+    read_init_scripts,
+    run_container_init_once,
+    simple_string_hash,
+    tcp_port_open,
+)
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator, Mapping, Sequence
 
     from docker.models.containers import Container
 
@@ -36,12 +45,15 @@ __all__ = (
     "SYBASE_WORKER_DATABASE",
     "SYBASE_WORKER_DATABASE_SIZE",
     "SybaseService",
+    "configure_sybase_monitoring",
     "create_worker_database",
     "exec_isql",
     "provide_sybase_service",
     "sybase_database",
+    "sybase_enable_monitoring",
     "sybase_image",
     "sybase_password",
+    "sybase_port",
     "sybase_service",
     "sybase_startup_timeout",
     "sybase_user",
@@ -107,14 +119,25 @@ class SybaseService(ServiceContainer):
             f"DATABASE={self.database};UID={self.user};PWD={self.password};TDS_Version=5.0;"
         )
 
-    def exec_sql(self, sql: str, *, database: str | None = None) -> tuple[int, bytes]:
-        """Execute a SQL statement inside the Sybase ASE container via isql."""
+    def exec_sql(
+        self,
+        sql: str,
+        *,
+        database: str | None = None,
+        user: str | None = None,
+        password: str | None = None,
+    ) -> tuple[int, bytes]:
+        """Execute a SQL statement inside the Sybase ASE container via ``isql``.
+
+        Returns:
+            Tuple of ``(exit_code, output_bytes)``.
+        """
         return exec_isql(
             self.container,
             sql,
             database=database or self.database,
-            user=self.user,
-            password=self.password,
+            user=self.user if user is None else user,
+            password=self.password if password is None else password,
         )
 
     def create_worker_database(self, db_name: str) -> None:
@@ -267,6 +290,71 @@ def create_worker_database(
             raise RuntimeError(msg)
 
 
+def configure_sybase_monitoring(
+    container: Container,
+    *,
+    user: str = SYBASE_USER,
+    password: str = SYBASE_PASSWORD,
+    grant_to: str | None = None,
+) -> None:
+    """Enable SAP ASE Monitoring and Diagnostic Adapter (``mon*`` MDA tables) via ``sp_configure``.
+
+    Applies the dynamic and pipe MDA configuration parameters once per container under a cross-worker
+    lock, and optionally grants ``mon_role`` to a non-``sa`` login so ``master..mon*`` telemetry queries
+    work out of the box.
+
+    Args:
+        container: Running Sybase ASE container handle.
+        user: Administrative login executing ``sp_configure`` (defaults to ``"sa"``).
+        password: Password for ``user``.
+        grant_to: Optional non-``sa`` login to grant ``mon_role``.
+
+    Raises:
+        ValueError: If ``grant_to`` is not a valid Sybase identifier.
+        RuntimeError: If ``sp_configure`` or ``grant role mon_role`` fails.
+    """
+    mda_settings: tuple[tuple[str, int], ...] = (
+        ("enable monitoring", 1),
+        ("per object statistics active", 1),
+        ("statement statistics active", 1),
+        ("wait event timing", 1),
+        ("object lockwait timing", 1),
+        ("SQL batch capture", 1),
+        ("sql text pipe active", 1),
+        ("sql text pipe max messages", 256),
+        ("max SQL text monitored", 4096),
+    )
+    mda_sql = "\ngo\n".join(f"exec sp_configure '{param}', {val}" for param, val in mda_settings) + "\ngo"
+    mda_digest = simple_string_hash(mda_sql)
+
+    def _enable_mda() -> None:
+        code, output = exec_isql(container, mda_sql, database="master", user=user, password=password)
+        if code != 0:
+            detail = output.decode("utf-8", errors="replace").strip()
+            msg = f"Failed to enable Sybase MDA monitoring (exit {code}): {detail}"
+            raise RuntimeError(msg)
+
+    run_container_init_once(container, "sybase:mda", mda_digest, _enable_mda)
+
+    if grant_to is not None and grant_to.lower() != "sa":
+        valid_login = validate_sybase_database_name(grant_to)
+        grant_sql = f"grant role mon_role to {valid_login}\ngo"
+
+        def _grant_role() -> None:
+            code, output = exec_isql(container, grant_sql, database="master", user=user, password=password)
+            if code != 0:
+                detail = output.decode("utf-8", errors="replace").strip()
+                msg = f"Failed to grant Sybase mon_role to {valid_login!r} (exit {code}): {detail}"
+                raise RuntimeError(msg)
+
+        run_container_init_once(
+            container,
+            f"sybase:mon_role:{valid_login.lower()}",
+            simple_string_hash(grant_sql),
+            _grant_role,
+        )
+
+
 @contextmanager
 def provide_sybase_service(
     container_service: ContainerService,
@@ -276,6 +364,11 @@ def provide_sybase_service(
     sybase_database: str,
     sybase_startup_timeout: int,
     xdist_sybase_isolation_level: XdistIsolationLevel,
+    *,
+    enable_monitoring: bool = False,
+    host_port: int | None = None,
+    env: Mapping[str, str] | None = None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> Generator[SybaseService, None, None]:
     """Start and yield a ready SAP Sybase ASE service container.
 
@@ -284,9 +377,7 @@ def provide_sybase_service(
     """
     worker_num = get_xdist_worker_num()
     initial_db = _resolve_sybase_database(sybase_database, worker_num, xdist_sybase_isolation_level)
-    name = "sybase"
-    if worker_num is not None and xdist_sybase_isolation_level == "server":
-        name = f"sybase_{worker_num}"
+    name = f"sybase_{worker_num}" if worker_num is not None and xdist_sybase_isolation_level == "server" else "sybase"
 
     last_container: Container | None = None
     last_stage = "port"
@@ -315,28 +406,28 @@ def provide_sybase_service(
         try:
             service = stack.enter_context(
                 container_service.run(
-                    image=sybase_image,
-                    container_port=SYBASE_PORT,
-                    name=name,
-                    env={
-                        "SYBASE_PASSWORD": sybase_password,
-                        "SA_PASSWORD": sybase_password,
-                    },
-                    check=check,
-                    timeout=sybase_startup_timeout,
-                    pause=1.5,
-                    transient=worker_num is not None and xdist_sybase_isolation_level == "server",
+                    **_build_sybase_run_kwargs(
+                        sybase_image=sybase_image,
+                        name=name,
+                        sybase_password=sybase_password,
+                        extra_env=env,
+                        check=check,
+                        timeout=sybase_startup_timeout,
+                        transient=worker_num is not None and xdist_sybase_isolation_level == "server",
+                        host_port=host_port,
+                    )
                 )
             )
         except ValueError as exc:
             raise _sybase_startup_timeout_error(exc, last_container, last_stage) from exc
-        if initial_db != SYBASE_DATABASE:
-            create_worker_database(
-                service.container,
-                initial_db,
-                user=sybase_user,
-                password=sybase_password,
-            )
+        _finalize_sybase_database(
+            service.container,
+            initial_db=initial_db,
+            user=sybase_user,
+            password=sybase_password,
+            enable_monitoring=enable_monitoring,
+            init_sql=init_sql,
+        )
         yield SybaseService(
             container=service.container,
             host=service.host,
@@ -378,6 +469,18 @@ def sybase_startup_timeout() -> int:
 
 
 @pytest.fixture(scope="session")
+def sybase_enable_monitoring() -> bool:
+    """Whether Sybase ASE enables ``mon*`` MDA monitoring tables automatically during startup."""
+    return os.getenv("SYBASE_ENABLE_MONITORING", "false").strip().lower() in TRUE_VALUES
+
+
+@pytest.fixture(scope="session")
+def sybase_port() -> int | None:
+    """Optional pinned host TCP port for Sybase ASE (``SYBASE_PORT``)."""
+    return env_port("SYBASE_PORT")
+
+
+@pytest.fixture(scope="session")
 def xdist_sybase_isolation_level() -> XdistIsolationLevel:
     """Provide the pytest-xdist isolation level for Sybase ASE."""
     return "database"
@@ -391,6 +494,8 @@ def sybase_service(
     sybase_password: str,
     sybase_database: str,
     sybase_startup_timeout: int,
+    sybase_enable_monitoring: bool,
+    sybase_port: int | None,
     xdist_sybase_isolation_level: XdistIsolationLevel,
 ) -> Generator[SybaseService, None, None]:
     """Provide a session-scoped Sybase ASE service container.
@@ -405,9 +510,86 @@ def sybase_service(
         sybase_password=sybase_password,
         sybase_database=sybase_database,
         sybase_startup_timeout=sybase_startup_timeout,
+        enable_monitoring=sybase_enable_monitoring,
+        host_port=sybase_port,
         xdist_sybase_isolation_level=xdist_sybase_isolation_level,
     ) as service:
         yield service
+
+
+class _SybaseRunKwargs(TypedDict):
+    image: str
+    container_port: int
+    name: str
+    env: dict[str, str]
+    check: Callable[[ServiceContainer], bool]
+    timeout: int
+    pause: float
+    transient: bool
+    host_port: NotRequired[int]
+
+
+def _build_sybase_run_kwargs(
+    *,
+    sybase_image: str,
+    name: str,
+    sybase_password: str,
+    extra_env: Mapping[str, str] | None,
+    check: Callable[[ServiceContainer], bool],
+    timeout: int,
+    transient: bool,
+    host_port: int | None,
+) -> _SybaseRunKwargs:
+    """Assemble keyword arguments forwarded to :meth:`ContainerService.run`."""
+    container_env: dict[str, str] = {
+        "SYBASE_PASSWORD": sybase_password,
+        "SA_PASSWORD": sybase_password,
+    }
+    if extra_env:
+        container_env.update(extra_env)
+    kwargs: _SybaseRunKwargs = {
+        "image": sybase_image,
+        "container_port": SYBASE_PORT,
+        "name": name,
+        "env": container_env,
+        "check": check,
+        "timeout": timeout,
+        "pause": 1.5,
+        "transient": transient,
+    }
+    if host_port is not None:
+        kwargs["host_port"] = host_port
+    return kwargs
+
+
+def _finalize_sybase_database(
+    container: Container,
+    *,
+    initial_db: str,
+    user: str,
+    password: str,
+    enable_monitoring: bool,
+    init_sql: str | Path | Sequence[str | Path] | None,
+) -> None:
+    """Create worker database when needed, enable MDA monitoring if requested, and run ``init_sql``."""
+    if initial_db != SYBASE_DATABASE:
+        create_worker_database(container, initial_db, user=user, password=password)
+    if enable_monitoring:
+        configure_sybase_monitoring(container, user=user, password=password, grant_to=user)
+    statements = read_init_scripts(init_sql)
+    if not statements:
+        return
+    fingerprint = simple_string_hash("\ngo\n".join(statements))
+
+    def _run() -> None:
+        for statement in statements:
+            code, output = exec_isql(container, statement, database=initial_db, user=user, password=password)
+            if code != 0:
+                detail = output.decode("utf-8", errors="replace").strip()
+                msg = f"Sybase init_sql failed on database {initial_db!r} (exit {code}): {detail}"
+                raise RuntimeError(msg)
+
+    run_container_init_once(container, f"sybase:{initial_db}", fingerprint, _run)
 
 
 def _resolve_sybase_database(sybase_database: str, worker_num: int | None, isolation_level: XdistIsolationLevel) -> str:

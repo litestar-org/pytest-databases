@@ -1,7 +1,8 @@
 """Database clone, drop, and template helpers shared by the PostgreSQL service classes.
 
-Every helper takes a :class:`SQLRunner` callable, so the container service (``psql`` inside the container) and the
-embedded service (a local ``psql`` binary) share one implementation.
+Every helper takes a :class:`SQLRunner` callable, so container services (``psql`` inside the container),
+embedded clusters, and external PostgreSQL endpoints (both over the stdlib v3 wire protocol) share one
+implementation.
 """
 
 from __future__ import annotations

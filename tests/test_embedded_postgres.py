@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import socket
 import struct
 import subprocess
@@ -258,6 +261,126 @@ def test_run_simple_query_connection_refused() -> None:
 
     assert exit_code == 2
     assert f"127.0.0.1:{port}".encode() in output
+
+
+def _read_frontend_msg(conn: socket.socket) -> tuple[bytes, bytes]:
+    header = conn.recv(5)
+    (length,) = struct.unpack("!I", header[1:])
+    data = bytearray()
+    while len(data) < length - 4:
+        chunk = conn.recv(length - 4 - len(data))
+        if not chunk:
+            break
+        data.extend(chunk)
+    return header[:1], bytes(data)
+
+
+def _compute_scram_keys(password: str, salt: bytes, auth_msg: bytes) -> tuple[bytes, bytes]:
+    salted = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 4096)
+    ckey = hmac.new(salted, b"Client Key", hashlib.sha256).digest()
+    csig = hmac.new(hashlib.sha256(ckey).digest(), auth_msg, hashlib.sha256).digest()
+    expected_proof = bytes(a ^ b for a, b in zip(ckey, csig, strict=True))
+    srv_sig = hmac.new(hmac.new(salted, b"Server Key", hashlib.sha256).digest(), auth_msg, hashlib.sha256).digest()
+    return expected_proof, srv_sig
+
+
+def _serve_scram_server(conn: socket.socket, password: str, *, tamper_server_sig: bool) -> bool:
+    conn.sendall(_backend(b"R", struct.pack("!I", 10) + b"SCRAM-SHA-256\x00\x00"))
+    kind, init_payload = _read_frontend_msg(conn)
+    assert kind == b"p" and init_payload.startswith(b"SCRAM-SHA-256\x00")
+    rest = init_payload[len(b"SCRAM-SHA-256\x00") :]
+    (cflen,) = struct.unpack("!I", rest[:4])
+    client_first_bare = rest[4 : 4 + cflen].decode("ascii")[3:]
+    salt = b"0123456789abcdef"
+    server_first = f"r={client_first_bare.split('r=', 1)[1]}srvnonce,s={base64.b64encode(salt).decode('ascii')},i=4096"
+    conn.sendall(_backend(b"R", struct.pack("!I", 11) + server_first.encode("ascii")))
+
+    kind2, final_msg = _read_frontend_msg(conn)
+    assert kind2 == b"p"
+    client_final_no_proof, _, proof_b64 = final_msg.decode("ascii").rpartition(",p=")
+    auth_msg = f"{client_first_bare},{server_first},{client_final_no_proof}".encode("ascii")
+    expected_proof, srv_sig = _compute_scram_keys(password, salt, auth_msg)
+    assert base64.b64decode(proof_b64) == expected_proof
+    if tamper_server_sig:
+        srv_sig = bytes([srv_sig[0] ^ 0xFF, *srv_sig[1:]])
+    conn.sendall(_backend(b"R", struct.pack("!I", 12) + f"v={base64.b64encode(srv_sig).decode('ascii')}".encode()))
+    if tamper_server_sig:
+        return False
+    conn.sendall(AUTH_OK + READY)
+    return True
+
+
+@pytest.mark.parametrize(
+    ("auth_mode", "password", "tamper_server_sig", "expected"),
+    [
+        ("cleartext", "s3cr3t", False, (0, b"ok")),
+        ("md5", "s3cr3t", False, (0, b"ok")),
+        ("scram", "s3cr3t", False, (0, b"ok")),
+        ("scram", "s3cr3t", True, (2, b"SCRAM-SHA-256 server signature verification failed")),
+        ("scram_plus_only", "s3cr3t", False, (2, b"SCRAM-SHA-256 not offered by server (offered: SCRAM-SHA-256-PLUS)")),
+        ("gss", "s3cr3t", False, (2, b"authentication method 7 is not supported")),
+    ],
+)
+def test_run_simple_query_password_authentication_modes(
+    auth_mode: str,
+    password: str,
+    tamper_server_sig: bool,
+    expected: tuple[int, bytes],
+) -> None:
+    """Verify cleartext, MD5, and RFC 5802 SCRAM-SHA-256 authentication handshakes in _pgwire."""
+    server = socket.create_server(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+
+    def _serve_auth() -> None:
+        conn, _ = server.accept()
+        with conn:
+            (slen,) = struct.unpack("!I", conn.recv(4))
+            conn.recv(slen - 4)
+            if auth_mode == "cleartext":
+                conn.sendall(_backend(b"R", struct.pack("!I", 3)))
+                kind, pw_payload = _read_frontend_msg(conn)
+                assert kind == b"p" and pw_payload == password.encode() + b"\x00"
+                conn.sendall(AUTH_OK + READY)
+            elif auth_mode == "md5":
+                salt = b"abcd"
+                conn.sendall(_backend(b"R", struct.pack("!I", 5) + salt))
+                kind, pw_payload = _read_frontend_msg(conn)
+                inner = hashlib.md5((password + "appuser").encode(), usedforsecurity=False).hexdigest()
+                expected_md5 = "md5" + hashlib.md5(inner.encode() + salt, usedforsecurity=False).hexdigest()
+                assert kind == b"p" and pw_payload == expected_md5.encode() + b"\x00"
+                conn.sendall(AUTH_OK + READY)
+            elif auth_mode == "scram":
+                if not _serve_scram_server(conn, password, tamper_server_sig=tamper_server_sig):
+                    return
+            elif auth_mode == "scram_plus_only":
+                conn.sendall(_backend(b"R", struct.pack("!I", 10) + b"SCRAM-SHA-256-PLUS\x00\x00"))
+                return
+            else:
+                conn.sendall(_backend(b"R", struct.pack("!I", 7)))
+                return
+
+            qkind, _qbody = _read_frontend_msg(conn)
+            assert qkind == b"Q"
+            conn.sendall(_data_row(b"ok") + _backend(b"C", b"SELECT 1\x00") + READY)
+            _read_frontend_msg(conn)
+
+    thread = threading.Thread(target=_serve_auth, daemon=True)
+    thread.start()
+    try:
+        result = _pgwire.run_simple_query(
+            "127.0.0.1",
+            port,
+            user="appuser",
+            database="app",
+            sql="SELECT 'ok'",
+            password=password,
+            timeout=5,
+        )
+    finally:
+        thread.join(timeout=2)
+        server.close()
+
+    assert result == expected
 
 
 def test_start_cluster_timeout_reports_last_result_and_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

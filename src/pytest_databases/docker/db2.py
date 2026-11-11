@@ -2,20 +2,32 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shlex
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
+import filelock
 import pytest
 
-from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
+from pytest_databases.helpers import (
+    env_port,
+    exec_output_to_bytes,
+    get_xdist_worker_num,
+    read_init_scripts,
+    run_container_init_once,
+    simple_string_hash,
+    tcp_port_open,
+)
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator, Mapping, Sequence
 
     from docker.models.containers import Container
 
@@ -26,11 +38,14 @@ __all__ = [
     "DB2_PORT",
     "DEFAULT_DB2_IMAGE",
     "Db2Service",
+    "activate_db2_database",
     "create_worker_database",
     "db2_4k_device_support",
+    "db2_activate_database",
     "db2_dbname",
     "db2_image",
     "db2_password",
+    "db2_port",
     "db2_service",
     "db2_startup_timeout",
     "db2_username",
@@ -45,7 +60,10 @@ DB2_PORT = 50000
 DB2_MAX_DB_NAME_LENGTH = 8
 _DB2_4K_REGISTRY_SETTINGS: tuple[tuple[str, str], ...] = (("DB2_4K_DEVICE_SUPPORT", "ON"), ("DB2_DIRECT_IO", "NO"))
 _CLP_MAX_SUCCESS_EXIT_CODE = 3
+_CLP_MAX_ACTIVATE_EXIT_CODE = 2
 _DB2_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,7}$")
+_DB2_REGISTRY_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DB2_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 _DB2_SETUP_SCRIPT = "/var/db2_setup/lib/setup_db2_instance.sh"
 _DB2_SETUP_FUNCTIONS = "/var/db2_setup/include/db2_common_functions"
 _DB2_4K_MISSING_DATABASE_MARKERS = ("SQL1013N", "SQL0293N")
@@ -95,6 +113,18 @@ class Db2Service(ServiceContainer):
     def create_worker_database(self, db_name: str) -> None:
         """Create an isolated Db2 database inside the container."""
         create_worker_database(self.container, db_name, instance_user=self.username)
+
+    def activate_database(self, db_name: str | None = None) -> str:
+        """Pin ``db_name`` (defaults to ``self.db_name``) active in Db2 shared memory.
+
+        Returns:
+            Decoded output from ``db2 activate database``.
+        """
+        return activate_db2_database(
+            self.container,
+            db_name or self.db_name,
+            instance_user=self.username,
+        )
 
 
 def validate_db2_database_name(db_name: str) -> str:
@@ -187,6 +217,40 @@ def create_worker_database(
         raise RuntimeError(msg)
 
 
+def activate_db2_database(
+    container: Container,
+    db_name: str,
+    *,
+    instance_user: str = "db2inst1",
+) -> str:
+    """Explicitly activate ``db_name`` inside a Db2 container so ``MON_GET_*`` metrics persist across disconnects.
+
+    Without explicit activation, Db2 deactivates a database when the last client disconnects and resets
+    in-memory bufferpool, lock, tablespace, and package-cache counters. CLP exit codes ``0`` through ``2``
+    (including ``SQL1490W`` when already active) are treated as idempotent success.
+
+    Args:
+        container: Running Db2 container.
+        db_name: Target Db2 database name (at most 8 characters).
+        instance_user: Db2 instance owner OS user inside the container.
+
+    Returns:
+        Decoded CLP stdout/stderr message text.
+
+    Raises:
+        RuntimeError: If ``db2 activate database`` fails with an error exit code.
+    """
+    validate_db2_database_name(db_name)
+    inner_cmd = f"db2 activate database {shlex.quote(db_name)}"
+    result = container.exec_run(["su", "-", instance_user, "-c", inner_cmd])
+    output = exec_output_to_bytes(result.output).decode("utf-8", errors="replace").strip()
+    exit_code = result.exit_code
+    if exit_code is None or (exit_code > _CLP_MAX_ACTIVATE_EXIT_CODE and "SQL1490W" not in output):
+        msg = f"Failed to activate Db2 database {db_name!r} (exit {exit_code}): {output}"
+        raise RuntimeError(msg)
+    return output
+
+
 @contextmanager
 def provide_db2_service(
     container_service: ContainerService,
@@ -198,14 +262,22 @@ def provide_db2_service(
     xdist_db2_isolation_level: XdistIsolationLevel,
     *,
     enable_4k_device_support: bool = True,
+    activate_database: bool = True,
+    host_port: int | None = None,
+    env: Mapping[str, str] | None = None,
+    registry_vars: Mapping[str, str] | None = None,
+    shm_size: int | str | None = None,
+    mem_limit: str | None = None,
+    platform: str | None = None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> Generator[Db2Service, None, None]:
     """Start and yield a ready IBM Db2 Community Edition service container.
 
     With ``enable_4k_device_support`` (the default) the instance runs with ``DB2_4K_DEVICE_SUPPORT=ON`` and
     ``DB2_DIRECT_IO=NO`` so database creation works when the container storage has 4096-byte logical sectors.
-    The image setup script is patched to set both registry variables before its first ``db2start``; if the initial
-    database is still missing after setup (``SQL1013N``), the variables are set, the instance is restarted, and the
-    database is created once.
+    Additional ``db2set`` settings in ``registry_vars`` are chained onto the same pre-``db2start`` setup hook.
+    With ``activate_database`` (the default), ``db2 activate database`` keeps the database pinned in memory so
+    ``MON_GET_*`` monitoring snapshots persist across short-lived client connections.
 
     Args:
         container_service: The container service manager.
@@ -216,26 +288,29 @@ def provide_db2_service(
         db2_startup_timeout: Startup timeout in seconds.
         xdist_db2_isolation_level: xdist isolation strategy (database or server).
         enable_4k_device_support: Whether to apply the 4096-byte sector registry settings.
+        activate_database: Whether to run ``db2 activate database`` on the ready database.
+        host_port: Optional pinned host TCP port for Db2 port 50000.
+        env: Optional extra container environment variables merged over defaults.
+        registry_vars: Optional extra ``db2set`` registry ``KEY=VALUE`` settings applied before ``db2start``.
+        shm_size: Optional ``/dev/shm`` size forwarded to container creation.
+        mem_limit: Optional memory limit forwarded to container creation.
+        platform: Optional OCI platform override (for example ``"linux/amd64"`` on Apple Silicon).
+        init_sql: Optional SQL statement, ``.sql`` path, or sequence executed once per database.
 
     Yields:
         A configured Db2Service instance.
     """
-    worker_num = get_xdist_worker_num()
-    name = "db2"
-    initial_db = (
-        validate_db2_database_name(os.getenv("DB2_DBNAME", "pytestdb"))
-        if worker_num is not None and xdist_db2_isolation_level == "database"
-        else db2_dbname
+    name, initial_db, transient = _resolve_db2_targets(db2_dbname, xdist_db2_isolation_level)
+    settings = _collect_db2_registry_settings(
+        enable_4k_device_support=enable_4k_device_support,
+        registry_vars=registry_vars,
     )
-    transient = False
-    if worker_num is not None and xdist_db2_isolation_level == "server":
-        name = f"db2_{worker_num}"
-        transient = True
-
     recreate_attempted = False
 
     def check(service: ServiceContainer) -> bool:
         nonlocal recreate_attempted
+        if not tcp_port_open(service.host, service.port):
+            return False
         try:
             output = exec_db2_sql(
                 service.container,
@@ -245,43 +320,44 @@ def provide_db2_service(
             )
         except RuntimeError as exc:
             missing = any(marker in str(exc) for marker in _DB2_4K_MISSING_DATABASE_MARKERS)
-            if enable_4k_device_support and missing and not recreate_attempted:
+            if settings and missing and not recreate_attempted:
                 recreate_attempted = True
-                _create_database_with_4k_device_support(service.container, initial_db, instance_user=db2_username)
+                _create_database_with_registry_settings(
+                    service.container,
+                    initial_db,
+                    instance_user=db2_username,
+                    settings=settings,
+                )
             return False
         return output == "1"
 
-    entrypoint: list[str] | None = None
-    command: list[str] | None = None
-    if enable_4k_device_support:
-        entrypoint = ["/bin/bash", "-c"]
-        command = [_db2_4k_setup_command()]
-
+    entrypoint, command = _build_db2_startup_command(settings)
     with container_service.run(
-        image=db2_image,
-        container_port=DB2_PORT,
-        name=name,
-        command=command,
-        entrypoint=entrypoint,
-        env={
-            "LICENSE": "accept",
-            "DB2INST1_PASSWORD": db2_password,
-            "DBNAME": initial_db,
-            "SAMPLEDB": "false",
-            "AUTOCONFIG": "false",
-            "ARCHIVE_LOGS": "false",
-            "TO_CREATE_SAMPLEDB": "false",
-            "REPODB": "false",
-        },
-        wait_for_log="Setup has completed",
-        check=check,
-        timeout=db2_startup_timeout,
-        pause=2.0,
-        transient=transient,
-        privileged=True,
+        **_build_db2_run_kwargs(
+            db2_image=db2_image,
+            name=name,
+            command=command,
+            entrypoint=entrypoint,
+            db2_password=db2_password,
+            initial_db=initial_db,
+            extra_env=env,
+            check=check,
+            db2_startup_timeout=db2_startup_timeout,
+            transient=transient,
+            host_port=host_port,
+            shm_size=shm_size,
+            mem_limit=mem_limit,
+            platform=platform,
+        )
     ) as service:
-        if db2_dbname != initial_db:
-            create_worker_database(service.container, db2_dbname, instance_user=db2_username)
+        _finalize_db2_database(
+            service.container,
+            db2_dbname=db2_dbname,
+            initial_db=initial_db,
+            instance_user=db2_username,
+            activate=activate_database,
+            init_sql=init_sql,
+        )
         yield Db2Service(
             container=service.container,
             host=service.host,
@@ -290,44 +366,6 @@ def provide_db2_service(
             username=db2_username,
             password=db2_password,
         )
-
-
-def _db2_4k_setup_command() -> str:
-    """Build the container command that applies the 4096-byte sector registry settings before Db2 setup runs.
-
-    The image setup runs ``db2set DB2COMM=TCPIP`` in ``set_dbm_cfg`` before its first ``db2start`` and before the
-    initial database is created, so the extra ``db2set`` calls are chained onto that line.
-
-    Returns:
-        A ``bash -c`` script that patches the setup functions and then execs the image setup script.
-    """
-    extra = "".join(f" \\&\\& db2set {key}={value}" for key, value in _DB2_4K_REGISTRY_SETTINGS)
-    expression = f"s/db2set DB2COMM=TCPIP/db2set DB2COMM=TCPIP{extra}/"
-    return f"sed -i {shlex.quote(expression)} {_DB2_SETUP_FUNCTIONS} && exec {_DB2_SETUP_SCRIPT}"
-
-
-def _create_database_with_4k_device_support(container: Container, db_name: str, *, instance_user: str) -> None:
-    """Apply the 4096-byte sector registry settings, restart the instance, and create ``db_name`` if missing.
-
-    Args:
-        container: Running Db2 container.
-        db_name: Database name to create.
-        instance_user: Db2 instance owner OS user inside the container.
-
-    Raises:
-        RuntimeError: If any step exits non-zero.
-    """
-    validate_db2_database_name(db_name)
-    registry = " && ".join(f"db2set {key}={value}" for key, value in _DB2_4K_REGISTRY_SETTINGS)
-    inner_cmd = (
-        f"db2 list db directory | grep -Eiq '^[[:space:]]*Database name[[:space:]]*= {db_name}[[:space:]]*$' "
-        f"|| ({registry} && db2stop force && db2start && db2 create database {shlex.quote(db_name)})"
-    )
-    result = container.exec_run(["su", "-", instance_user, "-c", inner_cmd])
-    if result.exit_code != 0:
-        output = exec_output_to_bytes(result.output).decode("utf-8", errors="replace")
-        msg = f"Failed to create Db2 database {db_name!r} (exit {result.exit_code}): {output.strip()}"
-        raise RuntimeError(msg)
 
 
 @pytest.fixture(scope="session")
@@ -344,7 +382,13 @@ def db2_4k_device_support() -> bool:
     ``DB2_4K_DEVICE_SUPPORT`` environment variable to ``0``/``false``/``no``/``off`` or override this fixture to
     return ``False`` to keep the image defaults.
     """
-    return os.getenv("DB2_4K_DEVICE_SUPPORT", "on").strip().lower() not in {"0", "false", "no", "off"}
+    return os.getenv("DB2_4K_DEVICE_SUPPORT", "on").strip().lower() not in _DB2_FALSE_VALUES
+
+
+@pytest.fixture(scope="session")
+def db2_activate_database() -> bool:
+    """Whether Db2 explicitly activates the database so ``MON_GET_*`` metrics persist across disconnects."""
+    return os.getenv("DB2_ACTIVATE_DATABASE", "on").strip().lower() not in _DB2_FALSE_VALUES
 
 
 @pytest.fixture(scope="session")
@@ -363,6 +407,12 @@ def db2_username() -> str:
 def db2_password() -> str:
     """Provide the Db2 instance owner password."""
     return os.getenv("DB2_PASSWORD", "pytest_db2_pwd")
+
+
+@pytest.fixture(scope="session")
+def db2_port() -> int | None:
+    """Provide an optional pinned host TCP port for Db2 (``DB2_PORT``)."""
+    return env_port("DB2_PORT")
 
 
 @pytest.fixture(scope="session")
@@ -390,6 +440,8 @@ def db2_service(
     db2_startup_timeout: int,
     xdist_db2_isolation_level: XdistIsolationLevel,
     db2_4k_device_support: bool,
+    db2_activate_database: bool,
+    db2_port: int | None,
 ) -> Generator[Db2Service, None, None]:
     """Start and yield a ready IBM Db2 Community Edition service container.
 
@@ -405,5 +457,196 @@ def db2_service(
         db2_startup_timeout=db2_startup_timeout,
         xdist_db2_isolation_level=xdist_db2_isolation_level,
         enable_4k_device_support=db2_4k_device_support,
+        activate_database=db2_activate_database,
+        host_port=db2_port,
     ) as service:
         yield service
+
+
+def _resolve_db2_targets(
+    db2_dbname: str,
+    isolation_level: XdistIsolationLevel,
+) -> tuple[str, str, bool]:
+    """Return ``(container_name, initial_db, transient)`` for the active worker."""
+    worker_num = get_xdist_worker_num()
+    if worker_num is None:
+        return "db2", validate_db2_database_name(db2_dbname), False
+    if isolation_level == "server":
+        return f"db2_{worker_num}", validate_db2_database_name(db2_dbname), True
+    initial_db = validate_db2_database_name(os.getenv("DB2_DBNAME", "pytestdb"))
+    return "db2", initial_db, False
+
+
+def _collect_db2_registry_settings(
+    *,
+    enable_4k_device_support: bool,
+    registry_vars: Mapping[str, str] | None,
+) -> tuple[tuple[str, str], ...]:
+    """Validate and merge Db2 ``db2set`` registry variables in deterministic application order."""
+    merged: dict[str, str] = {}
+    if enable_4k_device_support:
+        merged.update(_DB2_4K_REGISTRY_SETTINGS)
+    if registry_vars:
+        for key, raw_val in registry_vars.items():
+            if not _DB2_REGISTRY_KEY_PATTERN.fullmatch(key):
+                msg = f"Invalid Db2 registry variable name {key!r}."
+                raise ValueError(msg)
+            value = str(raw_val)
+            if not value or any(ch in value for ch in ("\x00", "\n", "\r", "'", '"', "`", "$", ";", "&", "|")):
+                msg = f"Invalid Db2 registry variable value for {key!r}: {raw_val!r}."
+                raise ValueError(msg)
+            merged[key] = value
+    return tuple(merged.items())
+
+
+def _build_db2_startup_command(
+    settings: tuple[tuple[str, str], ...],
+) -> tuple[list[str] | None, list[str] | None]:
+    """Return ``(entrypoint, command)`` patching Db2 setup when registry settings are active."""
+    if not settings:
+        return None, None
+    return ["/bin/bash", "-c"], [_db2_registry_setup_command(settings)]
+
+
+def _db2_4k_setup_command() -> str:
+    """Build the container command that applies the 4096-byte sector registry settings before Db2 setup runs."""
+    return _db2_registry_setup_command(_DB2_4K_REGISTRY_SETTINGS)
+
+
+def _db2_registry_setup_command(settings: tuple[tuple[str, str], ...]) -> str:
+    """Build a ``bash -c`` command patching ``db2_common_functions`` to set ``settings`` before ``db2start``."""
+
+    def _escape_sed_rhs(text: str) -> str:
+        return text.replace("\\", "\\\\").replace("&", "\\&").replace("/", "\\/")
+
+    extra = "".join(f" \\&\\& db2set {key}={_escape_sed_rhs(value)}" for key, value in settings)
+    expression = f"s/db2set DB2COMM=TCPIP/db2set DB2COMM=TCPIP{extra}/"
+    return f"sed -i {shlex.quote(expression)} {_DB2_SETUP_FUNCTIONS} && exec {_DB2_SETUP_SCRIPT}"
+
+
+class _Db2RunKwargs(TypedDict):
+    image: str
+    container_port: int
+    name: str
+    command: list[str] | None
+    entrypoint: list[str] | None
+    env: dict[str, str]
+    wait_for_log: str
+    check: Callable[[ServiceContainer], bool]
+    timeout: int
+    pause: float
+    transient: bool
+    privileged: bool
+    host_port: NotRequired[int]
+    shm_size: NotRequired[int | str]
+    mem_limit: NotRequired[str]
+    platform: NotRequired[str]
+
+
+def _build_db2_run_kwargs(
+    *,
+    db2_image: str,
+    name: str,
+    command: list[str] | None,
+    entrypoint: list[str] | None,
+    db2_password: str,
+    initial_db: str,
+    extra_env: Mapping[str, str] | None,
+    check: Callable[[ServiceContainer], bool],
+    db2_startup_timeout: int,
+    transient: bool,
+    host_port: int | None,
+    shm_size: int | str | None,
+    mem_limit: str | None,
+    platform: str | None,
+) -> _Db2RunKwargs:
+    """Assemble keyword arguments forwarded to :meth:`ContainerService.run` without clobbering defaults."""
+    container_env: dict[str, str] = {
+        "LICENSE": "accept",
+        "DB2INST1_PASSWORD": db2_password,
+        "DBNAME": initial_db,
+        "SAMPLEDB": "false",
+        "AUTOCONFIG": "false",
+        "ARCHIVE_LOGS": "false",
+        "TO_CREATE_SAMPLEDB": "false",
+        "REPODB": "false",
+    }
+    if extra_env:
+        container_env.update(extra_env)
+    kwargs: _Db2RunKwargs = {
+        "image": db2_image,
+        "container_port": DB2_PORT,
+        "name": name,
+        "command": command,
+        "entrypoint": entrypoint,
+        "env": container_env,
+        "wait_for_log": "Setup has completed",
+        "check": check,
+        "timeout": db2_startup_timeout,
+        "pause": 2.0,
+        "transient": transient,
+        "privileged": True,
+    }
+    if host_port is not None:
+        kwargs["host_port"] = host_port
+    if shm_size is not None:
+        kwargs["shm_size"] = shm_size
+    if mem_limit is not None:
+        kwargs["mem_limit"] = mem_limit
+    if platform is not None:
+        kwargs["platform"] = platform
+    return kwargs
+
+
+def _create_database_with_registry_settings(
+    container: Container,
+    db_name: str,
+    *,
+    instance_user: str,
+    settings: tuple[tuple[str, str], ...],
+) -> None:
+    """Apply ``settings``, restart the Db2 instance, and create ``db_name`` if missing."""
+    validate_db2_database_name(db_name)
+    registry = " && ".join(f"db2set {key}={shlex.quote(value) if '/' in value else value}" for key, value in settings)
+    inner_cmd = (
+        f"db2 list db directory | grep -Eiq '^[[:space:]]*Database name[[:space:]]*= {db_name}[[:space:]]*$' "
+        f"|| ({registry} && db2stop force && db2start && db2 create database {shlex.quote(db_name)})"
+    )
+    result = container.exec_run(["su", "-", instance_user, "-c", inner_cmd])
+    if result.exit_code != 0:
+        output = exec_output_to_bytes(result.output).decode("utf-8", errors="replace")
+        msg = f"Failed to create Db2 database {db_name!r} (exit {result.exit_code}): {output.strip()}"
+        raise RuntimeError(msg)
+
+
+def _finalize_db2_database(
+    container: Container,
+    *,
+    db2_dbname: str,
+    initial_db: str,
+    instance_user: str,
+    activate: bool,
+    init_sql: str | Path | Sequence[str | Path] | None,
+) -> None:
+    """Create worker database when isolated, optionally pin it active in memory, and execute ``init_sql``."""
+    target_db = validate_db2_database_name(db2_dbname)
+    if target_db != initial_db:
+        create_worker_database(container, target_db, instance_user=instance_user)
+    if activate:
+        container_id = getattr(container, "id", None)
+        lock_cm: contextlib.AbstractContextManager[object] = contextlib.nullcontext()
+        if isinstance(container_id, str) and container_id:
+            lock_path = Path(tempfile.gettempdir()) / f"pytest-databases-db2-act-{container_id[:12]}-{target_db}.lock"
+            lock_cm = filelock.FileLock(str(lock_path), timeout=120.0)
+        with lock_cm:
+            activate_db2_database(container, target_db, instance_user=instance_user)
+    statements = read_init_scripts(init_sql)
+    if not statements:
+        return
+    fingerprint = simple_string_hash("\n;\n".join(statements))
+
+    def _run() -> None:
+        for statement in statements:
+            exec_db2_sql(container, statement, db_name=target_db, instance_user=instance_user)
+
+    run_container_init_once(container, f"db2:{target_db}", fingerprint, _run)

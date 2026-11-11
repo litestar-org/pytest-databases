@@ -24,12 +24,12 @@ Usage Example
 
 
     def test_postgres(postgres_service: PostgresService) -> None:
-        with psycopg.connect(
-            f"postgresql://{postgres_service.user}:{postgres_service.password}"
-            f"@{postgres_service.host}:{postgres_service.port}/{postgres_service.database}"
-        ) as conn:
+        with psycopg.connect(postgres_service.dsn) as conn:
             db_open = conn.execute("SELECT 1").fetchone()
             assert db_open is not None and db_open[0] == 1
+        exit_code, output = postgres_service.exec_sql("SELECT current_database()", tuples_only=True)
+        assert exit_code == 0
+        assert output.strip().decode() == postgres_service.database
 
 
     def test_template_clone(postgres_service: PostgresService) -> None:
@@ -106,20 +106,39 @@ The same helpers are available on :class:`~pytest_databases.docker.postgres.Post
 matched literally, ``*_staging`` databases are kept). It also drops databases that other workers are still using, so
 call it only at the end of a session.
 
+Attaching to an External PostgreSQL Server
+------------------------------------------
+
+When CI jobs or shared environments pre-start a PostgreSQL or AlloyDB Omni server outside ``pytest-databases``, use
+``postgres_external_service`` or :func:`~pytest_databases.docker.postgres.provide_external_postgres_service` to attach
+without requiring a container runtime, ``psql``, or ``psycopg``. Readiness probes, ``"database"`` and ``"template"``
+``pytest-xdist`` isolation, and one-shot ``init_sql`` bootstrap run directly over the stdlib PostgreSQL v3 wire
+protocol (supporting ``trust``, cleartext, MD5, and ``SCRAM-SHA-256`` authentication).
+
+Set ``POSTGRES_EXTERNAL_HOST`` (and optionally ``POSTGRES_EXTERNAL_PORT``, ``POSTGRES_USER``, and
+``POSTGRES_DATABASE``) or call :func:`~pytest_databases.docker.postgres.provide_external_postgres_service` directly in
+a custom fixture. Custom container fixtures calling :func:`~pytest_databases.docker.postgres.provide_postgres_service`
+can also forward server ``command`` arguments (for example preloading ``pg_stat_statements``), extra ``env``
+variables, ``shm_size``, ``mem_limit``, ``volumes``, ``database``, and ``init_sql``.
+
 Available Fixtures
 ------------------
 
 * ``postgres_host``: The PostgreSQL host address (defaults to ``"127.0.0.1"``, can be overridden with ``POSTGRES_HOST`` environment variable).
-* ``postgres_user``: The PostgreSQL user.
-* ``postgres_password``: The PostgreSQL password.
+* ``postgres_user``: The PostgreSQL superuser name (defaults to ``"postgres"``, env ``POSTGRES_USER``).
+* ``postgres_password``: The PostgreSQL superuser password (defaults to ``"super-secret"``).
+* ``postgres_database``: Base database name created for family services (defaults to ``"pytest_databases"``, env ``POSTGRES_DATABASE``; ``<postgres_database>_<worker>`` under ``pytest-xdist`` ``"database"`` or ``"template"`` isolation).
 * ``postgres_image``: The Docker image to use for PostgreSQL (defaults to ``"postgres:18"``).
 * ``postgres_port``: Optional host-side port pin (default ``None``, override via ``POSTGRES_PORT`` env).
+* ``postgres_external_host``: Optional hostname or IP of a pre-started PostgreSQL endpoint (default ``None``, env ``POSTGRES_EXTERNAL_HOST``).
+* ``postgres_external_port``: Optional TCP port for ``postgres_external_service`` (default ``None``, falling back to ``5432``; env ``POSTGRES_EXTERNAL_PORT``).
+* ``postgres_external_service``: Yields an :class:`~pytest_databases.docker.postgres.ExternalPostgresService` connected to ``postgres_external_host`` (skips when unset).
 * ``postgres_template_name``: Template name prefix for ``"template"`` isolation (``None`` means ``"pytest_databases_template"``).
 * ``postgres_template_setup``: SQL statements, ``.sql`` paths, or a callable that builds the template (default ``None``).
 * ``postgres_template_fingerprint_sources``: Extra strings, bytes, files, or directories hashed into the template name (default ``()``).
 * ``postgres_template_lock_dir``: Directory for the template lock file (``None`` means the system temp directory).
 * ``postgres_template_options``: A :class:`~pytest_databases.docker.postgres.PostgresTemplateOptions` combining the four fixtures above; every family service requests it.
-* ``postgres_service``: A fixture that provides a :class:`~pytest_databases.docker.postgres.PostgresService` instance.
+* ``postgres_service``: A fixture that provides a :class:`~pytest_databases.docker.postgres.PostgresService` instance (with ``dsn``, ``connection_config``, and ``exec_sql()``).
 * ``postgres_connection``: Deprecated fixture that yields a ``psycopg.Connection``.
 
 The following version-specific fixtures are also available. Each has its own
@@ -172,6 +191,9 @@ Configuration
 PostgreSQL services can be configured using environment variables:
 
 * ``POSTGRES_HOST``: The host address for the PostgreSQL container (default: ``"127.0.0.1"``)
+* ``POSTGRES_USER``: Superuser name configured in PostgreSQL containers and ``postgres_external_service`` (default: ``"postgres"``)
+* ``POSTGRES_DATABASE``: Base database name created for PostgreSQL family services and ``postgres_external_service`` (default: ``"pytest_databases"``)
+* ``POSTGRES_EXTERNAL_HOST`` and ``POSTGRES_EXTERNAL_PORT``: Hostname/IP and optional TCP port (default ``5432``) used by ``postgres_external_service`` to attach to an existing server
 * ``POSTGRES_PORT`` / ``POSTGRES_NN_PORT`` / ``PGVECTOR_PORT`` / ``PGVECTOR_NN_PORT`` / ``PARADEDB_PORT`` / ``PARADEDB_NN_PORT`` / ``ALLOYDB_OMNI_PORT`` / ``ALLOYDB_OMNI_NN_PORT``: Pin a specific host-side port for the matching service fixture. When unset, Docker picks a random free port (the default). See GitHub issue #131.
 
 Service API

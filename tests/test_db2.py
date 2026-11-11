@@ -14,6 +14,7 @@ from pytest_databases.docker import db2
 from pytest_databases.docker.db2 import (
     DEFAULT_DB2_IMAGE,
     Db2Service,
+    activate_db2_database,
     create_worker_database,
     exec_db2_sql,
     validate_db2_database_name,
@@ -22,6 +23,7 @@ from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from pathlib import Path
 
     from pytest import MonkeyPatch
 
@@ -114,8 +116,16 @@ def test_db2_service_metadata_and_exec_helpers() -> None:
 
 
 def test_db2_contract_fixtures(pytester: pytest.Pytester, monkeypatch: MonkeyPatch) -> None:
-    """Verify default values of db2_image, db2_dbname, db2_username, and xdist_db2_isolation_level."""
-    for var in ("PYTEST_XDIST_WORKER", "DB2_IMAGE", "DB2_DBNAME", "DB2_USER", "DB2_PASSWORD"):
+    """Verify default values of Db2 session configuration fixtures."""
+    for var in (
+        "PYTEST_XDIST_WORKER",
+        "DB2_IMAGE",
+        "DB2_DBNAME",
+        "DB2_USER",
+        "DB2_PASSWORD",
+        "DB2_PORT",
+        "DB2_ACTIVATE_DATABASE",
+    ):
         monkeypatch.delenv(var, raising=False)
 
     pytester.makepyfile(f"""
@@ -127,6 +137,8 @@ def test_db2_contract_fixtures(pytester: pytest.Pytester, monkeypatch: MonkeyPat
         db2_username,
         db2_password,
         db2_startup_timeout,
+        db2_activate_database,
+        db2_port,
         xdist_db2_isolation_level,
     ) -> None:
         assert db2_image == {DEFAULT_DB2_IMAGE!r}
@@ -134,6 +146,8 @@ def test_db2_contract_fixtures(pytester: pytest.Pytester, monkeypatch: MonkeyPat
         assert db2_username == "db2inst1"
         assert db2_password == "pytest_db2_pwd"
         assert db2_startup_timeout == 600
+        assert db2_activate_database is True
+        assert db2_port is None
         assert xdist_db2_isolation_level == "database"
     """)
 
@@ -173,6 +187,7 @@ def test_db2_service_runtime_options(
     container_service = MagicMock()
     container_service.run.side_effect = fake_run
     monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: worker_num)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: True)
     db_name = "ptdb_2" if isolation_level == "database" and worker_num is not None else "pytestdb"
     with db2.provide_db2_service(
         container_service=container_service,
@@ -190,6 +205,11 @@ def test_db2_service_runtime_options(
     assert captured_kwargs["name"] == expected_name
     assert captured_kwargs["transient"] is expected_transient
 
+    check_fn = captured_kwargs["check"]
+    assert callable(check_fn)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: False)
+    assert check_fn(ServiceContainer(container=mock_container, host="127.0.0.1", port=50000)) is False
+
 
 @pytest.mark.parametrize("enable_4k_device_support", [True, False])
 def test_db2_service_4k_device_support_setup_command(monkeypatch: MonkeyPatch, enable_4k_device_support: bool) -> None:
@@ -206,6 +226,7 @@ def test_db2_service_4k_device_support_setup_command(monkeypatch: MonkeyPatch, e
     container_service = MagicMock()
     container_service.run.side_effect = fake_run
     monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: True)
     with db2.provide_db2_service(
         container_service=container_service,
         db2_image=DEFAULT_DB2_IMAGE,
@@ -275,6 +296,7 @@ def test_db2_service_recreates_missing_database_once(
     container_service = MagicMock()
     container_service.run.side_effect = fake_run
     monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: True)
     with db2.provide_db2_service(
         container_service=container_service,
         db2_image=DEFAULT_DB2_IMAGE,
@@ -418,6 +440,8 @@ def test_db2_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
         with patch("pytest_databases.docker.db2.provide_db2_service", side_effect=fake_svc):
             assert request.getfixturevalue("xdist_db2_isolation_level") == "database"
             assert request.getfixturevalue("db2_4k_device_support") is True
+            assert request.getfixturevalue("db2_activate_database") is True
+            assert request.getfixturevalue("db2_port") is None
             assert request.getfixturevalue("db2_image")
             assert request.getfixturevalue("db2_username") == "db2inst1"
             assert request.getfixturevalue("db2_password") == "pytest_db2_pwd"
@@ -431,3 +455,150 @@ def test_db2_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "output", "expect_error"),
+    [
+        (0, b"DB20000I  The ACTIVATE DATABASE command completed successfully.\n", False),
+        (2, b"SQL1490W  Activate database is successful, however, there is already a connection.\n", False),
+        (4, b"SQL1490W  Database is already active.\n", False),
+        (4, b"SQL1013N  The database alias name or database name could not be found.\n", True),
+        (None, b"", True),
+    ],
+)
+def test_activate_db2_database_exit_codes(exit_code: int | None, output: bytes, expect_error: bool) -> None:
+    """Verify activate_db2_database accepts idempotent SQL1490W warnings and raises on CLP errors."""
+    container = MagicMock()
+    container.exec_run.return_value = MagicMock(exit_code=exit_code, output=output)
+    svc = Db2Service(
+        container=container,
+        host="127.0.0.1",
+        port=50000,
+        db_name="pytestdb",
+        username="db2inst1",
+        password="pw",
+    )
+    if expect_error:
+        with pytest.raises(RuntimeError, match="Failed to activate Db2 database"):
+            activate_db2_database(container, "pytestdb")
+        return
+    result = svc.activate_database()
+    assert result == output.decode().strip()
+    assert "db2 activate database pytestdb" in container.exec_run.call_args.args[0][4]
+
+
+def test_provide_db2_service_registry_vars_resources_and_init_sql(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify provide_db2_service wires registry_vars, resources, platform, activation toggle, and init_sql."""
+    monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: True)
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(db2.tempfile, "tempdir", str(tmp_path))
+
+    executed_scripts: list[str] = []
+    mock_container = MagicMock()
+    mock_container.id = "db2cid987654321"
+
+    def _exec(cmd: list[str]) -> MagicMock:
+        executed_scripts.append(cmd[4])
+        return MagicMock(exit_code=0, output=b"1\n")
+
+    mock_container.exec_run.side_effect = _exec
+    captured_kwargs: dict[str, object] = {}
+
+    @contextmanager
+    def fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
+        captured_kwargs.update(kwargs)
+        yield ServiceContainer(container=mock_container, host="127.0.0.1", port=50123)
+
+    cs = MagicMock()
+    cs.run.side_effect = fake_run
+
+    sql_path = tmp_path / "seed.sql"
+    sql_path.write_text("CREATE TABLE seed_t (id INT)", encoding="utf-8")
+
+    with db2.provide_db2_service(
+        container_service=cs,
+        db2_image=DEFAULT_DB2_IMAGE,
+        db2_dbname="pytestdb",
+        db2_username="db2inst1",
+        db2_password="pw",
+        db2_startup_timeout=300,
+        xdist_db2_isolation_level="database",
+        enable_4k_device_support=False,
+        activate_database=True,
+        host_port=50123,
+        env={"ARCHIVE_LOGS": "true", "CUSTOM_FLAG": "yes"},
+        registry_vars={"DB2_COMPATIBILITY_VECTOR": "ORA", "DB2_DEFERRED_PREPARE_SEMANTICS": "YES"},
+        shm_size="1g",
+        mem_limit="4g",
+        platform="linux/amd64",
+        init_sql=[sql_path, "INSERT INTO seed_t VALUES (1)"],
+    ) as svc:
+        assert svc.port == 50123
+
+    assert captured_kwargs["host_port"] == 50123
+    assert captured_kwargs["shm_size"] == "1g"
+    assert captured_kwargs["mem_limit"] == "4g"
+    assert captured_kwargs["platform"] == "linux/amd64"
+    env_dict = captured_kwargs["env"]
+    assert isinstance(env_dict, dict)
+    assert env_dict["ARCHIVE_LOGS"] == "true"
+    assert env_dict["CUSTOM_FLAG"] == "yes"
+    cmd_list = captured_kwargs["command"]
+    assert isinstance(cmd_list, list)
+    assert "DB2_COMPATIBILITY_VECTOR=ORA" in cmd_list[0]
+    assert "DB2_4K_DEVICE_SUPPORT" not in cmd_list[0]
+    assert any("db2 activate database pytestdb" in s for s in executed_scripts)
+    assert sum("CREATE TABLE seed_t" in s for s in executed_scripts) == 1
+
+    with db2.provide_db2_service(
+        container_service=cs,
+        db2_image=DEFAULT_DB2_IMAGE,
+        db2_dbname="pytestdb",
+        db2_username="db2inst1",
+        db2_password="pw",
+        db2_startup_timeout=300,
+        xdist_db2_isolation_level="database",
+        enable_4k_device_support=False,
+        activate_database=False,
+        init_sql=[sql_path, "INSERT INTO seed_t VALUES (1)"],
+    ):
+        pass
+    assert sum("CREATE TABLE seed_t" in s for s in executed_scripts) == 1
+
+
+@pytest.mark.parametrize(
+    "bad_registry",
+    [
+        {"1BAD": "ON"},
+        {"BAD-KEY": "ON"},
+        {"DB2_WORKLOAD": ""},
+        {"DB2_WORKLOAD": "ANALYTICS;id"},
+    ],
+)
+def test_provide_db2_service_rejects_invalid_registry_vars(
+    monkeypatch: MonkeyPatch,
+    bad_registry: dict[str, str],
+) -> None:
+    """Verify provide_db2_service rejects unsafe or malformed Db2 registry variable names and values."""
+    monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: None)
+    cs = MagicMock()
+    with (
+        pytest.raises(ValueError, match="Invalid Db2 registry variable"),
+        db2.provide_db2_service(
+            container_service=cs,
+            db2_image=DEFAULT_DB2_IMAGE,
+            db2_dbname="pytestdb",
+            db2_username="db2inst1",
+            db2_password="pw",
+            db2_startup_timeout=60,
+            xdist_db2_isolation_level="database",
+            registry_vars=bad_registry,
+        ),
+    ):
+        pass
+    cs.run.assert_not_called()

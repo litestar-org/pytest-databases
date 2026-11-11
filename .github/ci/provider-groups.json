@@ -27,7 +27,6 @@
     ".github/CODEOWNERS",
     ".github/dependabot.yaml",
     ".github/release.yml",
-    ".github/workflows/cd.yaml",
     ".github/workflows/docs.yml",
     ".github/workflows/pr-title.yaml",
     ".github/workflows/release.yaml",
@@ -221,7 +220,7 @@
       "images": [
         "gvenzl/oracle-free:23-slim-faststart",
         "gvenzl/oracle-xe:18-slim-faststart",
-        "container-registry.oracle.com/database/adb-free:latest-23ai"
+        "container-registry.oracle.com/database/adb-free:latest-26ai"
       ],
       "docs_globs": ["docs/supported-databases/oracle.rst"]
     },
@@ -304,10 +303,7 @@
     "spanner": {
       "source_globs": ["src/pytest_databases/docker/spanner.py"],
       "test_paths": ["tests/test_spanner.py"],
-      "images": [
-        "gcr.io/cloud-spanner-emulator/emulator:latest",
-        "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-      ],
+      "images": ["gcr.io/cloud-spanner-emulator/emulator:latest"],
       "docs_globs": ["docs/supported-databases/spanner.rst"]
     },
     "sqlanywhere": {

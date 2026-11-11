@@ -219,6 +219,7 @@ def select_providers(
         "provider_matrix": matrix,
         "provider_job_count": len(matrix["include"]),
         "image_pull_count": sum(len(providers[cell["provider"]]["images"]) for cell in matrix["include"]),
+        "cost_budgets": _compute_cost_budgets(manifest),
         "compatibility_test_paths": manifest["compatibility_test_paths"],
         "run_compatibility": bool(selected_ids),
         "run_docs": run_docs,
@@ -340,8 +341,22 @@ def write_github_outputs(path: Path, selection: Mapping[str, Any]) -> None:
             output_file.write(f"{key}={value}\n")
 
 
-def render_summary(selection: Mapping[str, Any]) -> str:
-    """Render a concise selection audit for the workflow summary."""
+def render_summary(selection: Mapping[str, Any], *, manifest: Mapping[str, Any] | None = None) -> str:
+    """Render a concise selection audit for the workflow summary.
+
+    Args:
+        selection: Provider selection payload emitted by ``select_providers``.
+        manifest: Optional preloaded provider manifest used when ``selection`` omits ``cost_budgets``.
+
+    Returns:
+        Markdown summary table and selection metadata for ``GITHUB_STEP_SUMMARY``.
+    """
+    raw_budgets = selection.get("cost_budgets")
+    if isinstance(raw_budgets, Mapping):
+        cost_budgets = raw_budgets
+    else:
+        resolved_manifest = load_manifest() if manifest is None else manifest
+        cost_budgets = _compute_cost_budgets(resolved_manifest)
     providers = ", ".join(selection["providers"]) or "none"
     changed_paths = "\n".join(f"- `{path}`" for path in selection["changed_paths"]) or "- none"
     test_paths = "\n".join(f"- `{path}`" for path in selection["test_paths"]) or "- none"
@@ -385,11 +400,10 @@ def render_summary(selection: Mapping[str, Any]) -> str:
         "",
         "| Scenario | Provider jobs | Image pulls |",
         "| --- | ---: | ---: |",
-        "| Legacy eager PR baseline | 19 | about 540 |",
         "| Docs-only target | 0 | 0 |",
         "| Single-provider target | 1 | provider-owned only |",
-        "| Shared runtime target | 19 | 53 |",
-        "| Nightly/manual full target | 95 | 265 |",
+        f"| Shared runtime target | {cost_budgets['shared_runtime_jobs']} | {cost_budgets['shared_runtime_pulls']} |",
+        f"| Nightly/manual full target | {cost_budgets['full_jobs']} | {cost_budgets['full_pulls']} |",
         "",
         "Add or remove the `ci:full` label to request or cancel a full pull-request matrix.",
     ])
@@ -443,6 +457,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         with summary_path.open("a", encoding="utf-8") as summary_file:
             summary_file.write(f"{render_summary(selection)}\n")
     return 0
+
+
+def _compute_cost_budgets(manifest: Mapping[str, Any]) -> dict[str, int]:
+    """Compute shared-runtime and full-matrix CI budget counts from a manifest.
+
+    Args:
+        manifest: Parsed provider manifest mapping.
+
+    Returns:
+        Dictionary containing ``shared_runtime_jobs``, ``shared_runtime_pulls``,
+        ``full_jobs``, and ``full_pulls`` integer counts.
+    """
+    providers = manifest["providers"]
+    python_count = len(manifest["supported_python_versions"])
+    shared_runtime_jobs = len(providers)
+    shared_runtime_pulls = sum(len(provider["images"]) for provider in providers.values())
+    return {
+        "shared_runtime_jobs": shared_runtime_jobs,
+        "shared_runtime_pulls": shared_runtime_pulls,
+        "full_jobs": shared_runtime_jobs * python_count,
+        "full_pulls": shared_runtime_pulls * python_count,
+    }
 
 
 def _validate_relative_path(path: str) -> None:

@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+import io
+import tarfile
 from typing import TYPE_CHECKING, Any, Self
 from unittest.mock import MagicMock
 
 import pytest
-from docker.errors import APIError, DockerException, ImageNotFound
+from docker.errors import APIError, DockerException, ImageNotFound, NotFound
 
-from pytest_databases import ContainerService, should_keep_containers, wait_for_container_health
+from pytest_databases import (
+    ContainerService,
+    copy_from_container,
+    copy_to_container,
+    exec_container_command,
+    should_keep_containers,
+    wait_for_container_health,
+)
 from pytest_databases._s3 import create_s3_bucket
 from pytest_databases._service import (
-    _COMPLETED_SESSION_OWNERS,
-    _REGISTERED_ATEXIT_OWNERS,
+    _COMPLETED_SESSION_RUNS,
+    _REGISTERED_ATEXIT_RUNS,
     _RUNTIME_STASH_KEY,
+    SESSION_LOCK_DIR_ENV,
     _check_container_alive,
     _cleanup_session_containers,
     _ensure_image,
@@ -47,6 +57,7 @@ def make_service(
     client: Any,
     *,
     keep_containers: bool = False,
+    basetemp: Path | None = None,
 ) -> ContainerService:
     """Construct a ContainerService instance with a mock client."""
     mock_session = MagicMock()
@@ -54,7 +65,7 @@ def make_service(
     mock_session.config.getoption.side_effect = lambda opt, default=None: (
         keep_containers if opt == "--keep-containers" else default
     )
-    mock_session.config._tmp_path_factory.getbasetemp.return_value = tmp_path
+    mock_session.config._tmp_path_factory.getbasetemp.return_value = tmp_path if basetemp is None else basetemp
     runtime_config = ContainerRuntimeConfig(RuntimeType.DOCKER, "unix:///docker.sock", "test")
     client.containers.list.return_value = []
     return ContainerService(
@@ -283,13 +294,15 @@ def test_wait_for_health_fails_fast_when_unhealthy() -> None:
 
 
 def test_enterprise_container_capabilities_forwarded(tmp_path: Path) -> None:
-    """Ensure shm_size, entrypoint, privileged, ipc_mode, cap_add, devices, hostname, and volumes are forwarded."""
+    """Ensure enterprise runtime kwargs including user, tmpfs, and extra_hosts are forwarded."""
     mock_client = MagicMock()
     mock_container = MagicMock()
     mock_container.status = "running"
     mock_container.ports = {"50000/tcp": [{"HostPort": "50000"}]}
     mock_client.containers.run.return_value = mock_container
     volumes = {"/host/wallet": {"bind": "/u01/app/oracle/wallets/tls_wallet", "mode": "rw"}}
+    tmpfs = {"/run/scratch": "size=64m"}
+    extra_hosts = {"db.internal": "127.0.0.1"}
 
     service = make_service(tmp_path, mock_client)
     with service.run(
@@ -305,6 +318,9 @@ def test_enterprise_container_capabilities_forwarded(tmp_path: Path) -> None:
         devices=["/dev/fuse"],
         hostname="my-adb.adb.us-ashburn-1.oraclecloud.com",
         volumes=volumes,
+        user="1001:1001",
+        tmpfs=tmpfs,
+        extra_hosts=extra_hosts,
         check=lambda _s: True,
     ):
         pass
@@ -318,6 +334,9 @@ def test_enterprise_container_capabilities_forwarded(tmp_path: Path) -> None:
     assert kwargs["devices"] == ["/dev/fuse"]
     assert kwargs["hostname"] == "my-adb.adb.us-ashburn-1.oraclecloud.com"
     assert kwargs["volumes"] == volumes
+    assert kwargs["user"] == "1001:1001"
+    assert kwargs["tmpfs"] == tmpfs
+    assert kwargs["extra_hosts"] == extra_hosts
 
 
 @pytest.mark.parametrize(
@@ -476,10 +495,13 @@ def test_container_service_lifecycle_and_helper_branches(
     service._runtime_config = None
     assert service.resolve_service_host() == "127.0.0.1"
 
+    monkeypatch.setenv(SESSION_LOCK_DIR_ENV, str(tmp_path / "session_locks"))
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
-    xdist_service = make_service(tmp_path, mock_client)
+    xdist_tmp = tmp_path / "xdist_run" / "gw0"
+    xdist_tmp.mkdir(parents=True)
+    xdist_service = make_service(xdist_tmp.parent, mock_client, basetemp=xdist_tmp)
     with xdist_service:
-        assert (tmp_path.parent / "ctrl").exists() or (tmp_path / "ctrl").exists()
+        assert (xdist_tmp.parent / "ctrl").exists()
     monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
 
     net_container = MagicMock(name="c1")
@@ -671,14 +693,239 @@ def test_service_session_fixtures_and_atexit(
     with pytest.warns(RuntimeWarning, match="could not clean up session containers"):
         _cleanup_session_containers(req.session, ctrl)
 
+    monkeypatch.setenv(SESSION_LOCK_DIR_ENV, str(tmp_path / "session_locks"))
     registered_fns: list[Any] = []
     monkeypatch.setattr("pytest_databases._service.atexit.register", registered_fns.append)
-    _REGISTERED_ATEXIT_OWNERS.discard("atexit_owner")
-    _COMPLETED_SESSION_OWNERS.discard("atexit_owner")
-    _register_atexit_cleanup("atexit_owner", runtime_cfg, req.session.config)
-    _register_atexit_cleanup("atexit_owner", runtime_cfg, req.session.config)
+    _REGISTERED_ATEXIT_RUNS.discard(("atexit_owner", "run_1"))
+    _COMPLETED_SESSION_RUNS.discard(("atexit_owner", "run_1"))
+    _register_atexit_cleanup("atexit_owner", "run_1", runtime_cfg, req.session.config)
+    _register_atexit_cleanup("atexit_owner", "run_1", runtime_cfg, req.session.config)
     assert len(registered_fns) == 1
     registered_fns[0]()
+
+
+def test_exec_after_start_runs_once_across_xdist_workers_and_checks_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify exec_after_start runs once per container across xdist workers and rejects non-zero exit status."""
+    monkeypatch.setenv(SESSION_LOCK_DIR_ENV, str(tmp_path / "session_locks"))
+    shared_container = MagicMock(id="abcdef0123456789", status="running", ports={"5432/tcp": [{"HostPort": "35432"}]})
+    shared_container.exec_run.return_value = (0, b"bootstrapped")
+    mock_client = MagicMock()
+    mock_client.containers.list.return_value = [shared_container]
+
+    shared_base = tmp_path / "xdist_shared"
+    shared_base.mkdir()
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
+    worker_0 = make_service(shared_base, mock_client)
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw1")
+    worker_1 = make_service(shared_base, mock_client)
+    mock_client.containers.list.return_value = [shared_container]
+
+    with worker_0.run(
+        "postgres:latest",
+        5432,
+        "pg_shared",
+        exec_after_start=["sh", "-c", "init.sh"],
+        check=lambda _s: True,
+    ):
+        pass
+    with worker_1.run(
+        "postgres:latest",
+        5432,
+        "pg_shared",
+        exec_after_start=["sh", "-c", "init.sh"],
+        check=lambda _s: True,
+    ):
+        pass
+
+    shared_container.exec_run.assert_called_once_with(["sh", "-c", "init.sh"])
+
+    failing_container = MagicMock(id="fail000011112222", status="running", ports={"5432/tcp": [{"HostPort": "35433"}]})
+    failing_container.exec_run.return_value = (2, b"permission denied")
+    mock_client.containers.list.return_value = [failing_container]
+    with (
+        pytest.raises(RuntimeError, match="exec_after_start failed with exit code 2: permission denied"),
+        worker_0.run(
+            "postgres:latest",
+            5432,
+            "pg_fail",
+            exec_after_start=["sh", "-c", "fail.sh"],
+            check=lambda _s: True,
+        ),
+    ):
+        pass
+
+
+def test_copy_to_container_and_service_container_helpers(tmp_path: Path) -> None:
+    """Verify copy_to_container, mkdir retry on NotFound, uid/gid/mode overrides, and exec_command."""
+    script = tmp_path / "collect.sh"
+    script.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+
+    uploaded: list[tuple[str, bytes]] = []
+    mock_container = MagicMock()
+    calls = 0
+
+    def _put_archive(dest: str, data: bytes) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            missing_msg = "missing"
+            raise NotFound(missing_msg)
+        uploaded.append((dest, data))
+        return True
+
+    mock_container.put_archive.side_effect = _put_archive
+    mock_container.exec_run.side_effect = [
+        (0, b""),
+        (0, iter([b"line1\n", b"line2\n"])),
+        (0, b""),
+    ]
+
+    svc = ServiceContainer(container=mock_container, host="127.0.0.1", port=5432)
+    svc.copy_to(script, "/opt/scripts", arcname="sub/run.sh", mode=0o750, uid=1000, gid=1000)
+
+    mock_container.exec_run.assert_called_once_with(["mkdir", "-p", "/opt/scripts"])
+    assert len(uploaded) == 1
+    assert uploaded[0][0] == "/opt/scripts"
+    with tarfile.open(fileobj=io.BytesIO(uploaded[0][1]), mode="r:*") as tar:
+        member = tar.getmember("sub/run.sh")
+        assert member.mode & 0o777 == 0o750
+        assert member.uid == 1000
+        assert member.gid == 1000
+        assert member.uname == ""
+        assert member.gname == ""
+        extracted = tar.extractfile(member)
+        assert extracted is not None
+        assert extracted.read() == b"#!/bin/sh\necho ok\n"
+
+    exit_code, output = svc.exec_command(
+        ["/opt/scripts/sub/run.sh"],
+        user="postgres",
+        workdir="/opt/work",
+        env={"A": "1"},
+    )
+    assert exit_code == 0
+    assert output == b"line1\nline2\n"
+    assert mock_container.exec_run.call_args.kwargs == {
+        "user": "postgres",
+        "workdir": "/opt/work",
+        "environment": {"A": "1"},
+    }
+    assert exec_container_command(mock_container, "true") == (0, b"")
+
+
+@pytest.mark.parametrize(
+    ("bad_arcname", "expected_match"),
+    [
+        ("", "non-empty relative path"),
+        ("/etc/passwd", "non-empty relative path"),
+        ("../escape.sh", "parent traversal"),
+        ("nested/../../escape.sh", "parent traversal"),
+    ],
+)
+def test_copy_to_container_validation_and_error_branches(
+    tmp_path: Path,
+    bad_arcname: str,
+    expected_match: str,
+) -> None:
+    """Verify copy_to_container rejects invalid paths, missing sources, mkdir failures, and rejected uploads."""
+    src = tmp_path / "data.txt"
+    src.write_text("payload", encoding="utf-8")
+    mock_container = MagicMock()
+
+    with pytest.raises(ValueError, match=expected_match):
+        copy_to_container(mock_container, src, "/opt/work", arcname=bad_arcname)
+
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        copy_to_container(mock_container, tmp_path / "missing.txt", "/opt/work")
+
+    with pytest.raises(ValueError, match="destination_dir"):
+        copy_to_container(mock_container, src, "   ")
+
+    mock_container.put_archive.return_value = False
+    with pytest.raises(RuntimeError, match="rejected archive upload"):
+        copy_to_container(mock_container, src, "/opt/work")
+
+    mock_container.put_archive.side_effect = NotFound("missing")
+    mock_container.exec_run.return_value = (1, b"read-only fs")
+    with pytest.raises(RuntimeError, match="Failed to create container directory"):
+        copy_to_container(mock_container, src, "/ro/dir")
+
+
+def _build_test_tar(entries: list[tuple[tarfile.TarInfo, bytes | None]]) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for info, data in entries:
+            if data is not None:
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+            else:
+                tar.addfile(info)
+    return buf.getvalue()
+
+
+def test_copy_from_container_extracts_trees_and_strips_components(tmp_path: Path) -> None:
+    """Verify copy_from_container extracts files, nested directories, safe relative symlinks, and strip_components."""
+    dir_info = tarfile.TarInfo(name="results/")
+    dir_info.type = tarfile.DIRTYPE
+    file_info = tarfile.TarInfo(name="results/summary.json")
+    file_info.mode = 0o640
+    sub_info = tarfile.TarInfo(name="results/sub/run.sh")
+    sub_info.mode = 0o755
+    sym_info = tarfile.TarInfo(name="results/latest.json")
+    sym_info.type = tarfile.SYMTYPE
+    sym_info.linkname = "summary.json"
+    archive = _build_test_tar([
+        (dir_info, None),
+        (file_info, b'{"ok":true}'),
+        (sub_info, b"#!/bin/sh\n"),
+        (sym_info, None),
+    ])
+
+    mock_container = MagicMock()
+    mock_container.get_archive.return_value = (iter([archive]), {})
+    svc = ServiceContainer(container=mock_container, host="127.0.0.1", port=5432)
+
+    kept_dest = svc.copy_from("/opt/results", tmp_path / "kept", strip_components=False)
+    assert (kept_dest / "results" / "summary.json").read_text(encoding="utf-8") == '{"ok":true}'
+    assert (kept_dest / "results" / "latest.json").is_symlink()
+
+    mock_container.get_archive.return_value = (iter([archive]), {})
+    stripped_dest = copy_from_container(mock_container, "/opt/results", tmp_path / "stripped", strip_components=True)
+    assert (stripped_dest / "summary.json").read_text(encoding="utf-8") == '{"ok":true}'
+    assert ((stripped_dest / "sub" / "run.sh").stat().st_mode & 0o111) != 0
+
+
+@pytest.mark.parametrize(
+    ("member_name", "member_type", "linkname", "expected_match"),
+    [
+        ("../outside.txt", tarfile.REGTYPE, "", "traversal"),
+        ("/etc/shadow", tarfile.REGTYPE, "", "absolute"),
+        ("dir/../../escape.txt", tarfile.REGTYPE, "", "traversal"),
+        ("safe/link", tarfile.SYMTYPE, "/etc/passwd", "absolute link target"),
+        ("safe/link", tarfile.SYMTYPE, "../../outside.txt", "escaping destination"),
+        ("safe/fifo", tarfile.FIFOTYPE, "", "Unsupported special archive entry"),
+    ],
+)
+def test_copy_from_container_rejects_unsafe_members(
+    tmp_path: Path,
+    member_name: str,
+    member_type: bytes,
+    linkname: str,
+    expected_match: str,
+) -> None:
+    """Verify copy_from_container rejects traversal paths, escaping links, and special archive entries."""
+    info = tarfile.TarInfo(name=member_name)
+    info.type = member_type
+    info.linkname = linkname
+    payload = b"bad" if member_type == tarfile.REGTYPE else None
+    mock_container = MagicMock()
+    mock_container.get_archive.return_value = ([_build_test_tar([(info, payload)])], {})
+
+    with pytest.raises(ValueError, match=expected_match):
+        copy_from_container(mock_container, "/opt/out", tmp_path / "extract")
 
 
 def test_s3_ensure_bucket_status_retry_and_error(monkeypatch: pytest.MonkeyPatch) -> None:

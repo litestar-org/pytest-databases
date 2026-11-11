@@ -49,15 +49,41 @@ Each session derives an owner ID from the pytest root path. Containers are named
 ``pytest_databases_<service>_<owner>`` and carry the labels ``pytest_databases``, ``pytest_databases.owner`` (the owner
 ID) and ``pytest_databases.service``. At session start and end, ``pytest-databases`` only removes containers whose
 ``pytest_databases.owner`` label matches the current session, so separate checkouts never stop each other's
-containers, and containers left behind by a crashed run of the same checkout are removed on the next run.
+containers. Each active session also holds an advisory OS file lease under its owner ID: if two local ``pytest``
+processes run against the same checkout at the same time, shared containers remain running until the final active
+session exits, while stale leases from crashed processes or processes terminated with ``SIGKILL`` are released by the
+kernel and cleaned up on the next run.
 
 * ``PYTEST_DATABASES_NAMESPACE``: suffix appended to the owner ID. Set it to run two sessions from the same checkout
   at the same time without sharing containers.
 * ``--keep-containers`` or ``PYTEST_DATABASES_KEEP_CONTAINERS`` (``1``, ``true``, ``yes``, ``on``, ...): leave the
   containers running after the session. The next session with the same owner ID reuses them.
 
-``pytest_databases.stop_owned_containers(client, owner_id)`` and ``pytest_databases.stop_all_containers(client)``
-remove containers by hand; the latter removes every container labelled ``pytest_databases`` regardless of owner.
+``pytest_databases.has_active_owner_sessions(owner_id)`` inspects whether another live session currently holds a lease
+for ``owner_id``. ``pytest_databases.stop_owned_containers(client, owner_id)`` and
+``pytest_databases.stop_all_containers(client)`` remove containers by hand; the latter removes every container labelled
+``pytest_databases`` regardless of owner.
+
+Custom Container Options and File Transfers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Custom fixtures calling ``container_service.run(...)`` can pass ``user``, ``tmpfs``, ``extra_hosts``, ``volumes``,
+``shm_size``, ``mem_limit``, ``entrypoint``, ``command``, ``privileged``, ``ipc_mode``, ``cap_add``, ``devices`` and
+``hostname`` directly to the container runtime. When ``exec_after_start`` is set on a shared container, it runs once
+per container under a cross-worker file lock and raises ``RuntimeError`` if the command exits with a non-zero status.
+
+Every container-backed service inherits from :class:`~pytest_databases.types.ServiceContainer`, which exposes stdlib
+tar-archive transfer and command helpers without requiring ``docker cp`` or host client CLIs:
+
+* ``service.copy_to(source, destination_dir, *, arcname=None, mode=None, uid=None, gid=None)``
+  (:func:`~pytest_databases.types.copy_to_container`): upload a host file or directory into the running container,
+  creating missing parent directories automatically.
+* ``service.copy_from(source, destination, *, strip_components=False)``
+  (:func:`~pytest_databases.types.copy_from_container`): extract a file or directory from the container into a host
+  directory while rejecting path traversal, special device entries, and escaping links.
+* ``service.exec_command(command, *, user=None, workdir=None, env=None)``
+  (:func:`~pytest_databases.types.exec_container_command`): execute a command inside the container and return
+  ``(exit_code, output_bytes)``.
 
 Parallel Execution (``pytest-xdist``) Isolation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

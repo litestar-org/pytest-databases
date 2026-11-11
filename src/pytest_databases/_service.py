@@ -7,17 +7,19 @@ import contextlib
 import hashlib
 import os
 import re
+import tempfile
 import time
+import uuid
 import warnings
 from contextlib import AbstractContextManager, contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
 import filelock
 import pytest
 from docker.errors import APIError, DockerException, ImageNotFound
 
-from pytest_databases.docker import TRUE_VALUES
-from pytest_databases.helpers import get_xdist_worker_id
+from pytest_databases.helpers import TRUE_VALUES, exec_output_to_bytes, get_xdist_worker_id
 from pytest_databases.runtime import (
     ContainerRuntimeConfig,
     RuntimeResolutionError,
@@ -28,7 +30,6 @@ from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
-    from pathlib import Path
     from types import TracebackType
 
     from docker import DockerClient
@@ -49,6 +50,7 @@ __all__ = (
     "docker_service",
     "get_docker_client",
     "get_docker_host",
+    "has_active_owner_sessions",
     "pytest_addoption",
     "pytest_sessionfinish",
     "should_keep_containers",
@@ -60,9 +62,11 @@ __all__ = (
 OWNER_LABEL = "pytest_databases.owner"
 SERVICE_LABEL = "pytest_databases.service"
 MANAGED_LABEL = "pytest_databases"
+SESSION_LOCK_DIR_ENV = "PYTEST_DATABASES_SESSION_LOCK_DIR"
 _RUNTIME_STASH_KEY = pytest.StashKey[ContainerRuntimeConfig]()
-_REGISTERED_ATEXIT_OWNERS: set[str] = set()
-_COMPLETED_SESSION_OWNERS: set[str] = set()
+_REGISTERED_ATEXIT_RUNS: set[tuple[str, str]] = set()
+_COMPLETED_SESSION_RUNS: set[tuple[str, str]] = set()
+_ACTIVE_PROCESS_LEASES: dict[tuple[str, str], list[tuple[filelock.BaseFileLock, Path]]] = {}
 
 
 class ContainerService(AbstractContextManager):
@@ -82,6 +86,10 @@ class ContainerService(AbstractContextManager):
         self._is_xdist = get_xdist_worker_id() is not None
         self._runtime_config = runtime_config
         self._owner_id = owner_id if owner_id is not None else derive_session_owner_id(session.config.rootpath)
+        self._run_id = _derive_run_id(tmp_path)
+        self._session_lease: filelock.BaseFileLock | None = None
+        self._session_lease_path: Path | None = None
+        self._executed_after_start: set[tuple[str, str]] = set()
 
     @property
     def owner_id(self) -> str:
@@ -117,20 +125,29 @@ class ContainerService(AbstractContextManager):
         }
 
     def __enter__(self) -> Self:
-        _COMPLETED_SESSION_OWNERS.discard(self._owner_id)
+        _COMPLETED_SESSION_RUNS.discard((self._owner_id, self._run_id))
         ctrl_file = _get_ctrl_file(self._session)
         keep = should_keep_containers(self._session.config)
+        self._session_lease, self._session_lease_path, other_active = _acquire_session_lease(
+            self._owner_id,
+            self._run_id,
+        )
         if self._is_xdist:
             with filelock.FileLock(ctrl_file.with_suffix(".lock")):
                 if not ctrl_file.exists():
                     ctrl_file.write_text(self._owner_id, encoding="utf-8")
-                    if not keep:
+                    if not keep and not other_active:
                         self._stop_owned_containers()
         else:
             ctrl_file.write_text(self._owner_id, encoding="utf-8")
-            if not keep:
+            if not keep and not other_active:
                 self._stop_owned_containers()
-            _register_atexit_cleanup(self._owner_id, self._runtime_config, self._session.config)
+            _register_atexit_cleanup(
+                self._owner_id,
+                self._run_id,
+                self._runtime_config,
+                self._session.config,
+            )
         return self
 
     def __exit__(
@@ -140,9 +157,18 @@ class ContainerService(AbstractContextManager):
         __exc_value: BaseException | None,
         __traceback: TracebackType | None,
     ) -> None:
-        if not self._is_xdist and not should_keep_containers(self._session.config):
-            self._stop_owned_containers()
-            _COMPLETED_SESSION_OWNERS.add(self._owner_id)
+        other_active = _release_session_lease(
+            self._owner_id,
+            self._run_id,
+            self._session_lease,
+            self._session_lease_path,
+        )
+        self._session_lease = None
+        self._session_lease_path = None
+        if not self._is_xdist:
+            _COMPLETED_SESSION_RUNS.add((self._owner_id, self._run_id))
+            if not should_keep_containers(self._session.config) and not other_active:
+                self._stop_owned_containers()
 
     def resolve_service_host(self, container_host: str = "127.0.0.1") -> str:
         """Resolve the reachable host for container port communication.
@@ -276,6 +302,9 @@ class ContainerService(AbstractContextManager):
         devices: list[str] | None = None,
         hostname: str | None = None,
         volumes: dict[str, dict[str, str]] | list[str] | None = None,
+        user: str | int | None = None,
+        tmpfs: dict[str, str] | None = None,
+        extra_hosts: dict[str, str] | None = None,
     ) -> Generator[ServiceContainer, None, None]:
         """Start and manage an ephemeral container service lifecycle.
 
@@ -286,7 +315,7 @@ class ContainerService(AbstractContextManager):
             container_host: The host address to expose.
             command: The command to run in the container.
             env: Environment variables to pass into the container.
-            exec_after_start: Command to execute after container start.
+            exec_after_start: Command executed once per container after readiness passes.
             check: Readiness check function receiving ServiceContainer.
             wait_for_log: Log substring to wait for during startup.
             timeout: Maximum wait time in seconds.
@@ -307,6 +336,9 @@ class ContainerService(AbstractContextManager):
             devices: Optional list of host device mappings (for example ``["/dev/fuse"]``).
             hostname: Optional container hostname override.
             volumes: Optional host-to-container volume mappings or volume binding specs.
+            user: Optional container user or numeric ``uid[:gid]`` override.
+            tmpfs: Optional container tmpfs mount mapping (for example ``{"/run": "size=64m"}``).
+            extra_hosts: Optional extra ``/etc/hosts`` hostname-to-IP mappings.
 
         Yields:
             A ServiceContainer handle with host and port bindings.
@@ -319,23 +351,19 @@ class ContainerService(AbstractContextManager):
         if platform is not None:
             platform_kwarg["platform"] = platform
 
-        extra_run_kwargs: dict[str, Any] = {}
-        if shm_size is not None:
-            extra_run_kwargs["shm_size"] = shm_size
-        if entrypoint is not None:
-            extra_run_kwargs["entrypoint"] = entrypoint
-        if privileged:
-            extra_run_kwargs["privileged"] = True
-        if ipc_mode is not None:
-            extra_run_kwargs["ipc_mode"] = ipc_mode
-        if cap_add is not None:
-            extra_run_kwargs["cap_add"] = cap_add
-        if devices is not None:
-            extra_run_kwargs["devices"] = devices
-        if hostname is not None:
-            extra_run_kwargs["hostname"] = hostname
-        if volumes is not None:
-            extra_run_kwargs["volumes"] = volumes
+        extra_run_kwargs = _build_extra_run_kwargs(
+            shm_size=shm_size,
+            entrypoint=entrypoint,
+            privileged=privileged,
+            ipc_mode=ipc_mode,
+            cap_add=cap_add,
+            devices=devices,
+            hostname=hostname,
+            volumes=volumes,
+            user=user,
+            tmpfs=tmpfs,
+            extra_hosts=extra_hosts,
+        )
 
         service_name = f"pytest_databases_{name}"
         lock = (
@@ -399,7 +427,7 @@ class ContainerService(AbstractContextManager):
         )
 
         if exec_after_start:
-            container.exec_run(exec_after_start)
+            self._run_exec_after_start(container, service_name, exec_after_start, transient=transient)
 
         try:
             yield service
@@ -411,6 +439,40 @@ class ContainerService(AbstractContextManager):
                 except APIError as exc:
                     if exc.status_code not in {409, 404}:
                         raise
+
+    def _run_exec_after_start(
+        self,
+        container: Container,
+        service_name: str,
+        command: str | list[str],
+        *,
+        transient: bool,
+    ) -> None:
+        """Execute ``exec_after_start`` at most once per shared container under lock."""
+        raw_id = getattr(container, "id", None)
+        raw_token = raw_id[:12] if isinstance(raw_id, str) and raw_id else f"obj{id(container):x}"
+        container_token = re.sub(r"[^a-zA-Z0-9_.-]+", "_", raw_token)
+        key = (service_name, container_token)
+
+        if self._is_xdist:
+            safe_service = re.sub(r"[^a-zA-Z0-9_.-]+", "_", service_name)
+            marker_stem = f"{safe_service}_{container_token}.after_start"
+            lock_path = self._tmp_path / f"{marker_stem}.lock"
+            done_path = self._tmp_path / f"{marker_stem}.done"
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            with filelock.FileLock(lock_path):
+                if done_path.exists():
+                    return
+                _invoke_exec_after_start(container, service_name, command)
+                if not transient:
+                    done_path.write_text("1", encoding="utf-8")
+            return
+
+        if not transient and key in self._executed_after_start:
+            return
+        _invoke_exec_after_start(container, service_name, command)
+        if not transient:
+            self._executed_after_start.add(key)
 
     def _get_container(self, name: str) -> Container | None:
         logical_name = name.removeprefix("pytest_databases_")
@@ -499,6 +561,27 @@ def derive_session_owner_id(rootpath: Path, namespace: str | None = None) -> str
         if clean_ns:
             return f"{digest}_{clean_ns}"
     return digest
+
+
+def has_active_owner_sessions(owner_id: str, *, exclude_run_id: str | None = None) -> bool:
+    """Return whether any live pytest session currently holds an active lease for ``owner_id``.
+
+    Stale lease files left behind by crashed or ``SIGKILL``ed processes are unlocked automatically by the operating
+    system kernel and swept during the probe.
+
+    Args:
+        owner_id: Deterministic session owner identifier.
+        exclude_run_id: Optional session run identifier to exclude (for example the caller's own session).
+
+    Returns:
+        ``True`` if at least one live external session holds an active lease for ``owner_id``.
+    """
+    session_dir = _session_lock_dir(owner_id)
+    if not session_dir.exists():
+        return False
+    session_dir.mkdir(parents=True, exist_ok=True)
+    with filelock.FileLock(session_dir / ".coord.lock"):
+        return _sweep_and_detect_active_leases(session_dir, exclude_run_id=exclude_run_id)
 
 
 def get_docker_host() -> str:
@@ -732,14 +815,19 @@ def _cleanup_session_containers(session: pytest.Session, ctrl_file: Path) -> Non
     """Stop the containers owned by this session from the controller process.
 
     The owner recorded in the control file and the runtime already resolved in this process are reused. Under
-    ``pytest-xdist`` the controller resolves the runtime itself. Cleanup failures are reported as warnings so they
-    never replace the test session result.
+    ``pytest-xdist`` the controller resolves the runtime itself. When another concurrent pytest session actively holds
+    a lease on the same ``owner_id``, container teardown is deferred to the final exiting session. Cleanup failures are
+    reported as warnings so they never replace the test session result.
 
     Args:
         session: The completing pytest session.
         ctrl_file: The session control file written by the first container service.
     """
     owner_id = ctrl_file.read_text(encoding="utf-8").strip() or derive_session_owner_id(session.config.rootpath)
+    run_id = _derive_run_id(ctrl_file.parent)
+    if has_active_owner_sessions(owner_id, exclude_run_id=run_id):
+        _COMPLETED_SESSION_RUNS.add((owner_id, run_id))
+        return
     try:
         runtime = session.config.stash.get(_RUNTIME_STASH_KEY, None) or resolve_container_runtime(
             _requested_runtime(session.config)
@@ -750,7 +838,7 @@ def _cleanup_session_containers(session: pytest.Session, ctrl_file: Path) -> Non
         return
     try:
         stop_owned_containers(client, owner_id)
-        _COMPLETED_SESSION_OWNERS.add(owner_id)
+        _COMPLETED_SESSION_RUNS.add((owner_id, run_id))
     except DockerException as exc:
         warnings.warn(f"pytest-databases could not clean up session containers: {exc}", RuntimeWarning, stacklevel=1)
     finally:
@@ -919,28 +1007,34 @@ def _wait_for_readiness(
 
 def _register_atexit_cleanup(
     owner_id: str,
+    run_id: str,
     runtime_config: ContainerRuntimeConfig | None,
     session_config: pytest.Config,
 ) -> None:
     """Register an interpreter-exit fallback that stops this session's containers.
 
     Registered only when not running under ``pytest-xdist``, where the session's own container service runs in this
-    process. It does nothing when the session already cleaned up or ``--keep-containers`` is active. Runtime and
-    connection errors are ignored because the interpreter is shutting down.
+    process. It releases any remaining leases held by this run and skips stopping containers when another concurrent
+    local session still holds a lease on ``owner_id`` or ``--keep-containers`` is active.
 
     Args:
         owner_id: Session owner identifier.
+        run_id: Session run identifier derived from the session temporary directory.
         runtime_config: Runtime resolved for the session, if any.
         session_config: The pytest configuration.
     """
-    if owner_id in _REGISTERED_ATEXIT_OWNERS:
+    run_key = (owner_id, run_id)
+    if run_key in _REGISTERED_ATEXIT_RUNS:
         return
-    _REGISTERED_ATEXIT_OWNERS.add(owner_id)
+    _REGISTERED_ATEXIT_RUNS.add(run_key)
 
     def _cleanup() -> None:
-        if owner_id in _COMPLETED_SESSION_OWNERS or should_keep_containers(session_config):
+        _release_all_run_leases(owner_id, run_id)
+        if run_key in _COMPLETED_SESSION_RUNS or should_keep_containers(session_config):
             return
         with contextlib.suppress(DockerException, RuntimeResolutionError, OSError):
+            if has_active_owner_sessions(owner_id, exclude_run_id=run_id):
+                return
             client = runtime_config.create_client() if runtime_config is not None else get_docker_client()
             try:
                 stop_owned_containers(client, owner_id)
@@ -948,6 +1042,141 @@ def _register_atexit_cleanup(
                 client.close()
 
     atexit.register(_cleanup)
+
+
+def _build_extra_run_kwargs(
+    *,
+    shm_size: int | str | None,
+    entrypoint: str | list[str] | None,
+    privileged: bool,
+    ipc_mode: str | None,
+    cap_add: list[str] | None,
+    devices: list[str] | None,
+    hostname: str | None,
+    volumes: dict[str, dict[str, str]] | list[str] | None,
+    user: str | int | None,
+    tmpfs: dict[str, str] | None,
+    extra_hosts: dict[str, str] | None,
+) -> dict[str, Any]:
+    """Assemble optional container creation keyword arguments for ``containers.run``."""
+    optional_values: tuple[tuple[str, Any], ...] = (
+        ("shm_size", shm_size),
+        ("entrypoint", entrypoint),
+        ("ipc_mode", ipc_mode),
+        ("cap_add", cap_add),
+        ("devices", devices),
+        ("hostname", hostname),
+        ("volumes", volumes),
+        ("user", user),
+        ("tmpfs", tmpfs),
+        ("extra_hosts", extra_hosts),
+    )
+    extra_run_kwargs: dict[str, Any] = {key: value for key, value in optional_values if value is not None}
+    if privileged:
+        extra_run_kwargs["privileged"] = True
+    return extra_run_kwargs
+
+
+def _invoke_exec_after_start(container: Container, service_name: str, command: str | list[str]) -> None:
+    """Execute ``exec_after_start`` and raise ``RuntimeError`` on integer non-zero exit status."""
+    result = container.exec_run(command)
+    exit_code: object = result[0] if isinstance(result, tuple) else getattr(result, "exit_code", 0)
+    if isinstance(exit_code, int) and not isinstance(exit_code, bool) and exit_code != 0:
+        raw_output: Any = result[1] if isinstance(result, tuple) else getattr(result, "output", b"")
+        detail = (
+            exec_output_to_bytes(raw_output).decode("utf-8", errors="replace").strip()
+            if isinstance(raw_output, (bytes, str))
+            else ""
+        )
+        msg = f"Service {service_name!r} exec_after_start failed with exit code {exit_code}: {detail}"
+        raise RuntimeError(msg)
+
+
+def _derive_run_id(base_tmp_path: Path) -> str:
+    """Compute a deterministic identifier for a single pytest invocation's base temporary directory."""
+    return hashlib.sha256(str(base_tmp_path.resolve()).encode("utf-8")).hexdigest()[:12]
+
+
+def _session_lock_dir(owner_id: str) -> Path:
+    """Return the host lock directory tracking concurrent local sessions for ``owner_id``."""
+    configured_root = os.getenv(SESSION_LOCK_DIR_ENV)
+    root = Path(configured_root) if configured_root else Path(tempfile.gettempdir()) / "pytest_databases_sessions"
+    safe_owner = re.sub(r"[^a-zA-Z0-9_.-]+", "_", owner_id)
+    return root / safe_owner
+
+
+def _acquire_session_lease(owner_id: str, run_id: str) -> tuple[filelock.BaseFileLock, Path, bool]:
+    """Acquire an OS file-descriptor flock lease for ``(owner_id, run_id)`` and detect peer sessions."""
+    session_dir = _session_lock_dir(owner_id)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    with filelock.FileLock(session_dir / ".coord.lock"):
+        other_active = _sweep_and_detect_active_leases(session_dir, exclude_run_id=run_id)
+        lease_path = session_dir / f"{run_id}__{os.getpid()}_{uuid.uuid4().hex[:8]}.lease"
+        lease_lock: filelock.BaseFileLock = filelock.FileLock(lease_path)
+        lease_lock.acquire(timeout=0)
+        _ACTIVE_PROCESS_LEASES.setdefault((owner_id, run_id), []).append((lease_lock, lease_path))
+        return lease_lock, lease_path, other_active
+
+
+def _release_session_lease(
+    owner_id: str,
+    run_id: str,
+    lease_lock: filelock.BaseFileLock | None,
+    lease_path: Path | None,
+) -> bool:
+    """Release a session lease and return whether any external session still holds ``owner_id``."""
+    session_dir = _session_lock_dir(owner_id)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    with filelock.FileLock(session_dir / ".coord.lock"):
+        if lease_lock is not None and lease_lock.is_locked:
+            lease_lock.release()
+        if lease_path is not None:
+            with contextlib.suppress(OSError):
+                lease_path.unlink()
+        tracked = _ACTIVE_PROCESS_LEASES.get((owner_id, run_id))
+        if tracked is not None:
+            _ACTIVE_PROCESS_LEASES[owner_id, run_id] = [
+                entry for entry in tracked if entry[1] != lease_path and entry[0].is_locked
+            ]
+            if not _ACTIVE_PROCESS_LEASES[owner_id, run_id]:
+                _ACTIVE_PROCESS_LEASES.pop((owner_id, run_id), None)
+        return _sweep_and_detect_active_leases(session_dir, exclude_run_id=run_id)
+
+
+def _release_all_run_leases(owner_id: str, run_id: str) -> None:
+    """Release any unclosed process-local leases recorded for ``(owner_id, run_id)``."""
+    tracked = _ACTIVE_PROCESS_LEASES.pop((owner_id, run_id), [])
+    if not tracked:
+        return
+    session_dir = _session_lock_dir(owner_id)
+    with contextlib.suppress(OSError), filelock.FileLock(session_dir / ".coord.lock"):
+        for lease_lock, lease_path in tracked:
+            if lease_lock.is_locked:
+                lease_lock.release()
+            with contextlib.suppress(OSError):
+                lease_path.unlink()
+
+
+def _sweep_and_detect_active_leases(session_dir: Path, *, exclude_run_id: str | None) -> bool:
+    """Sweep stale lease files inside ``session_dir`` and detect active peer session leases.
+
+    Must be called while holding ``session_dir / '.coord.lock'``.
+    """
+    other_active = False
+    excluded_prefix = f"{exclude_run_id}__" if exclude_run_id else None
+    for candidate in sorted(session_dir.glob("*.lease")):
+        if excluded_prefix is not None and candidate.name.startswith(excluded_prefix):
+            continue
+        probe = filelock.FileLock(candidate)
+        try:
+            probe.acquire(timeout=0)
+        except filelock.Timeout:
+            other_active = True
+            continue
+        probe.release()
+        with contextlib.suppress(OSError):
+            candidate.unlink()
+    return other_active
 
 
 def _get_base_tmp_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
