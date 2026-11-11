@@ -1098,14 +1098,12 @@ def test_oracle_check_short_circuits_when_tcp_port_closed(provider_kind: str) ->
     with (
         patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=1),
         patch("pytest_databases.docker.oracle.tcp_port_open", return_value=False) as mock_tcp,
-        patch("pytest_databases.docker.oracle._exec_sqlplus", wraps=oracle._exec_sqlplus) as mock_sqlplus,
         ctx,
     ):
         check_fn = mock_docker.run.call_args.kwargs["check"]
         assert check_fn(mock_service) is False
 
     mock_tcp.assert_called_once_with("127.0.0.1", port)
-    mock_sqlplus.assert_not_called()
     assert mock_container.exec_run.call_count == 0
 
 
