@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import io
+import math
 import os
 import re
 import shlex
@@ -133,6 +134,22 @@ _TNS_PARAM_PATTERNS: dict[str, re.Pattern[str]] = {
     "port": re.compile(r"\(\s*PORT\s*=\s*(\d+)\s*\)", re.IGNORECASE),
     "service_name": re.compile(r"\(\s*SERVICE_NAME\s*=\s*([^)\s]+)\s*\)", re.IGNORECASE),
 }
+_TRANSIENT_ORACLE_ERROR_MARKERS: tuple[str, ...] = (
+    "ora-01033",
+    "ora-01034",
+    "ora-12514",
+    "ora-12516",
+    "ora-12519",
+    "ora-12520",
+    "ora-12528",
+    "ora-00054",
+    "ora-00060",
+    "ora-04021",
+)
+_SQLPLUS_ERROR_PATTERN: re.Pattern[bytes] = re.compile(
+    rb"^(?:ORA-\d{5}:|PLS-\d{5}:|SP2-\d{4}:)",
+    re.MULTILINE,
+)
 
 
 @dataclass
@@ -389,8 +406,9 @@ def ensure_oracle_user(
 ) -> bool:
     """Ensure an Oracle application user exists with appropriate tablespace quota and roles.
 
-    Existing users (``ORA-01920``) are tolerated idempotently before applying grants and tablespace quota,
-    and transient Oracle startup or lock errors are retried via ``_run_sqlplus_with_retry``.
+    Existing users (``ORA-01920``) have their password synchronized (tolerating ``ORA-28007`` when password-reuse
+    rules reject the current password) and unlocked before applying grants and tablespace quota. Transient Oracle
+    startup, listener, or lock errors are retried via ``_run_sqlplus_with_retry``.
 
     Args:
         container: The container instance.
@@ -403,16 +421,27 @@ def ensure_oracle_user(
         ``True`` if the SQL*Plus provisioning command exited cleanly.
     """
     escaped_password = password.replace("'", "''")
+    create_user = f'CREATE USER {user} IDENTIFIED BY "{escaped_password}"'
+    reset_password = f'ALTER USER {user} IDENTIFIED BY "{escaped_password}"'
     setup_script = "\n".join([
         "BEGIN",
-        f"  EXECUTE IMMEDIATE 'CREATE USER {user} IDENTIFIED BY \"{escaped_password}\"';",
+        f"  EXECUTE IMMEDIATE '{create_user}';",
         "EXCEPTION",
         "  WHEN OTHERS THEN",
         "    IF SQLCODE != -1920 THEN",
         "      RAISE;",
         "    END IF;",
+        "    BEGIN",
+        f"      EXECUTE IMMEDIATE '{reset_password}';",
+        "    EXCEPTION",
+        "      WHEN OTHERS THEN",
+        "        IF SQLCODE != -28007 THEN",
+        "          RAISE;",
+        "        END IF;",
+        "    END;",
         "END;",
         "/",
+        f"ALTER USER {user} ACCOUNT UNLOCK;",
         f"GRANT CONNECT, RESOURCE, DBA TO {user};",
         f"ALTER USER {user} QUOTA UNLIMITED ON USERS;",
     ])
@@ -426,22 +455,6 @@ def ensure_oracle_user(
         whenever_sqlerror="EXIT SQL.SQLCODE",
     )
     return exit_code == 0
-
-
-_TRANSIENT_ORACLE_ERROR_MARKERS: tuple[str, ...] = (
-    "ora-01033",
-    "ora-01034",
-    "ora-12514",
-    "ora-12528",
-    "ora-00054",
-    "ora-04021",
-)
-
-
-def _is_transient_oracle_error(output: bytes) -> bool:
-    """Return whether ``output`` contains a transient Oracle startup or dictionary lock error."""
-    decoded = output.decode(errors="replace").lower()
-    return any(marker in decoded for marker in _TRANSIENT_ORACLE_ERROR_MARKERS)
 
 
 def ensure_oracle_adb_user(
@@ -467,8 +480,11 @@ def ensure_oracle_adb_user(
     Raises:
         RuntimeError: If creating, unlocking, or granting privileges to the user fails.
     """
-    create_user = f'CREATE USER {user} IDENTIFIED BY "{password}" DEFAULT TABLESPACE DATA TEMPORARY TABLESPACE TEMP'
-    reset_password = f'ALTER USER {user} IDENTIFIED BY "{password}"'
+    escaped_password = password.replace("'", "''")
+    create_user = (
+        f'CREATE USER {user} IDENTIFIED BY "{escaped_password}" DEFAULT TABLESPACE DATA TEMPORARY TABLESPACE TEMP'
+    )
+    reset_password = f'ALTER USER {user} IDENTIFIED BY "{escaped_password}"'
     setup_script = "\n".join([
         "BEGIN",
         f"  EXECUTE IMMEDIATE '{create_user}';",
@@ -528,15 +544,16 @@ def enable_oracle_ords_schema(
         RuntimeError: If ``ORDS.ENABLE_SCHEMA`` fails.
     """
     schema_upper = user.upper()
-    pattern = (url_mapping_pattern or user).lower()
+    escaped_schema = schema_upper.replace("'", "''")
+    escaped_pattern = (url_mapping_pattern or user).lower().replace("'", "''")
     auth_literal = "TRUE" if auto_rest_auth else "FALSE"
     plsql = (
         "BEGIN "
         "ORDS.ENABLE_SCHEMA("
         "p_enabled => TRUE, "
-        f"p_schema => '{schema_upper}', "
+        f"p_schema => '{escaped_schema}', "
         "p_url_mapping_type => 'BASE_PATH', "
-        f"p_url_mapping_pattern => '{pattern}', "
+        f"p_url_mapping_pattern => '{escaped_pattern}', "
         f"p_auto_rest_auth => {auth_literal}"
         "); "
         "COMMIT; "
@@ -588,9 +605,10 @@ def provide_oracle_service(
         An OracleService handle configured for the active worker.
 
     Raises:
-        ValueError: If ``timeout`` is not a positive integer.
+        ValueError: If ``timeout`` is not a positive integer or ``pause`` is not a positive finite number.
     """
     _validate_positive_timeout(timeout, name="timeout")
+    pause = _validate_positive_pause(pause, name="pause")
     worker_num = get_xdist_worker_num()
     effective_user = user
     if worker_num is not None:
@@ -716,9 +734,11 @@ def provide_oracle_adb_service(
 
     Raises:
         ValueError: If ``workload_type`` is not ``ATP``, ``ADW``, ``AJD``, or ``APEX``, ``filesystemio_options``
-            is not a valid ``filesystemio_options`` value, or ``timeout`` is not a positive integer.
+            is not a valid ``filesystemio_options`` value, ``timeout`` is not a positive integer, or ``pause`` is
+            not a positive finite number.
     """
     _validate_positive_timeout(timeout, name="timeout")
+    pause = _validate_positive_pause(pause, name="pause")
     normalized_workload = workload_type.strip().upper()
     if normalized_workload not in _WORKLOAD_SERVICE_MAP:
         msg = f"Unknown Oracle ADB workload type {workload_type!r}; expected one of {', '.join(_WORKLOAD_SERVICE_MAP)}"
@@ -1237,7 +1257,17 @@ def _exec_sqlplus(
     connect_string = f"{user}/{password}@//localhost:1521/{service_name}{auth_suffix}"
     command = f"printf '%s' {shlex.quote(script)} | sqlplus -L -S {shlex.quote(connect_string)}"
     result = container.exec_run(["bash", "-lc", command])
-    return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
+    exit_code = result.exit_code if result.exit_code is not None else -1
+    output = exec_output_to_bytes(result.output)
+    if exit_code == 0 and whenever_sqlerror.strip().upper() != "CONTINUE" and _SQLPLUS_ERROR_PATTERN.search(output):
+        exit_code = 1
+    return exit_code, output
+
+
+def _is_transient_oracle_error(output: bytes) -> bool:
+    """Return whether ``output`` contains a transient Oracle startup, listener, or catalog lock error."""
+    decoded = output.decode(errors="replace").lower()
+    return any(marker in decoded for marker in _TRANSIENT_ORACLE_ERROR_MARKERS)
 
 
 def _run_sqlplus_with_retry(
@@ -1308,6 +1338,25 @@ def _validate_positive_timeout(value: int, *, name: str) -> int:
         msg = f"{name} must be a positive integer, got {value!r}"
         raise ValueError(msg)
     return value
+
+
+def _validate_positive_pause(value: float, *, name: str) -> float:
+    """Validate that a readiness polling interval is a positive finite number.
+
+    Args:
+        value: Candidate polling sleep interval in seconds.
+        name: Parameter name used in error messages.
+
+    Returns:
+        The validated positive polling interval as a ``float``.
+
+    Raises:
+        ValueError: If ``value`` is a boolean, not numeric, non-finite, or less than or equal to zero.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        msg = f"{name} must be a positive finite number, got {value!r}"
+        raise ValueError(msg)
+    return float(value)
 
 
 def _parse_timeout(env_var: str, default: int) -> int:

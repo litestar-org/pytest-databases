@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import tarfile
 from functools import partial
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -184,7 +184,10 @@ def test_ensure_oracle_user_invokes_sysdba() -> None:
     assert kwargs["as_sysdba"] is True
     assert kwargs["whenever_sqlerror"] == "EXIT SQL.SQLCODE"
     assert "IF SQLCODE != -1920 THEN" in kwargs["sql"]
-    assert "CREATE USER app_1" in kwargs["sql"]
+    assert "IF SQLCODE != -28007 THEN" in kwargs["sql"]
+    assert 'CREATE USER app_1 IDENTIFIED BY "secret"' in kwargs["sql"]
+    assert 'ALTER USER app_1 IDENTIFIED BY "secret"' in kwargs["sql"]
+    assert "ALTER USER app_1 ACCOUNT UNLOCK;" in kwargs["sql"]
     assert "GRANT CONNECT, RESOURCE, DBA TO app_1;" in kwargs["sql"]
     assert "ALTER USER app_1 QUOTA UNLIMITED ON USERS;" in kwargs["sql"]
 
@@ -281,8 +284,107 @@ def test_ensure_oracle_user_escapes_single_quotes_in_password(
 
     mock_exec.assert_called_once()
     _, kwargs = mock_exec.call_args
-    expected_statement = f"""EXECUTE IMMEDIATE 'CREATE USER app_1 IDENTIFIED BY "{expected_password}"';"""
-    assert expected_statement in kwargs["sql"]
+    expected_create = f"""EXECUTE IMMEDIATE 'CREATE USER app_1 IDENTIFIED BY "{expected_password}"';"""
+    expected_alter = f"""EXECUTE IMMEDIATE 'ALTER USER app_1 IDENTIFIED BY "{expected_password}"';"""
+    assert expected_create in kwargs["sql"]
+    assert expected_alter in kwargs["sql"]
+
+
+@pytest.mark.parametrize(
+    ("password", "expected_password"),
+    [
+        ("Welcome12345!", "Welcome12345!"),
+        ("Wel'come12345!", "Wel''come12345!"),
+    ],
+)
+def test_ensure_oracle_adb_user_escapes_single_quotes_in_password(
+    password: str,
+    expected_password: str,
+) -> None:
+    """Verify ensure_oracle_adb_user escapes single quotes in both CREATE USER and ALTER USER PL/SQL literals."""
+    mock_container = MagicMock()
+    with patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"")) as mock_exec:
+        ensure_oracle_adb_user(
+            container=mock_container,
+            user="app_1",
+            password=password,
+            service_name="myatp_high.adb.oraclecloud.com",
+            admin_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        )
+
+    mock_exec.assert_called_once()
+    _, kwargs = mock_exec.call_args
+    expected_create = (
+        f'EXECUTE IMMEDIATE \'CREATE USER app_1 IDENTIFIED BY "{expected_password}" '
+        "DEFAULT TABLESPACE DATA TEMPORARY TABLESPACE TEMP';"
+    )
+    expected_alter = f"EXECUTE IMMEDIATE 'ALTER USER app_1 IDENTIFIED BY \"{expected_password}\"';"
+    assert expected_create in kwargs["sql"]
+    assert expected_alter in kwargs["sql"]
+
+
+@pytest.mark.parametrize(
+    ("user", "url_mapping_pattern", "expected_schema", "expected_pattern"),
+    [
+        ("app_1", None, "APP_1", "app_1"),
+        ("ap'p", "custom'slug", "AP''P", "custom''slug"),
+    ],
+)
+def test_enable_oracle_ords_schema_escapes_single_quotes(
+    user: str,
+    url_mapping_pattern: str | None,
+    expected_schema: str,
+    expected_pattern: str,
+) -> None:
+    """Verify enable_oracle_ords_schema escapes single quotes inside generated PL/SQL arguments."""
+    mock_container = MagicMock()
+    with patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"")) as mock_ords:
+        enable_oracle_ords_schema(
+            mock_container,
+            user=user,
+            password=DEFAULT_ORACLE_ADB_PASSWORD,
+            service_name="myatp_high.adb.oraclecloud.com",
+            url_mapping_pattern=url_mapping_pattern,
+        )
+
+    mock_ords.assert_called_once()
+    _, kwargs = mock_ords.call_args
+    assert f"p_schema => '{expected_schema}'" in kwargs["sql"]
+    assert f"p_url_mapping_pattern => '{expected_pattern}'" in kwargs["sql"]
+
+
+@pytest.mark.parametrize(
+    ("raw_exit_code", "output", "whenever_sqlerror", "expected_exit_code"),
+    [
+        (0, b"1\n", "EXIT SQL.SQLCODE", 0),
+        (0, b"", "EXIT SQL.SQLCODE", 0),
+        (0, b"ERROR:\nORA-01536: space quota exceeded for tablespace 'USERS'\n", "EXIT SQL.SQLCODE", 1),
+        (0, b"ORA-20224: ORDS schema configuration failed\n", "EXIT SQL.SQLCODE", 1),
+        (0, b'PLS-00103: Encountered the symbol "END"\n', "EXIT SQL.SQLCODE", 1),
+        (0, b"SP2-0640: Not connected\n", "EXIT SQL.SQLCODE", 1),
+        (0, b"ORA-01920: user name conflicts\n", "CONTINUE", 0),
+        (None, b"", "EXIT SQL.SQLCODE", -1),
+    ],
+)
+def test_exec_sqlplus_normalizes_exit_zero_error_output(
+    raw_exit_code: int | None,
+    output: bytes,
+    whenever_sqlerror: str,
+    expected_exit_code: int,
+) -> None:
+    """Verify _exec_sqlplus normalizes modulo-256 truncated exit-zero SQL*Plus errors unless CONTINUE is set."""
+    container = MagicMock()
+    container.exec_run.return_value = MagicMock(exit_code=raw_exit_code, output=output)
+    exit_code, out_bytes = oracle._exec_sqlplus(
+        container,
+        user="app",
+        password="secret",
+        service_name="FREEPDB1",
+        sql="SELECT 1 FROM dual",
+        whenever_sqlerror=whenever_sqlerror,
+    )
+    assert exit_code == expected_exit_code
+    assert out_bytes == output
 
 
 @pytest.mark.parametrize("attempts", [0, -1])
@@ -820,9 +922,18 @@ def test_oracle_adb_service_live(pytester: pytest.Pytester) -> None:
 @pytest.mark.parametrize(
     ("output", "expected"),
     [
+        (b"ORA-01033: ORACLE initialization or shutdown in progress", True),
+        (b"ORA-01034: ORACLE not available", True),
         (b"ORA-12514: TNS:listener does not currently know of service", True),
+        (b"ORA-12516: TNS:listener could not find available handler with matching protocol stack", True),
+        (b"ORA-12519: TNS:no appropriate service handler found", True),
+        (b"ORA-12520: TNS:listener could not find available handler for requested type of server", True),
+        (b"ORA-12528: TNS:listener: all appropriate instances are blocking new connections", True),
         (b"ORA-00054: resource busy and acquire with NOWAIT specified", True),
+        (b"ORA-00060: deadlock detected while waiting for resource", True),
+        (b"ORA-04021: timeout occurred while waiting to lock object", True),
         (b"ORA-00942: table or view does not exist", False),
+        (b"ORA-01017: invalid username/password; logon denied", False),
     ],
 )
 def test_is_transient_oracle_error(output: bytes, expected: bool) -> None:
@@ -896,32 +1007,52 @@ def test_oracle_startup_timeout_fixtures(
 
 
 @pytest.mark.parametrize(
-    ("provider_kind", "timeout_value", "expected"),
+    ("provider_kind", "timeout_value", "pause_value", "expected", "error_match"),
     [
-        ("oracle", None, (180, 1.0)),
-        ("oracle", 240, (240, 1.0)),
-        ("oracle_adb", None, (420, 2.0)),
-        ("oracle_adb", 500, (500, 2.0)),
-        ("oracle", 0, ValueError),
-        ("oracle", -1, ValueError),
-        ("oracle", True, ValueError),
-        ("oracle", False, ValueError),
-        ("oracle", 1.5, ValueError),
-        ("oracle", "180", ValueError),
-        ("oracle_adb", 0, ValueError),
-        ("oracle_adb", -1, ValueError),
-        ("oracle_adb", True, ValueError),
-        ("oracle_adb", False, ValueError),
-        ("oracle_adb", 1.5, ValueError),
-        ("oracle_adb", "180", ValueError),
+        ("oracle", None, None, (180, 1.0), ""),
+        ("oracle", 240, None, (240, 1.0), ""),
+        ("oracle", 240, 0.25, (240, 0.25), ""),
+        ("oracle", None, 3, (180, 3.0), ""),
+        ("oracle_adb", None, None, (420, 2.0), ""),
+        ("oracle_adb", 500, None, (500, 2.0), ""),
+        ("oracle_adb", 500, 0.5, (500, 0.5), ""),
+        ("oracle_adb", None, 4, (420, 4.0), ""),
+        ("oracle", 0, None, ValueError, "timeout"),
+        ("oracle", -1, None, ValueError, "timeout"),
+        ("oracle", True, None, ValueError, "timeout"),
+        ("oracle", False, None, ValueError, "timeout"),
+        ("oracle", 1.5, None, ValueError, "timeout"),
+        ("oracle", "180", None, ValueError, "timeout"),
+        ("oracle_adb", 0, None, ValueError, "timeout"),
+        ("oracle_adb", -1, None, ValueError, "timeout"),
+        ("oracle_adb", True, None, ValueError, "timeout"),
+        ("oracle_adb", False, None, ValueError, "timeout"),
+        ("oracle_adb", 1.5, None, ValueError, "timeout"),
+        ("oracle_adb", "180", None, ValueError, "timeout"),
+        ("oracle", None, 0, ValueError, "pause"),
+        ("oracle", None, -0.5, ValueError, "pause"),
+        ("oracle", None, True, ValueError, "pause"),
+        ("oracle", None, False, ValueError, "pause"),
+        ("oracle", None, float("nan"), ValueError, "pause"),
+        ("oracle", None, float("inf"), ValueError, "pause"),
+        ("oracle", None, "1.0", ValueError, "pause"),
+        ("oracle_adb", None, 0, ValueError, "pause"),
+        ("oracle_adb", None, -1.0, ValueError, "pause"),
+        ("oracle_adb", None, True, ValueError, "pause"),
+        ("oracle_adb", None, False, ValueError, "pause"),
+        ("oracle_adb", None, float("nan"), ValueError, "pause"),
+        ("oracle_adb", None, float("inf"), ValueError, "pause"),
+        ("oracle_adb", None, "2.0", ValueError, "pause"),
     ],
 )
 def test_provide_oracle_timeout_validation_and_forwarding(
     provider_kind: str,
     timeout_value: object,
+    pause_value: object,
     expected: tuple[int, float] | type[ValueError],
+    error_match: str,
 ) -> None:
-    """Verify Oracle providers validate positive integer timeouts upfront and forward timeout and pause settings."""
+    """Verify Oracle providers validate timeout and pause upfront and forward custom settings."""
     mock_docker = MagicMock()
     mock_container = MagicMock()
     mock_container.ports = {
@@ -934,6 +1065,12 @@ def test_provide_oracle_timeout_validation_and_forwarding(
         container=mock_container, host="127.0.0.1", port=41521
     )
 
+    kwargs: dict[str, Any] = {}
+    if timeout_value is not None:
+        kwargs["timeout"] = timeout_value
+    if pause_value is not None:
+        kwargs["pause"] = pause_value
+
     if provider_kind == "oracle":
         oracle_call = partial(
             provide_oracle_service,
@@ -945,7 +1082,7 @@ def test_provide_oracle_timeout_validation_and_forwarding(
             password="secret",
             system_password="sys-secret",
         )
-        ctx = oracle_call() if timeout_value is None else oracle_call(timeout=cast("int", timeout_value))
+        ctx = oracle_call(**kwargs)
     else:
         adb_call = partial(
             provide_oracle_adb_service,
@@ -959,10 +1096,10 @@ def test_provide_oracle_timeout_validation_and_forwarding(
             system_password=DEFAULT_ORACLE_ADB_PASSWORD,
             wallet_password=DEFAULT_ORACLE_ADB_PASSWORD,
         )
-        ctx = adb_call() if timeout_value is None else adb_call(timeout=cast("int", timeout_value))
+        ctx = adb_call(**kwargs)
 
     if isinstance(expected, type):
-        with pytest.raises(expected, match="timeout"), ctx:
+        with pytest.raises(expected, match=error_match), ctx:
             pass
         mock_docker.run.assert_not_called()
         return

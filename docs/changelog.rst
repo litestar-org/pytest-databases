@@ -167,7 +167,7 @@ Added
 * ``pytest_databases.helpers.http_request(url, *, method, data, headers, timeout)``, which returns ``(status, body)``
   for container endpoints without going through ``HTTP_PROXY``.
 * ``oracle_startup_timeout`` (default ``180``, env ``ORACLE_STARTUP_TIMEOUT``) and ``oracle_adb_startup_timeout``
-  (default ``420``, env ``ORACLE_ADB_STARTUP_TIMEOUT``) fixtures, plus keyword-only ``timeout`` and ``pause``
+  (default ``420``, env ``ORACLE_ADB_STARTUP_TIMEOUT``) fixtures, plus validated keyword-only ``timeout`` and ``pause``
   parameters on ``provide_oracle_service`` (defaults ``180`` and ``1.0``) and ``provide_oracle_adb_service``
   (defaults ``420`` and ``2.0``).
 
@@ -241,9 +241,10 @@ Fixed
   ``pytest_databases.docker`` for backward compatibility.
 * ``provide_oracle_service`` (``timeout=180``, ``pause=1.0``) and ``provide_oracle_adb_service`` (``timeout=420``,
   ``pause=2.0``) now gate ``sqlplus`` readiness probes with ``tcp_port_open`` before running in-container queries,
-  ``ensure_oracle_user`` provisions ``pytest-xdist`` worker users idempotently (tolerating ``ORA-01920``), and
-  ``ensure_oracle_user``, ``ensure_oracle_adb_user``, and ``enable_oracle_ords_schema`` retry transient ``ORA-*``
-  ``SQL*Plus`` errors.
+  ``ensure_oracle_user`` synchronizes and unlocks existing ``pytest-xdist`` worker users idempotently (tolerating
+  ``ORA-01920`` and ``ORA-28007``), and ``ensure_oracle_user``, ``ensure_oracle_adb_user``, and
+  ``enable_oracle_ords_schema`` escape single quotes in PL/SQL literals and retry transient ``ORA-*`` startup,
+  listener, and lock errors.
 
 Deprecated
 ~~~~~~~~~~
