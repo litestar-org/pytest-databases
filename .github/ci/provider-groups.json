@@ -304,10 +304,7 @@
     "spanner": {
       "source_globs": ["src/pytest_databases/docker/spanner.py"],
       "test_paths": ["tests/test_spanner.py"],
-      "images": [
-        "gcr.io/cloud-spanner-emulator/emulator:latest",
-        "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-      ],
+      "images": ["gcr.io/cloud-spanner-emulator/emulator:latest"],
       "docs_globs": ["docs/supported-databases/spanner.rst"]
     },
     "sqlanywhere": {
