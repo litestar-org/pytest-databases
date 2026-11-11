@@ -28,6 +28,10 @@ from pytest_databases.docker.oracle import (
     exec_oracle_sql,
     oracle_18c_connection,
     oracle_18c_service,
+    oracle_23ai_connection,
+    oracle_23ai_image,
+    oracle_23ai_service,
+    oracle_23ai_service_name,
     oracle_26ai_connection,
     oracle_26ai_image,
     oracle_26ai_port,
@@ -47,7 +51,7 @@ from pytest_databases.docker.oracle import (
     rewrite_tnsnames,
 )
 from pytest_databases.types import ServiceContainer
-from tests.conftest import unwrap_fixture
+from tests.conftest import run_recording_deprecations, unwrap_fixture
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -797,19 +801,21 @@ def test_oracle_responsive_emits_one_warning(fake_oracledb: MagicMock) -> None:
 
 
 @pytest.mark.parametrize(
-    ("fixture_def", "fixture_name"),
+    ("fixture_def", "fixture_name", "takes_request"),
     [
-        (oracle_18c_connection, "oracle_18c_connection"),
-        (oracle_26ai_connection, "oracle_26ai_connection"),
-        (oracle_startup_connection, "oracle_startup_connection"),
+        (oracle_18c_connection, "oracle_18c_connection", False),
+        (oracle_23ai_connection, "oracle_23ai_connection", True),
+        (oracle_26ai_connection, "oracle_26ai_connection", False),
+        (oracle_startup_connection, "oracle_startup_connection", False),
     ],
 )
 def test_deprecated_oracle_connection_fixtures_emit_one_warning(
     fake_oracledb: MagicMock,
     fixture_def: object,
     fixture_name: str,
+    takes_request: bool,
 ) -> None:
-    """Verify each v0.19.0 Oracle connection fixture warns once, attributed to the fixture, and connects."""
+    """Verify each Oracle connection fixture warns once, attributed to the module, and connects."""
     service = OracleService(
         container=MagicMock(),
         host="127.0.0.1",
@@ -819,8 +825,12 @@ def test_deprecated_oracle_connection_fixtures_emit_one_warning(
         system_password="sys-secret",
         service_name="FREEPDB1",
     )
+    mock_request = MagicMock()
+    mock_request._fixturemanager.getfixturedefs.return_value = []
+    mock_request.getfixturevalue.return_value = service
+    arg: object = mock_request if takes_request else service
     with pytest.warns(DeprecationWarning, match=fixture_name) as record:
-        conn_gen = unwrap_fixture(fixture_def)(service)
+        conn_gen = unwrap_fixture(fixture_def)(arg)
         assert next(conn_gen) is fake_oracledb.connect.return_value
         with pytest.raises(StopIteration):
             next(conn_gen)
@@ -1318,15 +1328,19 @@ def test_oracle_all_fixtures_inprocess(pytester: Pytester, monkeypatch: MonkeyPa
             )
             assert request.getfixturevalue("oracle_26ai_image") == "gvenzl/oracle-free:23-slim-faststart"
             assert request.getfixturevalue("oracle_26ai_service_name") == "FREEPDB1"
+            assert request.getfixturevalue("oracle_23ai_image") == "gvenzl/oracle-free:23-slim-faststart"
+            assert request.getfixturevalue("oracle_23ai_service_name") == "FREEPDB1"
             assert request.getfixturevalue("oracle_port") is None
             assert request.getfixturevalue("oracle_26ai_port") is None
             assert request.getfixturevalue("oracle_18c_port") is None
             assert request.getfixturevalue("oracle_adb_port") is None
             assert request.getfixturevalue("oracle_26ai_service") is mock_ora
+            assert request.getfixturevalue("oracle_23ai_service") is mock_ora
             assert request.getfixturevalue("oracle_18c_service") is mock_ora
             assert request.getfixturevalue("oracle_service") is mock_ora
             assert request.getfixturevalue("oracle_adb_service") is mock_adb
             assert request.getfixturevalue("oracle_18c_connection") is fake_conn
+            assert request.getfixturevalue("oracle_23ai_connection") is fake_conn
             assert request.getfixturevalue("oracle_26ai_connection") is fake_conn
             assert request.getfixturevalue("oracle_startup_connection") is fake_conn
     """)
@@ -1443,23 +1457,37 @@ def test_exec_oracle_sql_and_service_options(
     assert run_kwargs["volumes"] == {"/host/data": {"bind": "/opt/oracle/oradata", "mode": "rw"}}
 
 
-def test_oracle_26ai_fixtures_and_removed_23ai_names(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify Oracle 26ai defaults/env overrides, ADB 26ai default image, and removal of 23ai fixture names."""
+def test_oracle_26ai_fixtures_and_23ai_deprecation_shims(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify Oracle 26ai defaults/env overrides, ADB 26ai default image, and v0.19.0 23ai deprecation shims."""
     assert DEFAULT_ORACLE_ADB_IMAGE == "container-registry.oracle.com/database/adb-free:latest-26ai"
     monkeypatch.delenv("ORACLE_ADB_IMAGE", raising=False)
     assert unwrap_fixture(oracle_adb_image)() == DEFAULT_ORACLE_ADB_IMAGE
-    assert not hasattr(oracle, "oracle_23ai_service")
-    assert not hasattr(oracle, "oracle_23ai_image")
-    assert not hasattr(oracle, "oracle_23ai_service_name")
     assert not hasattr(oracle, "oracle_23ai_port")
-    assert not hasattr(oracle, "oracle_23ai_connection")
+    assert "oracle_23ai_port" not in oracle.__all__
+    assert {"oracle_23ai_service", "oracle_23ai_image", "oracle_23ai_service_name", "oracle_23ai_connection"}.issubset(
+        oracle.__all__
+    )
 
     monkeypatch.setenv("ORACLE_26AI_IMAGE", "gvenzl/oracle-free:23.26.3-slim-faststart")
     monkeypatch.setenv("ORACLE_26AI_SERVICE_NAME", "PDB26")
     monkeypatch.setenv("ORACLE_PORT", "11521")
     monkeypatch.delenv("ORACLE_26AI_PORT", raising=False)
-    assert unwrap_fixture(oracle_26ai_image)() == "gvenzl/oracle-free:23.26.3-slim-faststart"
-    assert unwrap_fixture(oracle_26ai_service_name)() == "PDB26"
+
+    mock_request = MagicMock()
+    mock_request._fixturemanager.getfixturedefs.return_value = []
+    assert unwrap_fixture(oracle_26ai_image)(mock_request) == "gvenzl/oracle-free:23.26.3-slim-faststart"
+    assert unwrap_fixture(oracle_26ai_service_name)(mock_request) == "PDB26"
+
+    with pytest.warns(DeprecationWarning, match="oracle_23ai_image") as image_warn:
+        assert unwrap_fixture(oracle_23ai_image)() == "gvenzl/oracle-free:23.26.3-slim-faststart"
+    assert len(image_warn) == 1
+    assert image_warn[0].filename == __file__
+
+    with pytest.warns(DeprecationWarning, match="oracle_23ai_service_name") as svc_name_warn:
+        assert unwrap_fixture(oracle_23ai_service_name)() == "PDB26"
+    assert len(svc_name_warn) == 1
+    assert svc_name_warn[0].filename == __file__
+
     base_port = unwrap_fixture(oracle_port)()
     assert base_port == 11521
     assert unwrap_fixture(oracle_26ai_port)(base_port) == 11521
@@ -1467,7 +1495,14 @@ def test_oracle_26ai_fixtures_and_removed_23ai_names(monkeypatch: pytest.MonkeyP
     assert unwrap_fixture(oracle_26ai_port)(base_port) == 12521
 
     sentinel = MagicMock(spec=OracleService)
-    assert unwrap_fixture(oracle_service)(sentinel) is sentinel
+    mock_request.getfixturevalue.return_value = sentinel
+    assert unwrap_fixture(oracle_service)(mock_request) is sentinel
+    mock_request.getfixturevalue.assert_called_once_with("oracle_26ai_service")
+
+    with pytest.warns(DeprecationWarning, match="oracle_23ai_service") as svc_warn:
+        assert unwrap_fixture(oracle_23ai_service)(sentinel) is sentinel
+    assert len(svc_warn) == 1
+    assert svc_warn[0].filename == __file__
 
     captured: list[dict[str, Any]] = []
 
@@ -1495,3 +1530,81 @@ def test_oracle_26ai_fixtures_and_removed_23ai_names(monkeypatch: pytest.MonkeyP
     assert captured[0]["image"] == "gvenzl/oracle-free:23.26.3-slim-faststart"
     assert captured[0]["service_name"] == "PDB26"
     assert captured[0]["host_port"] == 12521
+
+
+@pytest.mark.parametrize(
+    ("requested", "override_block", "expected_value", "expected_warnings"),
+    [
+        ("oracle_26ai_image", "", "gvenzl/oracle-free:23-slim-faststart", []),
+        ("oracle_26ai_service_name", "", "FREEPDB1", []),
+        (
+            "oracle_26ai_image",
+            '@pytest.fixture(scope="session")\ndef oracle_23ai_image():\n    return "custom/oracle:23"\n',
+            "custom/oracle:23",
+            ["Override 'oracle_26ai_image' instead."],
+        ),
+        (
+            "oracle_26ai_service_name",
+            '@pytest.fixture(scope="session")\ndef oracle_23ai_service_name():\n    return "CUSTOMPDB"\n',
+            "CUSTOMPDB",
+            ["Override 'oracle_26ai_service_name' instead."],
+        ),
+        (
+            "oracle_service",
+            '@pytest.fixture(scope="session")\ndef oracle_26ai_service():\n    return "canonical-26ai"\n',
+            "canonical-26ai",
+            [],
+        ),
+        (
+            "oracle_service",
+            '@pytest.fixture(scope="session")\ndef oracle_23ai_service():\n    return "legacy-23ai"\n',
+            "legacy-23ai",
+            ["Override 'oracle_26ai_service' instead."],
+        ),
+        (
+            "oracle_23ai_connection",
+            (
+                "import sys\nfrom unittest.mock import MagicMock\n"
+                "from pytest_databases.docker.oracle import OracleService\n"
+                'fake_conn = MagicMock(name="conn")\n'
+                'fake_conn.__enter__.return_value = "legacy-conn"\n'
+                "fake_oracledb = MagicMock()\n"
+                "fake_oracledb.connect.return_value = fake_conn\n"
+                'sys.modules["oracledb"] = fake_oracledb\n\n'
+                '@pytest.fixture(scope="session")\n'
+                "def oracle_23ai_service():\n"
+                "    return OracleService(\n"
+                "        container=MagicMock(),\n"
+                '        host="127.0.0.1",\n'
+                "        port=1521,\n"
+                '        user="app",\n'
+                '        password="p",\n'
+                '        system_password="p",\n'
+                '        service_name="LEGACY",\n'
+                "    )\n"
+            ),
+            "legacy-conn",
+            ["Override 'oracle_26ai_service' instead.", "The 'oracle_23ai_connection' fixture is deprecated"],
+        ),
+    ],
+)
+def test_oracle_23ai_override_compatibility(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    requested: str,
+    override_block: str,
+    expected_value: str,
+    expected_warnings: list[str],
+) -> None:
+    """Verify canonical 26ai fixtures stay silent by default and honor user oracle_23ai_* overrides with warnings."""
+    monkeypatch.delenv("ORACLE_26AI_IMAGE", raising=False)
+    monkeypatch.delenv("ORACLE_26AI_SERVICE_NAME", raising=False)
+    recorded = run_recording_deprecations(
+        pytester,
+        f'import pytest\n\npytest_plugins = ["pytest_databases.docker.oracle"]\n\n{override_block}\n'
+        f"def test_oracle_compat({requested}):\n    assert {requested} == {expected_value!r}\n",
+    )
+    assert len(recorded) == len(expected_warnings), recorded
+    for actual, expected_fragment in zip(recorded, expected_warnings, strict=True):
+        assert expected_fragment in actual
+        assert "v1.0.0" in actual

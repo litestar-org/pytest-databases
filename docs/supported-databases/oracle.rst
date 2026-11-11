@@ -163,7 +163,7 @@ Available Fixtures
 The following version-specific and Autonomous Database fixtures are also available:
 
 * ``oracle_18c_image``, ``oracle_18c_service_name``, ``oracle_18c_port`` (env ``ORACLE_18C_PORT``), ``oracle_18c_service``: Oracle 18c XE
-* ``oracle_26ai_image`` (default ``gvenzl/oracle-free:23-slim-faststart``, delivering the ``23.26.x`` Oracle AI Database 26ai Free release line; env ``ORACLE_26AI_IMAGE``), ``oracle_26ai_service_name`` (default ``FREEPDB1``, env ``ORACLE_26AI_SERVICE_NAME``), ``oracle_26ai_port`` (env ``ORACLE_26AI_PORT``, falling back to ``oracle_port``), ``oracle_26ai_service``: Oracle AI Database 26ai Free
+* ``oracle_26ai_image`` (default ``gvenzl/oracle-free:23-slim-faststart``, delivering the ``23.26.x`` Oracle AI Database 26ai Free release line; env ``ORACLE_26AI_IMAGE``), ``oracle_26ai_service_name`` (default ``FREEPDB1``, env ``ORACLE_26AI_SERVICE_NAME``), ``oracle_26ai_port`` (env ``ORACLE_26AI_PORT``, falling back to ``oracle_port``), ``oracle_26ai_service``: Oracle AI Database 26ai Free. The ``v0.19.0`` ``oracle_23ai_image``, ``oracle_23ai_service_name``, ``oracle_23ai_service``, and ``oracle_23ai_connection`` fixtures (and external overrides of ``oracle_23ai_image``, ``oracle_23ai_service_name``, and ``oracle_23ai_service``) remain available as deprecated aliases until ``v1.0.0``.
 * ``oracle_adb_image``, ``oracle_adb_workload_type`` (``ATP``, ``ADW``, ``AJD``, ``APEX``),
   ``oracle_adb_hostname``, ``oracle_adb_tz``, ``oracle_adb_password``,
   ``oracle_adb_admin_password``, ``oracle_adb_wallet_password``,

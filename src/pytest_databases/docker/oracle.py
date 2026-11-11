@@ -64,6 +64,10 @@ __all__ = [
     "oracle_18c_port",
     "oracle_18c_service",
     "oracle_18c_service_name",
+    "oracle_23ai_connection",
+    "oracle_23ai_image",
+    "oracle_23ai_service",
+    "oracle_23ai_service_name",
     "oracle_26ai_connection",
     "oracle_26ai_image",
     "oracle_26ai_port",
@@ -986,14 +990,55 @@ def xdist_oracle_isolation_level() -> XdistIsolationLevel:
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_26ai_image() -> str:
+def oracle_26ai_image(request: pytest.FixtureRequest) -> str:
     """Container image for Oracle AI Database 26ai Free (``23.26.x`` track on ``gvenzl/oracle-free``)."""
+    default = os.getenv("ORACLE_26AI_IMAGE", "gvenzl/oracle-free:23-slim-faststart")
+    return str(_resolve_legacy_oracle_23ai_override(request, "oracle_23ai_image", "oracle_26ai_image", default))
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_26ai_service_name(request: pytest.FixtureRequest) -> str:
+    """Default PDB service name for Oracle AI Database 26ai Free."""
+    default = os.getenv("ORACLE_26AI_SERVICE_NAME", "FREEPDB1")
+    return str(
+        _resolve_legacy_oracle_23ai_override(
+            request,
+            "oracle_23ai_service_name",
+            "oracle_26ai_service_name",
+            default,
+        )
+    )
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_23ai_image() -> str:
+    """Deprecated alias for ``oracle_26ai_image`` preserved for v0.19.0 callers.
+
+    .. deprecated:: 0.20.0
+        Use ``oracle_26ai_image`` instead. ``oracle_23ai_image`` will be removed in v1.0.0.
+    """
+    warnings.warn(
+        "The 'oracle_23ai_image' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'oracle_26ai_image' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return os.getenv("ORACLE_26AI_IMAGE", "gvenzl/oracle-free:23-slim-faststart")
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_26ai_service_name() -> str:
-    """Default PDB service name for Oracle AI Database 26ai Free."""
+def oracle_23ai_service_name() -> str:
+    """Deprecated alias for ``oracle_26ai_service_name`` preserved for v0.19.0 callers.
+
+    .. deprecated:: 0.20.0
+        Use ``oracle_26ai_service_name`` instead. ``oracle_23ai_service_name`` will be removed in v1.0.0.
+    """
+    warnings.warn(
+        "The 'oracle_23ai_service_name' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'oracle_26ai_service_name' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return os.getenv("ORACLE_26AI_SERVICE_NAME", "FREEPDB1")
 
 
@@ -1248,9 +1293,25 @@ def oracle_adb_service(
 
 
 @pytest.fixture(autouse=False, scope="session")
-def oracle_service(oracle_26ai_service: OracleService) -> OracleService:
-    """Alias for the latest default Oracle service (26ai)."""
+def oracle_23ai_service(oracle_26ai_service: OracleService) -> OracleService:
+    """Deprecated alias for ``oracle_26ai_service`` preserved for v0.19.0 callers.
+
+    .. deprecated:: 0.20.0
+        Use ``oracle_26ai_service`` or ``oracle_service`` instead. ``oracle_23ai_service`` will be removed in v1.0.0.
+    """
+    warnings.warn(
+        "The 'oracle_23ai_service' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        "Use 'oracle_26ai_service' or 'oracle_service' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return oracle_26ai_service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_service(request: pytest.FixtureRequest) -> OracleService:
+    """Alias for the latest default Oracle service (26ai)."""
+    return _resolve_legacy_oracle_23ai_service(request)
 
 
 @pytest.fixture(autouse=False, scope="session")
@@ -1261,6 +1322,22 @@ def oracle_18c_connection(oracle_18c_service: OracleService) -> Generator[Any, N
         An open ``oracledb.Connection``.
     """
     with _open_oracle_connection(oracle_18c_service, "oracle_18c_connection") as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_23ai_connection(request: pytest.FixtureRequest) -> Generator[Any, None, None]:
+    """Deprecated ``oracledb`` connection fixture preserved for v0.19.0 callers.
+
+    .. deprecated:: 0.20.0
+        Create an ``oracledb`` connection from ``oracle_service`` or ``oracle_26ai_service`` instead.
+        ``oracle_23ai_connection`` will be removed in v1.0.0.
+
+    Yields:
+        An open ``oracledb.Connection``.
+    """
+    service = _resolve_legacy_oracle_23ai_service(request)
+    with _open_oracle_connection(service, "oracle_23ai_connection") as conn:
         yield conn
 
 
@@ -1284,6 +1361,45 @@ def oracle_startup_connection(oracle_26ai_service: OracleService) -> Generator[A
     """
     with _open_oracle_connection(oracle_26ai_service, "oracle_startup_connection") as conn:
         yield conn
+
+
+def _has_external_fixture_override(request: pytest.FixtureRequest, name: str) -> bool:
+    """Return whether ``name`` is overridden by a fixture defined outside ``pytest_databases``."""
+    fixturedefs = request._fixturemanager.getfixturedefs(name, request._pyfuncitem)
+    return bool(fixturedefs and not fixturedefs[-1].func.__module__.startswith("pytest_databases."))
+
+
+def _resolve_legacy_oracle_23ai_override(
+    request: pytest.FixtureRequest,
+    legacy_name: str,
+    replacement: str,
+    default: Any,
+) -> Any:
+    """Return an external override of a deprecated ``oracle_23ai_*`` fixture, or ``default``."""
+    if not _has_external_fixture_override(request, legacy_name):
+        return default
+    warnings.warn(
+        f"Overriding the '{legacy_name}' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+        f"Override '{replacement}' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return request.getfixturevalue(legacy_name)
+
+
+def _resolve_legacy_oracle_23ai_service(request: pytest.FixtureRequest) -> OracleService:
+    """Return a user override of ``oracle_23ai_service`` when present, otherwise ``oracle_26ai_service``."""
+    if _has_external_fixture_override(request, "oracle_23ai_service"):
+        warnings.warn(
+            "Overriding the 'oracle_23ai_service' fixture is deprecated in v0.20.0 and will be removed in v1.0.0. "
+            "Override 'oracle_26ai_service' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        legacy_service: OracleService = request.getfixturevalue("oracle_23ai_service")
+        return legacy_service
+    service: OracleService = request.getfixturevalue("oracle_26ai_service")
+    return service
 
 
 @contextlib.contextmanager

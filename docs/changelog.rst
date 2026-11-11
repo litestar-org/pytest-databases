@@ -269,6 +269,8 @@ Changed
 * Under ``pytest-xdist`` with the default ``database`` isolation, Oracle services start one shared container per
   version and give each worker its own user, so ``OracleService.user`` is ``app_<worker>`` instead of ``app``. Set
   ``xdist_oracle_isolation_level`` to ``server`` for the previous container per worker.
+* ``oracle_service`` now aliases ``oracle_26ai_service``, and the default Oracle Free logical service label/container
+  stem changed from ``oracle23ai`` to ``oracle26ai``.
 * ``dolt_service`` and ``mysql_8_service`` / ``mysql_84_service`` / ``mysql_96_service`` run the native image
   platform instead of ``linux/x86_64``. ``mysql_56_service`` and ``mysql_57_service`` keep ``linux/x86_64``.
 * MySQL and MariaDB services start with ``--performance-schema=ON``.
@@ -328,8 +330,12 @@ Deprecated
 * ``cockroachdb_connection``; use ``cockroachdb_service`` and open your own ``psycopg`` connection. Removal in 1.0.0.
 * ``mongodb_connection`` and ``mongodb_database``; use ``mongodb_service`` and open your own ``pymongo`` client.
   Each now emits a single warning. Removal in 1.0.0.
-* ``oracle_18c_connection``, ``oracle_26ai_connection``, ``oracle_startup_connection`` and ``oracle_responsive``;
-  use ``oracle_service`` (or the versioned services) and open your own ``oracledb`` connection. Removal in 1.0.0.
+* ``oracle_18c_connection``, ``oracle_23ai_connection``, ``oracle_26ai_connection``, ``oracle_startup_connection``
+  and ``oracle_responsive``; use ``oracle_service`` (or the versioned services) and open your own ``oracledb``
+  connection. Removal in 1.0.0.
+* ``oracle_23ai_service``, ``oracle_23ai_image`` and ``oracle_23ai_service_name``, and overriding them outside
+  ``pytest_databases``; use and override ``oracle_26ai_service``, ``oracle_26ai_image`` and
+  ``oracle_26ai_service_name`` instead. Removal in 1.0.0.
 * ``spanner_connection``, ``SpannerService.credentials``, ``SpannerService.client_options`` and the ``credentials``
   argument of ``SpannerService`` (now ignored); build the client, ``AnonymousCredentials()`` and
   ``ClientOptions(api_endpoint=service.endpoint)`` yourself. Removal in 1.0.0.
@@ -366,10 +372,6 @@ Breaking
   (``oracledb``) and ``valkey`` extras no longer install a driver, because the services check readiness without
   one. If you use the deprecated ``cockroachdb_connection``, ``mongodb_connection``, ``mongodb_database`` or
   ``oracle_*_connection`` fixtures, install ``psycopg``, ``pymongo`` or ``oracledb`` directly.
-* ``oracle_23ai_service``, ``oracle_23ai_image``, ``oracle_23ai_service_name`` and ``oracle_23ai_connection`` are
-  renamed to ``oracle_26ai_service`` (container name ``oracle26ai``), ``oracle_26ai_image`` (env ``ORACLE_26AI_IMAGE``),
-  ``oracle_26ai_service_name`` (env ``ORACLE_26AI_SERVICE_NAME``) and ``oracle_26ai_connection`` to match Oracle AI
-  Database 26ai. ``oracle_service`` aliases ``oracle_26ai_service``.
 
 0.19.0 (2026-05-23)
 -------------------
