@@ -180,9 +180,125 @@ def test_ensure_oracle_user_invokes_sysdba() -> None:
     _, kwargs = mock_exec.call_args
     assert kwargs["user"] == "sys"
     assert kwargs["password"] == "sys-secret"
+    assert kwargs["service_name"] == "FREEPDB1"
     assert kwargs["as_sysdba"] is True
-    assert kwargs["whenever_sqlerror"] == "CONTINUE"
+    assert kwargs["whenever_sqlerror"] == "EXIT SQL.SQLCODE"
+    assert "IF SQLCODE != -1920 THEN" in kwargs["sql"]
     assert "CREATE USER app_1" in kwargs["sql"]
+    assert "GRANT CONNECT, RESOURCE, DBA TO app_1;" in kwargs["sql"]
+    assert "ALTER USER app_1 QUOTA UNLIMITED ON USERS;" in kwargs["sql"]
+
+
+@pytest.mark.parametrize(
+    ("exec_results", "expected_result", "expected_calls", "expected_sleeps"),
+    [
+        (
+            [MagicMock(exit_code=0, output=b"")],
+            True,
+            1,
+            [],
+        ),
+        (
+            [
+                MagicMock(exit_code=1, output=b"ORA-12514: TNS:listener does not currently know of service"),
+                MagicMock(exit_code=1, output=b"ORA-12514: TNS:listener does not currently know of service"),
+                MagicMock(exit_code=0, output=b""),
+            ],
+            True,
+            3,
+            [0.5, 1.0],
+        ),
+        (
+            [MagicMock(exit_code=1, output=b"ORA-00054: resource busy") for _ in range(5)],
+            False,
+            5,
+            [0.5, 1.0, 1.5, 2.0],
+        ),
+        (
+            [MagicMock(exit_code=942, output=b"ORA-00942: table or view does not exist")],
+            False,
+            1,
+            [],
+        ),
+        (
+            [MagicMock(exit_code=1031, output=b"ORA-01031: insufficient privileges")],
+            False,
+            1,
+            [],
+        ),
+    ],
+)
+def test_ensure_oracle_user_retry_and_failure_paths(
+    exec_results: list[MagicMock],
+    expected_result: bool,
+    expected_calls: int,
+    expected_sleeps: list[float],
+) -> None:
+    """Verify ensure_oracle_user retries transient ORA errors and aborts immediately on fatal errors."""
+    container = MagicMock()
+    container.exec_run.side_effect = exec_results
+    with patch("pytest_databases.docker.oracle.time.sleep") as mock_sleep:
+        result = ensure_oracle_user(
+            container=container,
+            user="app_1",
+            password="secret",
+            service_name="FREEPDB1",
+            system_password="sys-secret",
+        )
+
+    assert result is expected_result
+    assert container.exec_run.call_count == expected_calls
+    assert [call.args[0] for call in mock_sleep.call_args_list] == expected_sleeps
+    command = container.exec_run.call_args.args[0][2]
+    assert "WHENEVER SQLERROR EXIT SQL.SQLCODE" in command
+    assert "IF SQLCODE != -1920 THEN" in command
+
+
+@pytest.mark.parametrize(
+    ("password", "expected_password"),
+    [
+        ("secret", "secret"),
+        ("pa'ss", "pa''ss"),
+    ],
+)
+def test_ensure_oracle_user_escapes_single_quotes_in_password(
+    password: str,
+    expected_password: str,
+) -> None:
+    """Verify ensure_oracle_user escapes single quotes inside the generated PL/SQL EXECUTE IMMEDIATE block."""
+    mock_container = MagicMock()
+    with patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"")) as mock_exec:
+        assert (
+            ensure_oracle_user(
+                container=mock_container,
+                user="app_1",
+                password=password,
+                service_name="FREEPDB1",
+                system_password="sys-secret",
+            )
+            is True
+        )
+
+    mock_exec.assert_called_once()
+    _, kwargs = mock_exec.call_args
+    expected_statement = f"""EXECUTE IMMEDIATE 'CREATE USER app_1 IDENTIFIED BY "{expected_password}"';"""
+    assert expected_statement in kwargs["sql"]
+
+
+@pytest.mark.parametrize("attempts", [0, -1])
+def test_run_sqlplus_with_retry_rejects_non_positive_attempts(attempts: int) -> None:
+    """Verify _run_sqlplus_with_retry raises ValueError for non-positive attempts before calling exec_run."""
+    container = MagicMock()
+    with pytest.raises(ValueError, match="attempts must be >= 1"):
+        oracle._run_sqlplus_with_retry(
+            container,
+            user="sys",
+            password="sys-secret",
+            service_name="FREEPDB1",
+            sql="SELECT 1 FROM dual",
+            attempts=attempts,
+        )
+    container.exec_run.assert_not_called()
 
 
 def test_parse_and_rewrite_tnsnames() -> None:
@@ -286,7 +402,7 @@ def test_ensure_oracle_adb_user_and_enable_ords_schema() -> None:
     _, kwargs = mock_exec.call_args
     assert kwargs["user"] == "admin"
     assert kwargs["as_sysdba"] is False
-    assert "whenever_sqlerror" not in kwargs
+    assert kwargs["whenever_sqlerror"] == "EXIT SQL.SQLCODE"
     assert "IF SQLCODE != -1920 THEN" in kwargs["sql"]
     assert "IF SQLCODE != -28007 THEN" in kwargs["sql"]
     lines = kwargs["sql"].splitlines()
@@ -305,7 +421,7 @@ def test_ensure_oracle_adb_user_and_enable_ords_schema() -> None:
     _, ords_kwargs = mock_ords.call_args
     assert ords_kwargs["user"] == "app_1"
     assert ords_kwargs["as_sysdba"] is False
-    assert "whenever_sqlerror" not in ords_kwargs
+    assert ords_kwargs["whenever_sqlerror"] == "EXIT SQL.SQLCODE"
     assert "p_schema => 'APP_1'" in ords_kwargs["sql"]
     assert ords_kwargs["sql"].endswith("/")
 

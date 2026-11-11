@@ -389,6 +389,9 @@ def ensure_oracle_user(
 ) -> bool:
     """Ensure an Oracle application user exists with appropriate tablespace quota and roles.
 
+    Existing users (``ORA-01920``) are tolerated idempotently before applying grants and tablespace quota,
+    and transient Oracle startup or lock errors are retried via ``_run_sqlplus_with_retry``.
+
     Args:
         container: The container instance.
         user: Effective username to create.
@@ -399,19 +402,28 @@ def ensure_oracle_user(
     Returns:
         ``True`` if the SQL*Plus provisioning command exited cleanly.
     """
+    escaped_password = password.replace("'", "''")
     setup_script = "\n".join([
-        f'CREATE USER {user} IDENTIFIED BY "{password}";',
+        "BEGIN",
+        f"  EXECUTE IMMEDIATE 'CREATE USER {user} IDENTIFIED BY \"{escaped_password}\"';",
+        "EXCEPTION",
+        "  WHEN OTHERS THEN",
+        "    IF SQLCODE != -1920 THEN",
+        "      RAISE;",
+        "    END IF;",
+        "END;",
+        "/",
         f"GRANT CONNECT, RESOURCE, DBA TO {user};",
         f"ALTER USER {user} QUOTA UNLIMITED ON USERS;",
     ])
-    exit_code, _ = _exec_sqlplus(
+    exit_code, _ = _run_sqlplus_with_retry(
         container,
         user="sys",
         password=system_password,
         service_name=service_name,
         sql=setup_script,
         as_sysdba=True,
-        whenever_sqlerror="CONTINUE",
+        whenever_sqlerror="EXIT SQL.SQLCODE",
     )
     return exit_code == 0
 
@@ -479,21 +491,15 @@ def ensure_oracle_adb_user(
         f"GRANT CONNECT, RESOURCE, DWROLE, UNLIMITED TABLESPACE TO {user};",
         f"ALTER USER {user} QUOTA UNLIMITED ON DATA;",
     ])
-    exit_code = -1
-    output = b""
-    for attempt in range(5):
-        exit_code, output = _exec_sqlplus(
-            container,
-            user="admin",
-            password=admin_password,
-            service_name=service_name,
-            sql=setup_script,
-            as_sysdba=False,
-        )
-        if exit_code == 0 or not _is_transient_oracle_error(output):
-            break
-        if attempt < 4:
-            time.sleep(0.5 * (attempt + 1))
+    exit_code, output = _run_sqlplus_with_retry(
+        container,
+        user="admin",
+        password=admin_password,
+        service_name=service_name,
+        sql=setup_script,
+        as_sysdba=False,
+        whenever_sqlerror="EXIT SQL.SQLCODE",
+    )
     if exit_code != 0:
         msg = f"Failed to provision Oracle ADB user {user!r} (exit {exit_code}): {output.decode(errors='replace').strip()}"
         raise RuntimeError(msg)
@@ -536,21 +542,15 @@ def enable_oracle_ords_schema(
         "COMMIT; "
         "END;\n/"
     )
-    exit_code = -1
-    output = b""
-    for attempt in range(5):
-        exit_code, output = _exec_sqlplus(
-            container,
-            user=user,
-            password=password,
-            service_name=service_name,
-            sql=plsql,
-            as_sysdba=False,
-        )
-        if exit_code == 0 or not _is_transient_oracle_error(output):
-            break
-        if attempt < 4:
-            time.sleep(0.5 * (attempt + 1))
+    exit_code, output = _run_sqlplus_with_retry(
+        container,
+        user=user,
+        password=password,
+        service_name=service_name,
+        sql=plsql,
+        as_sysdba=False,
+        whenever_sqlerror="EXIT SQL.SQLCODE",
+    )
     if exit_code != 0:
         msg = f"Failed to REST-enable schema {schema_upper!r} (exit {exit_code}): {output.decode(errors='replace').strip()}"
         raise RuntimeError(msg)
@@ -1235,6 +1235,57 @@ def _exec_sqlplus(
     command = f"printf '%s' {shlex.quote(script)} | sqlplus -L -S {shlex.quote(connect_string)}"
     result = container.exec_run(["bash", "-lc", command])
     return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
+
+
+def _run_sqlplus_with_retry(
+    container: Container,
+    *,
+    user: str,
+    password: str,
+    service_name: str,
+    sql: str,
+    as_sysdba: bool = False,
+    whenever_sqlerror: str = "EXIT SQL.SQLCODE",
+    attempts: int = 5,
+) -> tuple[int, bytes]:
+    """Execute SQL*Plus inside ``container`` with bounded retries on transient Oracle errors.
+
+    Args:
+        container: The container instance.
+        user: Database user or ``sys``.
+        password: User password.
+        service_name: Oracle service or PDB name.
+        sql: SQL statement or script.
+        as_sysdba: Whether to connect with SYSDBA administrative privileges.
+        whenever_sqlerror: SQL*Plus ``WHENEVER SQLERROR`` directive.
+        attempts: Maximum number of attempts before returning the final result.
+
+    Returns:
+        Tuple of exit code and output bytes.
+
+    Raises:
+        ValueError: If ``attempts`` is less than ``1``.
+    """
+    if attempts < 1:
+        msg = f"attempts must be >= 1, got {attempts!r}"
+        raise ValueError(msg)
+    exit_code = -1
+    output = b""
+    for attempt in range(attempts):
+        exit_code, output = _exec_sqlplus(
+            container,
+            user=user,
+            password=password,
+            service_name=service_name,
+            sql=sql,
+            as_sysdba=as_sysdba,
+            whenever_sqlerror=whenever_sqlerror,
+        )
+        if exit_code == 0 or not _is_transient_oracle_error(output):
+            return exit_code, output
+        if attempt < attempts - 1:
+            time.sleep(0.5 * (attempt + 1))
+    return exit_code, output
 
 
 def _validate_positive_timeout(value: int, *, name: str) -> int:
