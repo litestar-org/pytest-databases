@@ -19,7 +19,7 @@ from urllib.parse import quote
 import pytest
 
 from pytest_databases._service import ContainerService
-from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
+from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num, tcp_port_open
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
@@ -62,6 +62,7 @@ __all__ = [
     "oracle_adb_image",
     "oracle_adb_password",
     "oracle_adb_service",
+    "oracle_adb_startup_timeout",
     "oracle_adb_tz",
     "oracle_adb_volumes",
     "oracle_adb_wallet_dir",
@@ -71,6 +72,7 @@ __all__ = [
     "oracle_responsive",
     "oracle_service",
     "oracle_startup_connection",
+    "oracle_startup_timeout",
     "oracle_system_password",
     "oracle_user",
     "parse_tnsnames",
@@ -564,6 +566,9 @@ def provide_oracle_service(
     password: str,
     system_password: str,
     isolation_level: XdistIsolationLevel = "database",
+    *,
+    timeout: int = 180,
+    pause: float = 1.0,
 ) -> Generator[OracleService, None, None]:
     """Start and manage an Oracle database container with schema or server isolation.
 
@@ -576,10 +581,13 @@ def provide_oracle_service(
         password: Application user password.
         system_password: Administrative SYS password.
         isolation_level: xdist isolation strategy (database or server).
+        timeout: Maximum startup wait time in seconds.
+        pause: Sleep interval in seconds between readiness polling attempts.
 
     Yields:
         An OracleService handle configured for the active worker.
     """
+    _validate_positive_timeout(timeout, name="timeout")
     worker_num = get_xdist_worker_num()
     effective_user = user
     if worker_num is not None:
@@ -592,6 +600,8 @@ def provide_oracle_service(
 
     def check(_service: ServiceContainer) -> bool:
         nonlocal user_provisioned
+        if not tcp_port_open(_service.host, _service.port):
+            return False
         if effective_user != user and not user_provisioned:
             sys_exit, sys_out = _exec_sqlplus(
                 _service.container,
@@ -629,7 +639,8 @@ def provide_oracle_service(
         name=name,
         check=check,
         container_port=1521,
-        timeout=60,
+        timeout=timeout,
+        pause=pause,
         transient=worker_num is not None and isolation_level == "server",
         env={
             "ORACLE_PASSWORD": system_password,
@@ -666,6 +677,8 @@ def provide_oracle_adb_service(
     volumes: dict[str, dict[str, str]] | list[str] | None = None,
     devices: list[str] | None = None,
     filesystemio_options: str | None = DEFAULT_ORACLE_ADB_FILESYSTEMIO_OPTIONS,
+    timeout: int = 420,
+    pause: float = 2.0,
 ) -> Generator[OracleADBService, None, None]:
     """Start and manage an Oracle Autonomous Database Free (23ai) container.
 
@@ -692,14 +705,17 @@ def provide_oracle_adb_service(
         devices: Optional device mappings for the container runtime host (for example ``["/dev/fuse"]``).
         filesystemio_options: ``filesystemio_options`` value written to the server parameter file before the
             database starts (``NONE``, ``ASYNC``, ``DIRECTIO``, or ``SETALL``), or ``None`` for the image default.
+        timeout: Maximum startup wait time in seconds.
+        pause: Sleep interval in seconds between readiness polling attempts.
 
     Yields:
         An OracleADBService handle configured for the active worker.
 
     Raises:
-        ValueError: If ``workload_type`` is not ``ATP``, ``ADW``, ``AJD``, or ``APEX``, or ``filesystemio_options``
-            is not a valid ``filesystemio_options`` value.
+        ValueError: If ``workload_type`` is not ``ATP``, ``ADW``, ``AJD``, or ``APEX``, ``filesystemio_options``
+            is not a valid ``filesystemio_options`` value, or ``timeout`` is not a positive integer.
     """
+    _validate_positive_timeout(timeout, name="timeout")
     normalized_workload = workload_type.strip().upper()
     if normalized_workload not in _WORKLOAD_SERVICE_MAP:
         msg = f"Unknown Oracle ADB workload type {workload_type!r}; expected one of {', '.join(_WORKLOAD_SERVICE_MAP)}"
@@ -724,6 +740,8 @@ def provide_oracle_adb_service(
 
     def check(_service: ServiceContainer) -> bool:
         nonlocal user_provisioned
+        if not tcp_port_open(_service.host, _service.port):
+            return False
         if not user_provisioned:
             admin_exit, admin_out = _exec_sqlplus(
                 _service.container,
@@ -764,8 +782,8 @@ def provide_oracle_adb_service(
         check=check,
         container_port=1521,
         extra_ports={1522: None, 8443: None, 27017: None},
-        timeout=420,
-        pause=2.0,
+        timeout=timeout,
+        pause=pause,
         transient=worker_num is not None and isolation_level == "server",
         hostname=hostname,
         cap_add=["SYS_ADMIN"],
@@ -932,6 +950,18 @@ def oracle_system_password() -> str:
 
 
 @pytest.fixture(autouse=False, scope="session")
+def oracle_startup_timeout() -> int:
+    """Startup timeout in seconds for Oracle Database 18c/23ai containers."""
+    return _parse_timeout("ORACLE_STARTUP_TIMEOUT", 180)
+
+
+@pytest.fixture(autouse=False, scope="session")
+def oracle_adb_startup_timeout() -> int:
+    """Startup timeout in seconds for Oracle Autonomous Database Free containers."""
+    return _parse_timeout("ORACLE_ADB_STARTUP_TIMEOUT", 420)
+
+
+@pytest.fixture(autouse=False, scope="session")
 def oracle_23ai_service(
     docker_service: DockerService,
     xdist_oracle_isolation_level: XdistIsolationLevel,
@@ -940,6 +970,7 @@ def oracle_23ai_service(
     oracle_user: str,
     oracle_password: str,
     oracle_system_password: str,
+    oracle_startup_timeout: int,
 ) -> Generator[OracleService, None, None]:
     """Session fixture providing an Oracle Database 23ai Free container service.
 
@@ -955,6 +986,7 @@ def oracle_23ai_service(
         system_password=oracle_system_password,
         docker_service=docker_service,
         isolation_level=xdist_oracle_isolation_level,
+        timeout=oracle_startup_timeout,
     ) as service:
         yield service
 
@@ -968,6 +1000,7 @@ def oracle_18c_service(
     oracle_user: str,
     oracle_password: str,
     oracle_system_password: str,
+    oracle_startup_timeout: int,
 ) -> Generator[OracleService, None, None]:
     """Session fixture providing an Oracle Database 18c XE container service.
 
@@ -983,6 +1016,7 @@ def oracle_18c_service(
         system_password=oracle_system_password,
         docker_service=docker_service,
         isolation_level=xdist_oracle_isolation_level,
+        timeout=oracle_startup_timeout,
     ) as service:
         yield service
 
@@ -1003,6 +1037,7 @@ def oracle_adb_service(
     oracle_adb_volumes: dict[str, dict[str, str]] | list[str] | None,
     oracle_adb_devices: list[str] | None,
     oracle_adb_filesystemio_options: str | None,
+    oracle_adb_startup_timeout: int,
 ) -> Generator[OracleADBService, None, None]:
     """Session fixture providing an Oracle Autonomous Database Free (23ai) container service.
 
@@ -1025,6 +1060,7 @@ def oracle_adb_service(
         volumes=oracle_adb_volumes,
         devices=oracle_adb_devices,
         filesystemio_options=oracle_adb_filesystemio_options,
+        timeout=oracle_adb_startup_timeout,
     ) as service:
         yield service
 
@@ -1199,3 +1235,46 @@ def _exec_sqlplus(
     command = f"printf '%s' {shlex.quote(script)} | sqlplus -L -S {shlex.quote(connect_string)}"
     result = container.exec_run(["bash", "-lc", command])
     return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
+
+
+def _validate_positive_timeout(value: int, *, name: str) -> int:
+    """Validate that a timeout configuration value is a positive integer.
+
+    Args:
+        value: Candidate timeout value in seconds.
+        name: Parameter or environment variable name used in error messages.
+
+    Returns:
+        The validated positive integer timeout.
+
+    Raises:
+        ValueError: If ``value`` is a boolean, not an ``int``, or less than or equal to zero.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        msg = f"{name} must be a positive integer, got {value!r}"
+        raise ValueError(msg)
+    return value
+
+
+def _parse_timeout(env_var: str, default: int) -> int:
+    """Parse and validate a positive integer timeout from an environment variable.
+
+    Args:
+        env_var: Environment variable name to read.
+        default: Default timeout in seconds when ``env_var`` is unset.
+
+    Returns:
+        The parsed positive integer timeout.
+
+    Raises:
+        ValueError: If the configured or default value is not a positive integer.
+    """
+    raw = os.getenv(env_var)
+    if raw is None:
+        return _validate_positive_timeout(default, name=env_var)
+    try:
+        parsed = int(raw)
+    except ValueError as exc:
+        msg = f"{env_var} must be a positive integer, got {raw!r}"
+        raise ValueError(msg) from exc
+    return _validate_positive_timeout(parsed, name=env_var)

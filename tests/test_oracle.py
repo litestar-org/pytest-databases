@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import io
 import tarfile
-from typing import TYPE_CHECKING
+from functools import partial
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,8 +25,13 @@ from pytest_databases.docker.oracle import (
     ensure_oracle_adb_user,
     ensure_oracle_user,
     oracle_18c_connection,
+    oracle_18c_service,
     oracle_23ai_connection,
+    oracle_23ai_service,
+    oracle_adb_service,
+    oracle_adb_startup_timeout,
     oracle_startup_connection,
+    oracle_startup_timeout,
     parse_tnsnames,
     provide_oracle_adb_service,
     provide_oracle_service,
@@ -94,6 +100,7 @@ def test_oracle_database_isolation_naming_and_user() -> None:
 
     with (
         patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=2),
+        patch("pytest_databases.docker.oracle.tcp_port_open", return_value=True) as mock_tcp,
         patch("pytest_databases.docker.oracle.ensure_oracle_user", return_value=True) as mock_ensure,
         patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"1")),
         provide_oracle_service(
@@ -111,8 +118,12 @@ def test_oracle_database_isolation_naming_and_user() -> None:
         call_kwargs = mock_docker.run.call_args[1]
         assert call_kwargs["name"] == "oracle23ai"
         assert call_kwargs["transient"] is False
+        assert call_kwargs["timeout"] == 180
+        assert isinstance(call_kwargs["pause"], float)
+        assert call_kwargs["pause"] == pytest.approx(1.0, abs=0.0)
         check_fn = call_kwargs["check"]
         assert check_fn(mock_service) is True
+        mock_tcp.assert_called_once_with("127.0.0.1", 1521)
         mock_ensure.assert_called_once_with(
             mock_container,
             user="app_2",
@@ -386,6 +397,7 @@ def test_provide_oracle_adb_service_configures_ports_and_capabilities(tmp_path: 
     wallet_target = tmp_path / "auto_wallet"
     with (
         patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=None),
+        patch("pytest_databases.docker.oracle.tcp_port_open", return_value=True) as mock_tcp,
         patch("pytest_databases.docker.oracle.ensure_oracle_adb_user", return_value=None) as mock_ensure_adb,
         patch("pytest_databases.docker.oracle.enable_oracle_ords_schema", return_value=None) as mock_enable_ords,
         patch("pytest_databases.docker.oracle.extract_adb_wallet", return_value=wallet_target) as mock_extract,
@@ -427,8 +439,12 @@ def test_provide_oracle_adb_service_configures_ports_and_capabilities(tmp_path: 
         assert call_kwargs["env"]["WORKLOAD_TYPE"] == "AJD"
         assert call_kwargs["env"]["WALLET_PASSWORD"] == DEFAULT_ORACLE_ADB_PASSWORD
         assert call_kwargs["env"]["MY_TZ"] == "America/Los_Angeles"
+        assert call_kwargs["timeout"] == 420
+        assert isinstance(call_kwargs["pause"], float)
+        assert call_kwargs["pause"] == pytest.approx(2.0, abs=0.0)
         check_fn = call_kwargs["check"]
         assert check_fn(mock_service) is True
+        mock_tcp.assert_called_once_with("127.0.0.1", 41521)
         mock_ensure_adb.assert_called_once()
         mock_enable_ords.assert_called_once()
         mock_extract.assert_called_once_with(
@@ -724,8 +740,263 @@ def test_ensure_oracle_adb_user_and_ords_retries_on_transient_ora_error() -> Non
     assert container.exec_run.call_count == 4
 
 
-def test_oracle_all_fixtures_inprocess(pytester: Pytester) -> None:
+@pytest.mark.parametrize(
+    ("fixture_def", "env_var", "env_value", "expected"),
+    [
+        (oracle_startup_timeout, "ORACLE_STARTUP_TIMEOUT", None, 180),
+        (oracle_adb_startup_timeout, "ORACLE_ADB_STARTUP_TIMEOUT", None, 420),
+        (oracle_startup_timeout, "ORACLE_STARTUP_TIMEOUT", " 240 ", 240),
+        (oracle_adb_startup_timeout, "ORACLE_ADB_STARTUP_TIMEOUT", "600", 600),
+        (oracle_startup_timeout, "ORACLE_STARTUP_TIMEOUT", "", ValueError),
+        (oracle_startup_timeout, "ORACLE_STARTUP_TIMEOUT", "invalid", ValueError),
+        (oracle_startup_timeout, "ORACLE_STARTUP_TIMEOUT", "0", ValueError),
+        (oracle_startup_timeout, "ORACLE_STARTUP_TIMEOUT", "-5", ValueError),
+        (oracle_adb_startup_timeout, "ORACLE_ADB_STARTUP_TIMEOUT", "", ValueError),
+        (oracle_adb_startup_timeout, "ORACLE_ADB_STARTUP_TIMEOUT", "invalid", ValueError),
+        (oracle_adb_startup_timeout, "ORACLE_ADB_STARTUP_TIMEOUT", "0", ValueError),
+        (oracle_adb_startup_timeout, "ORACLE_ADB_STARTUP_TIMEOUT", "-5", ValueError),
+    ],
+)
+def test_oracle_startup_timeout_fixtures(
+    monkeypatch: MonkeyPatch,
+    fixture_def: object,
+    env_var: str,
+    env_value: str | None,
+    expected: int | type[ValueError],
+) -> None:
+    """Verify Oracle startup timeout fixtures resolve defaults, parse valid env overrides, and reject invalid values."""
+    if env_value is None:
+        monkeypatch.delenv(env_var, raising=False)
+    else:
+        monkeypatch.setenv(env_var, env_value)
+    assert "oracle_startup_timeout" in oracle.__all__
+    assert "oracle_adb_startup_timeout" in oracle.__all__
+    fn = unwrap_fixture(fixture_def)
+    if isinstance(expected, type):
+        with pytest.raises(expected, match=env_var):
+            fn()
+    else:
+        assert fn() == expected
+
+
+@pytest.mark.parametrize(
+    ("provider_kind", "timeout_value", "expected"),
+    [
+        ("oracle", None, (180, 1.0)),
+        ("oracle", 240, (240, 1.0)),
+        ("oracle_adb", None, (420, 2.0)),
+        ("oracle_adb", 500, (500, 2.0)),
+        ("oracle", 0, ValueError),
+        ("oracle", -1, ValueError),
+        ("oracle", True, ValueError),
+        ("oracle", False, ValueError),
+        ("oracle", 1.5, ValueError),
+        ("oracle", "180", ValueError),
+        ("oracle_adb", 0, ValueError),
+        ("oracle_adb", -1, ValueError),
+        ("oracle_adb", True, ValueError),
+        ("oracle_adb", False, ValueError),
+        ("oracle_adb", 1.5, ValueError),
+        ("oracle_adb", "180", ValueError),
+    ],
+)
+def test_provide_oracle_timeout_validation_and_forwarding(
+    provider_kind: str,
+    timeout_value: object,
+    expected: tuple[int, float] | type[ValueError],
+) -> None:
+    """Verify Oracle providers validate positive integer timeouts upfront and forward timeout and pause settings."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.ports = {
+        "1521/tcp": [{"HostPort": "41521"}],
+        "1522/tcp": [{"HostPort": "41522"}],
+        "8443/tcp": [{"HostPort": "48443"}],
+        "27017/tcp": [{"HostPort": "47017"}],
+    }
+    mock_docker.run.return_value.__enter__.return_value = ServiceContainer(
+        container=mock_container, host="127.0.0.1", port=41521
+    )
+
+    if provider_kind == "oracle":
+        oracle_call = partial(
+            provide_oracle_service,
+            docker_service=mock_docker,
+            image="gvenzl/oracle-free:23-slim-faststart",
+            name="oracle23ai",
+            service_name="FREEPDB1",
+            user="app",
+            password="secret",
+            system_password="sys-secret",
+        )
+        ctx = oracle_call() if timeout_value is None else oracle_call(timeout=cast("int", timeout_value))
+    else:
+        adb_call = partial(
+            provide_oracle_adb_service,
+            docker_service=mock_docker,
+            image=DEFAULT_ORACLE_ADB_IMAGE,
+            name="oracle_adb",
+            workload_type="ATP",
+            hostname="adb-free.local",
+            user="app",
+            password=DEFAULT_ORACLE_ADB_PASSWORD,
+            system_password=DEFAULT_ORACLE_ADB_PASSWORD,
+            wallet_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        )
+        ctx = adb_call() if timeout_value is None else adb_call(timeout=cast("int", timeout_value))
+
+    if isinstance(expected, type):
+        with pytest.raises(expected, match="timeout"), ctx:
+            pass
+        mock_docker.run.assert_not_called()
+        return
+
+    with ctx:
+        pass
+    call_kwargs = mock_docker.run.call_args.kwargs
+    expected_timeout, expected_pause = expected
+    assert call_kwargs["timeout"] == expected_timeout
+    assert isinstance(call_kwargs["pause"], float)
+    assert call_kwargs["pause"] == pytest.approx(expected_pause, abs=0.0)
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "timeout_override"),
+    [
+        ("oracle_23ai_service", 240),
+        ("oracle_18c_service", 240),
+        ("oracle_adb_service", 500),
+    ],
+)
+def test_oracle_service_fixtures_forward_startup_timeout(
+    tmp_path: Path,
+    fixture_name: str,
+    timeout_override: int,
+) -> None:
+    """Verify Oracle service fixtures inject and forward overridden startup timeout fixture values."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.ports = {
+        "1521/tcp": [{"HostPort": "41521"}],
+        "1522/tcp": [{"HostPort": "41522"}],
+        "8443/tcp": [{"HostPort": "48443"}],
+        "27017/tcp": [{"HostPort": "47017"}],
+    }
+    mock_docker.run.return_value.__enter__.return_value = ServiceContainer(
+        container=mock_container, host="127.0.0.1", port=41521
+    )
+
+    if fixture_name == "oracle_23ai_service":
+        gen = unwrap_fixture(oracle_23ai_service)(
+            docker_service=mock_docker,
+            xdist_oracle_isolation_level="database",
+            oracle_23ai_image="gvenzl/oracle-free:23-slim-faststart",
+            oracle_23ai_service_name="FREEPDB1",
+            oracle_user="app",
+            oracle_password="secret",
+            oracle_system_password="sys-secret",
+            oracle_startup_timeout=timeout_override,
+        )
+        next(gen)
+        with pytest.raises(StopIteration):
+            next(gen)
+    elif fixture_name == "oracle_18c_service":
+        gen = unwrap_fixture(oracle_18c_service)(
+            docker_service=mock_docker,
+            xdist_oracle_isolation_level="database",
+            oracle_18c_image="gvenzl/oracle-xe:18-slim-faststart",
+            oracle_18c_service_name="xepdb1",
+            oracle_user="app",
+            oracle_password="secret",
+            oracle_system_password="sys-secret",
+            oracle_startup_timeout=timeout_override,
+        )
+        next(gen)
+        with pytest.raises(StopIteration):
+            next(gen)
+    else:
+        with patch("pytest_databases.docker.oracle.extract_adb_wallet", return_value=tmp_path):
+            adb_gen = unwrap_fixture(oracle_adb_service)(
+                docker_service=mock_docker,
+                xdist_oracle_isolation_level="database",
+                oracle_adb_image=DEFAULT_ORACLE_ADB_IMAGE,
+                oracle_adb_workload_type="ATP",
+                oracle_adb_hostname="adb-free.local",
+                oracle_adb_tz="UTC",
+                oracle_user="app",
+                oracle_adb_password=DEFAULT_ORACLE_ADB_PASSWORD,
+                oracle_adb_admin_password=DEFAULT_ORACLE_ADB_PASSWORD,
+                oracle_adb_wallet_password=DEFAULT_ORACLE_ADB_PASSWORD,
+                oracle_adb_wallet_dir=tmp_path,
+                oracle_adb_volumes=None,
+                oracle_adb_devices=None,
+                oracle_adb_filesystemio_options="NONE",
+                oracle_adb_startup_timeout=timeout_override,
+            )
+            next(adb_gen)
+            with pytest.raises(StopIteration):
+                next(adb_gen)
+
+    assert mock_docker.run.call_args.kwargs["timeout"] == timeout_override
+
+
+@pytest.mark.parametrize("provider_kind", ["oracle", "oracle_adb"])
+def test_oracle_check_short_circuits_when_tcp_port_closed(provider_kind: str) -> None:
+    """Verify check() returns False before spawning sqlplus when the mapped host TCP port is not open yet."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.ports = {
+        "1521/tcp": [{"HostPort": "41521"}],
+        "1522/tcp": [{"HostPort": "41522"}],
+        "8443/tcp": [{"HostPort": "48443"}],
+        "27017/tcp": [{"HostPort": "47017"}],
+    }
+    port = 1521 if provider_kind == "oracle" else 41521
+    mock_service = ServiceContainer(container=mock_container, host="127.0.0.1", port=port)
+    mock_docker.run.return_value.__enter__.return_value = mock_service
+
+    ctx = (
+        provide_oracle_service(
+            docker_service=mock_docker,
+            image="gvenzl/oracle-free:23-slim-faststart",
+            name="oracle23ai",
+            service_name="FREEPDB1",
+            user="app",
+            password="secret",
+            system_password="sys-secret",
+        )
+        if provider_kind == "oracle"
+        else provide_oracle_adb_service(
+            docker_service=mock_docker,
+            image=DEFAULT_ORACLE_ADB_IMAGE,
+            name="oracle_adb",
+            workload_type="ATP",
+            hostname="adb-free.local",
+            user="app",
+            password=DEFAULT_ORACLE_ADB_PASSWORD,
+            system_password=DEFAULT_ORACLE_ADB_PASSWORD,
+            wallet_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        )
+    )
+
+    with (
+        patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=1),
+        patch("pytest_databases.docker.oracle.tcp_port_open", return_value=False) as mock_tcp,
+        patch("pytest_databases.docker.oracle._exec_sqlplus", wraps=oracle._exec_sqlplus) as mock_sqlplus,
+        ctx,
+    ):
+        check_fn = mock_docker.run.call_args.kwargs["check"]
+        assert check_fn(mock_service) is False
+
+    mock_tcp.assert_called_once_with("127.0.0.1", port)
+    mock_sqlplus.assert_not_called()
+    assert mock_container.exec_run.call_count == 0
+
+
+def test_oracle_all_fixtures_inprocess(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
     """Verify all Oracle fixtures execute in-process when service and connection providers are mocked."""
+    monkeypatch.delenv("ORACLE_STARTUP_TIMEOUT", raising=False)
+    monkeypatch.delenv("ORACLE_ADB_STARTUP_TIMEOUT", raising=False)
     pytester.makepyfile("""
     from contextlib import contextmanager
     from unittest.mock import MagicMock, patch
@@ -763,6 +1034,8 @@ def test_oracle_all_fixtures_inprocess(pytester: Pytester) -> None:
             patch("pytest_databases.docker.oracle.provide_oracle_adb_service", side_effect=fake_adb),
             patch("pytest_databases.docker.oracle._load_oracledb", return_value=fake_module),
         ):
+            assert request.getfixturevalue("oracle_startup_timeout") == 180
+            assert request.getfixturevalue("oracle_adb_startup_timeout") == 420
             assert request.getfixturevalue("oracle_23ai_service") is mock_ora
             assert request.getfixturevalue("oracle_18c_service") is mock_ora
             assert request.getfixturevalue("oracle_service") is mock_ora
