@@ -9,8 +9,9 @@ Overview
 ``pytest_databases.embedded.postgres`` runs ``initdb`` and ``postgres`` in a temporary directory and serves the
 cluster on a loopback TCP port. The cluster uses ``trust`` authentication (no password) and has Unix-domain sockets
 disabled, plus non-durable settings (``fsync = off``, ``synchronous_commit = off``, ``full_page_writes = off``) that
-suit throwaway test data. The fixture runs its own SQL over the PostgreSQL wire protocol, so neither ``psql`` nor a
-Python driver is required. Any PostgreSQL client (``psycopg``, ``asyncpg``, SQLAlchemy, SQLSpec) connects with
+suit throwaway test data. The fixture runs its own SQL over a stdlib PostgreSQL v3 wire client (which supports ``trust``, cleartext, MD5, and
+``SCRAM-SHA-256`` authentication and also powers ``postgres_external_service`` in :doc:`postgres`), so neither ``psql``
+nor a Python driver is required. Any PostgreSQL client (``psycopg``, ``asyncpg``, SQLAlchemy, SQLSpec) connects with
 ``dsn`` or ``connection_config``.
 
 Installation

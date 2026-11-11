@@ -16,10 +16,16 @@ from pytest_databases import (
     DockerService,
     derive_session_owner_id,
     docker,
+    has_active_owner_sessions,
     helpers,
     stop_owned_containers,
 )
-from pytest_databases._service import _RUNTIME_STASH_KEY, _cleanup_session_containers, should_keep_containers
+from pytest_databases._service import (
+    _RUNTIME_STASH_KEY,
+    SESSION_LOCK_DIR_ENV,
+    _cleanup_session_containers,
+    should_keep_containers,
+)
 from pytest_databases.runtime import ContainerRuntimeConfig, RuntimeResolutionError, RuntimeType
 
 if TYPE_CHECKING:
@@ -176,8 +182,12 @@ def test_cleanup_filters_one_owner_and_leaves_other_sessions_unlisted() -> None:
     running.kill.assert_called_once_with()
 
 
-def test_container_service_lifecycle_cleans_owned_containers(tmp_path: Path) -> None:
+def test_container_service_lifecycle_cleans_owned_containers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Ensure __enter__ and __exit__ trigger scoped cleanup of owned containers."""
+    monkeypatch.setenv(SESSION_LOCK_DIR_ENV, str(tmp_path / "locks"))
     stray_container = MagicMock(status="running")
     containers = FakeContainers([stray_container])
     client = FakeClient(containers)
@@ -190,8 +200,55 @@ def test_container_service_lifecycle_cleans_owned_containers(tmp_path: Path) -> 
     stray_container.kill.assert_called_once_with()
 
 
+def test_concurrent_sessions_share_owner_without_killing_active_containers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure concurrent local sessions sharing an owner_id defer teardown until the last session exits."""
+    lock_root = tmp_path / "session_locks"
+    monkeypatch.setenv(SESSION_LOCK_DIR_ENV, str(lock_root))
+
+    owner_id = "sharedowner12"
+    stale_dir = lock_root / owner_id
+    stale_dir.mkdir(parents=True)
+    stale_lease = stale_dir / "deadrun000000__999999_deadbeef.lease"
+    stale_lease.write_text("", encoding="utf-8")
+    assert has_active_owner_sessions(owner_id) is False
+    assert not stale_lease.exists()
+
+    running_container = MagicMock(status="running")
+    client = FakeClient(FakeContainers([running_container]))
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    run_a_dir.mkdir()
+    run_b_dir.mkdir()
+    svc_a = make_service(run_a_dir, client=client, owner_id=owner_id)
+    svc_b = make_service(run_b_dir, client=client, owner_id=owner_id)
+
+    ctrl_b = run_b_dir / "ctrl"
+    ctrl_b.write_text(owner_id, encoding="utf-8")
+    runtime = MagicMock(spec=ContainerRuntimeConfig)
+    runtime.create_client.return_value = client
+
+    with svc_a:
+        running_container.kill.assert_called_once_with()
+        running_container.kill.reset_mock()
+        assert has_active_owner_sessions(owner_id) is True
+
+        with svc_b:
+            running_container.kill.assert_not_called()
+
+        running_container.kill.assert_not_called()
+        _cleanup_session_containers(make_finishing_session(run_b_dir, runtime), ctrl_b)
+        running_container.kill.assert_not_called()
+
+    running_container.kill.assert_called_once_with()
+    assert has_active_owner_sessions(owner_id) is False
+
+
 def test_container_service_records_owner_in_control_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure entering the service writes its owner to the session control file."""
+    monkeypatch.setenv(SESSION_LOCK_DIR_ENV, str(tmp_path / "locks"))
     ctrl_file = tmp_path / "ctrl"
     monkeypatch.setattr("pytest_databases._service._get_ctrl_file", lambda _session: ctrl_file)
     service = make_service(tmp_path, owner_id="custom-owner")

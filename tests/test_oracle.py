@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import tarfile
 from functools import partial
@@ -24,12 +25,19 @@ from pytest_databases.docker.oracle import (
     enable_oracle_ords_schema,
     ensure_oracle_adb_user,
     ensure_oracle_user,
+    exec_oracle_sql,
     oracle_18c_connection,
     oracle_18c_service,
-    oracle_23ai_connection,
-    oracle_23ai_service,
+    oracle_26ai_connection,
+    oracle_26ai_image,
+    oracle_26ai_port,
+    oracle_26ai_service,
+    oracle_26ai_service_name,
+    oracle_adb_image,
     oracle_adb_service,
     oracle_adb_startup_timeout,
+    oracle_port,
+    oracle_service,
     oracle_startup_connection,
     oracle_startup_timeout,
     parse_tnsnames,
@@ -42,10 +50,12 @@ from pytest_databases.types import ServiceContainer
 from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
     from pathlib import Path
 
     from pytest import MonkeyPatch, Pytester
+
+    from pytest_databases.types import XdistIsolationLevel
 
 pytest_plugins = ["pytest_databases.docker.oracle"]
 
@@ -106,7 +116,7 @@ def test_oracle_database_isolation_naming_and_user() -> None:
         provide_oracle_service(
             docker_service=mock_docker,
             image="gvenzl/oracle-free:23-slim-faststart",
-            name="oracle23ai",
+            name="oracle26ai",
             service_name="FREEPDB1",
             user="app",
             password="secret",
@@ -116,7 +126,7 @@ def test_oracle_database_isolation_naming_and_user() -> None:
     ):
         assert service.user == "app_2"
         call_kwargs = mock_docker.run.call_args[1]
-        assert call_kwargs["name"] == "oracle23ai"
+        assert call_kwargs["name"] == "oracle26ai"
         assert call_kwargs["transient"] is False
         assert call_kwargs["timeout"] == 180
         assert isinstance(call_kwargs["pause"], float)
@@ -146,7 +156,7 @@ def test_oracle_server_isolation_naming_and_user() -> None:
         provide_oracle_service(
             docker_service=mock_docker,
             image="gvenzl/oracle-free:23-slim-faststart",
-            name="oracle23ai",
+            name="oracle26ai",
             service_name="FREEPDB1",
             user="app",
             password="secret",
@@ -157,7 +167,7 @@ def test_oracle_server_isolation_naming_and_user() -> None:
         assert service.user == "app"
 
     call_kwargs = mock_docker.run.call_args[1]
-    assert call_kwargs["name"] == "oracle23ai_3"
+    assert call_kwargs["name"] == "oracle26ai_3"
     assert call_kwargs["transient"] is True
 
 
@@ -790,7 +800,7 @@ def test_oracle_responsive_emits_one_warning(fake_oracledb: MagicMock) -> None:
     ("fixture_def", "fixture_name"),
     [
         (oracle_18c_connection, "oracle_18c_connection"),
-        (oracle_23ai_connection, "oracle_23ai_connection"),
+        (oracle_26ai_connection, "oracle_26ai_connection"),
         (oracle_startup_connection, "oracle_startup_connection"),
     ],
 )
@@ -856,11 +866,11 @@ def oracle_test_helpers() -> str:
     "service_fixture",
     [
         "oracle_18c_service",
-        "oracle_23ai_service",
+        "oracle_26ai_service",
     ],
 )
 def test_service_fixture(pytester: pytest.Pytester, service_fixture: str, oracle_test_helpers: str) -> None:
-    """Run integration smoke tests against Oracle 18c and 23ai service fixtures."""
+    """Run integration smoke tests against Oracle 18c and 26ai service fixtures."""
     pytester.makepyfile(f"""
     pytest_plugins = ["pytest_databases.docker.oracle"]
 
@@ -1076,7 +1086,7 @@ def test_provide_oracle_timeout_validation_and_forwarding(
             provide_oracle_service,
             docker_service=mock_docker,
             image="gvenzl/oracle-free:23-slim-faststart",
-            name="oracle23ai",
+            name="oracle26ai",
             service_name="FREEPDB1",
             user="app",
             password="secret",
@@ -1116,7 +1126,7 @@ def test_provide_oracle_timeout_validation_and_forwarding(
 @pytest.mark.parametrize(
     ("fixture_name", "timeout_override"),
     [
-        ("oracle_23ai_service", 240),
+        ("oracle_26ai_service", 240),
         ("oracle_18c_service", 240),
         ("oracle_adb_service", 500),
     ],
@@ -1139,16 +1149,17 @@ def test_oracle_service_fixtures_forward_startup_timeout(
         container=mock_container, host="127.0.0.1", port=41521
     )
 
-    if fixture_name == "oracle_23ai_service":
-        gen = unwrap_fixture(oracle_23ai_service)(
+    if fixture_name == "oracle_26ai_service":
+        gen = unwrap_fixture(oracle_26ai_service)(
             docker_service=mock_docker,
             xdist_oracle_isolation_level="database",
-            oracle_23ai_image="gvenzl/oracle-free:23-slim-faststart",
-            oracle_23ai_service_name="FREEPDB1",
+            oracle_26ai_image="gvenzl/oracle-free:23-slim-faststart",
+            oracle_26ai_service_name="FREEPDB1",
             oracle_user="app",
             oracle_password="secret",
             oracle_system_password="sys-secret",
             oracle_startup_timeout=timeout_override,
+            oracle_26ai_port=None,
         )
         next(gen)
         with pytest.raises(StopIteration):
@@ -1163,6 +1174,7 @@ def test_oracle_service_fixtures_forward_startup_timeout(
             oracle_password="secret",
             oracle_system_password="sys-secret",
             oracle_startup_timeout=timeout_override,
+            oracle_18c_port=None,
         )
         next(gen)
         with pytest.raises(StopIteration):
@@ -1185,6 +1197,7 @@ def test_oracle_service_fixtures_forward_startup_timeout(
                 oracle_adb_devices=None,
                 oracle_adb_filesystemio_options="NONE",
                 oracle_adb_startup_timeout=timeout_override,
+                oracle_adb_port=None,
             )
             next(adb_gen)
             with pytest.raises(StopIteration):
@@ -1212,7 +1225,7 @@ def test_oracle_check_short_circuits_when_tcp_port_closed(provider_kind: str) ->
         provide_oracle_service(
             docker_service=mock_docker,
             image="gvenzl/oracle-free:23-slim-faststart",
-            name="oracle23ai",
+            name="oracle26ai",
             service_name="FREEPDB1",
             user="app",
             password="secret",
@@ -1246,8 +1259,21 @@ def test_oracle_check_short_circuits_when_tcp_port_closed(provider_kind: str) ->
 
 def test_oracle_all_fixtures_inprocess(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
     """Verify all Oracle fixtures execute in-process when service and connection providers are mocked."""
-    monkeypatch.delenv("ORACLE_STARTUP_TIMEOUT", raising=False)
-    monkeypatch.delenv("ORACLE_ADB_STARTUP_TIMEOUT", raising=False)
+    for var in (
+        "ORACLE_STARTUP_TIMEOUT",
+        "ORACLE_ADB_STARTUP_TIMEOUT",
+        "ORACLE_PORT",
+        "ORACLE_26AI_PORT",
+        "ORACLE_26AI_IMAGE",
+        "ORACLE_26AI_SERVICE_NAME",
+        "ORACLE_18C_PORT",
+        "ORACLE_ADB_PORT",
+        "ORACLE_ADB_IMAGE",
+        "ORACLE_USER",
+        "ORACLE_PASSWORD",
+        "ORACLE_SYSTEM_PASSWORD",
+    ):
+        monkeypatch.delenv(var, raising=False)
     pytester.makepyfile("""
     from contextlib import contextmanager
     from unittest.mock import MagicMock, patch
@@ -1287,13 +1313,185 @@ def test_oracle_all_fixtures_inprocess(pytester: Pytester, monkeypatch: MonkeyPa
         ):
             assert request.getfixturevalue("oracle_startup_timeout") == 180
             assert request.getfixturevalue("oracle_adb_startup_timeout") == 420
-            assert request.getfixturevalue("oracle_23ai_service") is mock_ora
+            assert request.getfixturevalue("oracle_adb_image") == (
+                "container-registry.oracle.com/database/adb-free:latest-26ai"
+            )
+            assert request.getfixturevalue("oracle_26ai_image") == "gvenzl/oracle-free:23-slim-faststart"
+            assert request.getfixturevalue("oracle_26ai_service_name") == "FREEPDB1"
+            assert request.getfixturevalue("oracle_port") is None
+            assert request.getfixturevalue("oracle_26ai_port") is None
+            assert request.getfixturevalue("oracle_18c_port") is None
+            assert request.getfixturevalue("oracle_adb_port") is None
+            assert request.getfixturevalue("oracle_26ai_service") is mock_ora
             assert request.getfixturevalue("oracle_18c_service") is mock_ora
             assert request.getfixturevalue("oracle_service") is mock_ora
             assert request.getfixturevalue("oracle_adb_service") is mock_adb
             assert request.getfixturevalue("oracle_18c_connection") is fake_conn
-            assert request.getfixturevalue("oracle_23ai_connection") is fake_conn
+            assert request.getfixturevalue("oracle_26ai_connection") is fake_conn
             assert request.getfixturevalue("oracle_startup_connection") is fake_conn
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "expected_user", "expected_name"),
+    [
+        (None, "database", "app", "oracle26ai"),
+        (2, "database", "app_2", "oracle26ai"),
+        (2, "server", "app", "oracle26ai_2"),
+    ],
+)
+def test_provide_oracle_service_grants_privileges_in_all_concurrency_modes(
+    worker_num: int | None,
+    isolation_level: XdistIsolationLevel,
+    expected_user: str,
+    expected_name: str,
+) -> None:
+    """Verify ensure_oracle_user runs identically in single-process, xdist database, and xdist server modes."""
+    mock_docker = MagicMock()
+    mock_container = MagicMock()
+    mock_container.id = "oracid1234567890"
+    mock_service = ServiceContainer(container=mock_container, host="127.0.0.1", port=31521)
+    mock_docker.run.return_value.__enter__.return_value = mock_service
+
+    with (
+        patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=worker_num),
+        patch("pytest_databases.docker.oracle.tcp_port_open", return_value=True),
+        patch("pytest_databases.docker.oracle._exec_sqlplus", return_value=(0, b"1\n")),
+        patch("pytest_databases.docker.oracle.ensure_oracle_user", return_value=True) as mock_ensure,
+        provide_oracle_service(
+            docker_service=mock_docker,
+            image="gvenzl/oracle-free:23-slim-faststart",
+            name="oracle26ai",
+            service_name="FREEPDB1",
+            user="app",
+            password="secret",
+            system_password="sys-secret",
+            isolation_level=isolation_level,
+        ) as svc,
+    ):
+        assert svc.user == expected_user
+        run_kwargs = mock_docker.run.call_args.kwargs
+        assert run_kwargs["name"] == expected_name
+        check_fn = run_kwargs["check"]
+        assert check_fn(mock_service) is True
+        assert check_fn(mock_service) is True
+
+    mock_ensure.assert_called_once_with(
+        mock_container,
+        user=expected_user,
+        password="secret",
+        service_name="FREEPDB1",
+        system_password="sys-secret",
+    )
+
+
+def test_exec_oracle_sql_and_service_options(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify exec_oracle_sql TNS + CDB$ROOT modes, OracleService.exec_sql, and resource/init_sql options."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(oracle.tempfile, "tempdir", str(tmp_path))
+
+    mock_container = MagicMock()
+    mock_container.id = "oracid9876543210"
+    mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"CDB$ROOT\n")
+
+    code, out = exec_oracle_sql(mock_container, "SELECT sys_context('USERENV','CON_NAME') FROM dual", as_sysdba=True)
+    assert (code, out) == (0, b"CDB$ROOT\n")
+    cdb_cmd = mock_container.exec_run.call_args.args[0][2]
+    assert "sqlplus -L -S / as sysdba" in cdb_cmd
+
+    with pytest.raises(ValueError, match="requires 'service_name'"):
+        exec_oracle_sql(mock_container, "SELECT 1 FROM dual")
+
+    mock_docker = MagicMock()
+    mock_service = ServiceContainer(container=mock_container, host="127.0.0.1", port=21521)
+    mock_docker.run.return_value.__enter__.return_value = mock_service
+    sql_path = tmp_path / "oracle_seed.sql"
+    sql_path.write_text("CREATE TABLE ora_seed (id NUMBER);", encoding="utf-8")
+
+    with (
+        patch("pytest_databases.docker.oracle.get_xdist_worker_num", return_value=None),
+        provide_oracle_service(
+            docker_service=mock_docker,
+            image="gvenzl/oracle-free:23-slim-faststart",
+            name="oracle26ai",
+            service_name="FREEPDB1",
+            user="app",
+            password="secret",
+            system_password="sys-secret",
+            host_port=21521,
+            env={"ORACLE_CHARACTERSET": "AL32UTF8"},
+            volumes={"/host/data": {"bind": "/opt/oracle/oradata", "mode": "rw"}},
+            shm_size="2g",
+            mem_limit="4g",
+            init_sql=sql_path,
+        ) as svc,
+    ):
+        assert svc.exec_sql("SELECT 1 FROM dual")[0] == 0
+        assert svc.exec_sql("SELECT 1 FROM v$instance", as_sysdba=True)[0] == 0
+        assert svc.exec_sql("SHOW CON_NAME", cdb_root=True)[0] == 0
+
+    run_kwargs = mock_docker.run.call_args.kwargs
+    assert run_kwargs["host_port"] == 21521
+    assert run_kwargs["shm_size"] == "2g"
+    assert run_kwargs["mem_limit"] == "4g"
+    assert run_kwargs["env"]["ORACLE_CHARACTERSET"] == "AL32UTF8"
+    assert run_kwargs["volumes"] == {"/host/data": {"bind": "/opt/oracle/oradata", "mode": "rw"}}
+
+
+def test_oracle_26ai_fixtures_and_removed_23ai_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify Oracle 26ai defaults/env overrides, ADB 26ai default image, and removal of 23ai fixture names."""
+    assert DEFAULT_ORACLE_ADB_IMAGE == "container-registry.oracle.com/database/adb-free:latest-26ai"
+    monkeypatch.delenv("ORACLE_ADB_IMAGE", raising=False)
+    assert unwrap_fixture(oracle_adb_image)() == DEFAULT_ORACLE_ADB_IMAGE
+    assert not hasattr(oracle, "oracle_23ai_service")
+    assert not hasattr(oracle, "oracle_23ai_image")
+    assert not hasattr(oracle, "oracle_23ai_service_name")
+    assert not hasattr(oracle, "oracle_23ai_port")
+    assert not hasattr(oracle, "oracle_23ai_connection")
+
+    monkeypatch.setenv("ORACLE_26AI_IMAGE", "gvenzl/oracle-free:23.26.3-slim-faststart")
+    monkeypatch.setenv("ORACLE_26AI_SERVICE_NAME", "PDB26")
+    monkeypatch.setenv("ORACLE_PORT", "11521")
+    monkeypatch.delenv("ORACLE_26AI_PORT", raising=False)
+    assert unwrap_fixture(oracle_26ai_image)() == "gvenzl/oracle-free:23.26.3-slim-faststart"
+    assert unwrap_fixture(oracle_26ai_service_name)() == "PDB26"
+    base_port = unwrap_fixture(oracle_port)()
+    assert base_port == 11521
+    assert unwrap_fixture(oracle_26ai_port)(base_port) == 11521
+    monkeypatch.setenv("ORACLE_26AI_PORT", "12521")
+    assert unwrap_fixture(oracle_26ai_port)(base_port) == 12521
+
+    sentinel = MagicMock(spec=OracleService)
+    assert unwrap_fixture(oracle_service)(sentinel) is sentinel
+
+    captured: list[dict[str, Any]] = []
+
+    @contextlib.contextmanager
+    def _fake_provide(**kwargs: Any) -> Generator[MagicMock, None, None]:
+        captured.append(kwargs)
+        yield sentinel
+
+    monkeypatch.setattr(oracle, "provide_oracle_service", _fake_provide)
+    gen = unwrap_fixture(oracle_26ai_service)(
+        docker_service=MagicMock(),
+        xdist_oracle_isolation_level="database",
+        oracle_26ai_image="gvenzl/oracle-free:23.26.3-slim-faststart",
+        oracle_26ai_service_name="PDB26",
+        oracle_user="app",
+        oracle_password="secret",
+        oracle_system_password="sys-secret",
+        oracle_startup_timeout=180,
+        oracle_26ai_port=12521,
+    )
+    assert next(gen) is sentinel
+    with pytest.raises(StopIteration):
+        next(gen)
+    assert captured[0]["name"] == "oracle26ai"
+    assert captured[0]["image"] == "gvenzl/oracle-free:23.26.3-slim-faststart"
+    assert captured[0]["service_name"] == "PDB26"
+    assert captured[0]["host_port"] == 12521

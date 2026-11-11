@@ -6,26 +6,38 @@ import dataclasses
 import importlib
 import inspect
 import os
+import tempfile
 import time
 import warnings
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import filelock
 import pytest
 
 from pytest_databases._postgres_templates import (
     DEFAULT_TEMPLATE_NAME,
     PostgresTemplateSupport,
+    compute_fingerprint,
     make_connection_string,
     split_template_setup,
     validate_identifier,
 )
-from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num, tcp_port_open
+from pytest_databases.embedded._pgwire import run_simple_query
+from pytest_databases.helpers import (
+    env_port,
+    exec_output_to_bytes,
+    get_xdist_worker_num,
+    read_init_scripts,
+    run_container_init_once,
+    simple_string_hash,
+    tcp_port_open,
+)
 from pytest_databases.types import PostgresXdistIsolationLevel, ServiceContainer
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Sequence
-    from pathlib import Path
+    from collections.abc import Callable, Generator, Mapping, Sequence
 
     from docker.models.containers import Container
     from psycopg import Connection
@@ -33,6 +45,7 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 __all__ = (
+    "ExternalPostgresService",
     "PostgresService",
     "PostgresTemplateOptions",
     "alloydb_omni_15_connection",
@@ -119,6 +132,10 @@ __all__ = (
     "postgres_18_port",
     "postgres_18_service",
     "postgres_connection",
+    "postgres_database",
+    "postgres_external_host",
+    "postgres_external_port",
+    "postgres_external_service",
     "postgres_host",
     "postgres_image",
     "postgres_password",
@@ -130,6 +147,7 @@ __all__ = (
     "postgres_template_options",
     "postgres_template_setup",
     "postgres_user",
+    "provide_external_postgres_service",
     "provide_postgres_connection",
     "provide_postgres_service",
     "xdist_postgres_isolation_level",
@@ -149,6 +167,52 @@ class PostgresService(ServiceContainer, PostgresTemplateSupport):
     password: str
     user: str
 
+    @property
+    def dsn(self) -> str:
+        """Libpq keyword/value connection string for this service.
+
+        Returns:
+            Formatted libpq connection string.
+        """
+        return make_connection_string(
+            host=self.host,
+            port=self.port,
+            user=self.user,
+            password=self.password,
+            database=self.database,
+        )
+
+    @property
+    def connection_config(self) -> dict[str, Any]:
+        """Driver keyword arguments (``host``, ``port``, ``user``, ``database``, and optional ``password``).
+
+        Returns:
+            Dictionary of connection keyword arguments.
+        """
+        config: dict[str, Any] = {
+            "host": self.host,
+            "port": self.port,
+            "user": self.user,
+            "database": self.database,
+        }
+        if self.password:
+            config["password"] = self.password
+        return config
+
+    def exec_sql(
+        self,
+        sql: str,
+        *,
+        database: str | None = None,
+        tuples_only: bool = False,
+    ) -> tuple[int, bytes]:
+        """Execute ``sql`` against ``database`` (defaults to ``self.database``) via in-container ``psql``.
+
+        Returns:
+            Tuple of ``(exit_code, output_bytes)``.
+        """
+        return self._run_sql(database or self.database, sql, tuples_only=tuples_only)
+
     def _run_sql(self, database: str, sql: str, *, tuples_only: bool = False) -> tuple[int, bytes]:
         """Execute ``sql`` against ``database`` with ``psql`` inside the container.
 
@@ -165,19 +229,109 @@ class PostgresService(ServiceContainer, PostgresTemplateSupport):
         )
 
 
+@dataclasses.dataclass
+class ExternalPostgresService(PostgresTemplateSupport):
+    """Connection metadata and SQL/template helpers for a pre-running PostgreSQL endpoint.
+
+    Queries and template database management run directly over the stdlib PostgreSQL v3 wire
+    protocol (`trust`, cleartext, MD5, or `SCRAM-SHA-256`) with zero container runtime or driver dependencies.
+    """
+
+    host: str
+    port: int
+    database: str
+    user: str = "postgres"
+    password: str = ""
+
+    @property
+    def dsn(self) -> str:
+        """Libpq keyword/value connection string for this endpoint.
+
+        Returns:
+            Formatted libpq connection string.
+        """
+        return make_connection_string(
+            host=self.host,
+            port=self.port,
+            user=self.user,
+            password=self.password,
+            database=self.database,
+        )
+
+    @property
+    def connection_config(self) -> dict[str, Any]:
+        """Driver keyword arguments (``host``, ``port``, ``user``, ``database``, and optional ``password``).
+
+        Returns:
+            Dictionary of connection keyword arguments.
+        """
+        config: dict[str, Any] = {
+            "host": self.host,
+            "port": self.port,
+            "user": self.user,
+            "database": self.database,
+        }
+        if self.password:
+            config["password"] = self.password
+        return config
+
+    def exec_sql(
+        self,
+        sql: str,
+        *,
+        database: str | None = None,
+        tuples_only: bool = False,
+        timeout: float = 30.0,
+    ) -> tuple[int, bytes]:
+        """Execute ``sql`` against ``database`` (defaults to ``self.database``) over the v3 wire protocol.
+
+        Args:
+            sql: SQL statement text to execute.
+            database: Optional target database override.
+            tuples_only: Accepted for signature parity with :meth:`PostgresService.exec_sql`; wire output is
+                always formatted as unaligned tab-separated tuples matching ``psql -tA``.
+            timeout: Socket timeout in seconds.
+
+        Returns:
+            Tuple of ``(exit_code, output_bytes)`` where ``0`` is success, ``1`` is a SQL error, and ``2``
+            is a connection or authentication failure.
+        """
+        del tuples_only
+        return run_simple_query(
+            self.host,
+            self.port,
+            user=self.user,
+            database=database or self.database,
+            sql=sql,
+            password=self.password,
+            timeout=timeout,
+        )
+
+    def _run_sql(self, database: str, sql: str, *, tuples_only: bool = False) -> tuple[int, bytes]:
+        """Execute ``sql`` against ``database`` over the PostgreSQL wire protocol."""
+        return self.exec_sql(sql, database=database, tuples_only=tuples_only)
+
+
 @dataclasses.dataclass(frozen=True)
 class PostgresTemplateOptions:
     """Template database settings used when the isolation level is ``"template"``.
 
     ``name`` is the template name prefix (None means ``"pytest_databases_template"``). ``setup`` is a callable
-    receiving the staging :class:`PostgresService`, or SQL statements / ``.sql`` file paths whose text and contents are
+    receiving the staging PostgreSQL service, or SQL statements / ``.sql`` file paths whose text and contents are
     hashed into the template name. ``fingerprint_sources`` adds strings, bytes, files, or directories to that digest
     (use it to version a setup callable). ``lock_dir`` holds the cross-worker lock file (None means the system temp
     directory) and ``lock_timeout`` is the number of seconds to wait for it.
     """
 
     name: str | None = None
-    setup: Callable[[PostgresService], object] | str | Path | Sequence[str | Path] | None = None
+    setup: (
+        Callable[[PostgresService], object]
+        | Callable[[ExternalPostgresService], object]
+        | str
+        | Path
+        | Sequence[str | Path]
+        | None
+    ) = None
     lock_dir: Path | str | None = None
     lock_timeout: float = 180.0
     fingerprint_sources: Sequence[str | bytes | Path] = ()
@@ -294,20 +448,40 @@ def postgres_password() -> str:
 @pytest.fixture(autouse=False, scope="session")
 def postgres_user() -> str:
     """Return the default superuser name for PostgreSQL containers."""
-    return "postgres"
+    return os.environ.get("POSTGRES_USER", "postgres")
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_database() -> str:
+    """Return the default database name for PostgreSQL services."""
+    return os.environ.get("POSTGRES_DATABASE", "pytest_databases")
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_external_host() -> str | None:
+    """Return an optional pre-started external PostgreSQL hostname or IP from ``POSTGRES_EXTERNAL_HOST``."""
+    value = os.environ.get("POSTGRES_EXTERNAL_HOST", "").strip()
+    return value or None
 
 
 def _make_port_fixture(fixture_name: str, env_var: str, doc: str) -> Any:
     """Create a session-scoped optional host-port fixture backed by ``env_var``."""
 
     def _fixture() -> int | None:
-        return _env_port(env_var)
+        return env_port(env_var)
 
     _fixture.__name__ = fixture_name
     _fixture.__qualname__ = fixture_name
     _fixture.__doc__ = doc
     _fixture.__module__ = __name__
     return pytest.fixture(autouse=False, scope="session")(_fixture)
+
+
+postgres_external_port = _make_port_fixture(
+    "postgres_external_port",
+    "POSTGRES_EXTERNAL_PORT",
+    "Return an optional port for a pre-started external PostgreSQL service (defaults to 5432).",
+)
 
 
 postgres_port = _make_port_fixture(
@@ -370,17 +544,35 @@ def provide_postgres_service(
     timeout: int = 60,
     pause: float = 0.5,
     template: PostgresTemplateOptions | None = None,
+    *,
+    database: str = "pytest_databases",
+    command: str | list[str] | None = None,
+    env: Mapping[str, str] | None = None,
+    shm_size: int | str | None = None,
+    mem_limit: str | None = None,
+    volumes: dict[str, dict[str, str]] | list[str] | None = None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> Generator[PostgresService, None, None]:
     """Start and validate a PostgreSQL-compatible container service.
 
-    Readiness runs ``SELECT 1`` through ``psql`` inside the container and then opens a TCP connection to the
-    published host port. With ``xdist_postgres_isolate="template"`` the template described by ``template`` is built
-    once per container and the service database (``pytest_databases`` or ``pytest_databases_<worker>``) is cloned
-    from it, with or without xdist.
+    Readiness runs ``SELECT 1`` through ``psql`` inside the container against ``postgres`` and then opens
+    a TCP connection to the published host port. ``POSTGRES_USER`` and ``POSTGRES_DB`` are forwarded into
+    the container environment so custom superuser names and database names initialize cleanly across
+    official ``postgres``, ``pgvector``, ``paradedb``, and ``alloydbomni`` images.
+
+    With ``xdist_postgres_isolate="template"`` the template described by ``template`` is built once per
+    container and the service database (``<database>`` or ``<database>_<worker>``) is cloned from it.
+    Any ``init_sql`` statements or ``.sql`` files run deterministically once against the provisioned
+    database under a cross-worker file lock.
 
     Yields:
         A configured :class:`PostgresService` instance.
     """
+    if not user:
+        msg = "PostgreSQL user must be non-empty."
+        raise ValueError(msg)
+    base_db = validate_identifier(database)
+    resolved_name, db_name = _resolve_postgres_targets(name, base_db, xdist_postgres_isolate)
 
     def check(_service: ServiceContainer) -> bool:
         exit_code, output = exec_psql(
@@ -393,56 +585,37 @@ def provide_postgres_service(
         )
         return exit_code == 0 and output.strip() == b"1" and tcp_port_open(_service.host, _service.port)
 
-    worker_num = get_xdist_worker_num()
-    db_name = "pytest_databases"
-    if worker_num is not None:
-        suffix = f"_{worker_num}"
-        if xdist_postgres_isolate == "server":
-            name += suffix
-        else:
-            db_name += suffix
-
     with docker_service.run(
         image=image,
         check=check,
         container_host=host,
         container_port=5432,
-        name=name,
-        env={
-            "POSTGRES_PASSWORD": password,
-        },
+        name=resolved_name,
+        command=command,
+        env=_build_postgres_env(user=user, password=password, database=base_db, extra_env=env),
         timeout=timeout,
         pause=pause,
         transient=xdist_postgres_isolate == "server",
         host_port=host_port,
+        shm_size=shm_size,
+        mem_limit=mem_limit,
+        volumes=volumes,
     ) as service:
-        if xdist_postgres_isolate == "template":
-            options = template or PostgresTemplateOptions()
-            setup_fn, setup_sql = split_template_setup(options.setup)
-            admin = PostgresService(
-                host=service.host,
-                port=service.port,
-                container=service.container,
-                database="postgres",
-                user=user,
-                password=password,
-            )
-            template_name = admin.ensure_template(
-                options.name or DEFAULT_TEMPLATE_NAME,
-                setup_fn=setup_fn,
-                setup_sql=setup_sql,
-                fingerprint_sources=options.fingerprint_sources,
-                lock_dir=options.lock_dir,
-                lock_timeout=options.lock_timeout,
-            )
-            admin.create_worker_database_from_template(template_name, db_name)
-        else:
-            create_worker_database(
-                service.container,
-                user=user,
-                password=password,
-                db_name=db_name,
-            )
+        _provision_container_database(
+            service,
+            user=user,
+            password=password,
+            db_name=db_name,
+            isolate=xdist_postgres_isolate,
+            template=template,
+        )
+        _apply_container_init_sql(
+            service.container,
+            user=user,
+            password=password,
+            db_name=db_name,
+            init_sql=init_sql,
+        )
         yield PostgresService(
             host=service.host,
             port=service.port,
@@ -454,8 +627,120 @@ def provide_postgres_service(
 
 
 @contextmanager
+def provide_external_postgres_service(
+    host: str,
+    port: int = 5432,
+    *,
+    user: str = "postgres",
+    password: str = "",
+    database: str = "pytest_databases",
+    maintenance_database: str = "postgres",
+    xdist_postgres_isolate: PostgresXdistIsolationLevel = "database",
+    template: PostgresTemplateOptions | None = None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
+    lock_dir: Path | str | None = None,
+    timeout: float = 60.0,
+    pause: float = 0.5,
+) -> Generator[ExternalPostgresService, None, None]:
+    """Attach to a pre-started external PostgreSQL endpoint with clientless wire readiness and isolation.
+
+    Uses the stdlib PostgreSQL v3 wire client (`trust`, cleartext, MD5, and `SCRAM-SHA-256`) to wait for
+    readiness, create or clone per-worker databases, and execute optional ``init_sql`` scripts without
+    requiring a container runtime, ``psql``, or ``psycopg``.
+
+    Args:
+        host: External PostgreSQL server hostname or IP address.
+        port: External PostgreSQL server TCP port.
+        user: Role name used for authentication and database setup.
+        password: Optional role password (empty string for ``trust`` authentication).
+        database: Base database name (suffixed ``_<worker>`` under ``pytest-xdist``).
+        maintenance_database: Existing database probed for readiness and ``CREATE DATABASE`` statements.
+        xdist_postgres_isolate: ``"database"`` or ``"template"`` (``"server"`` is rejected on fixed endpoints).
+        template: Optional template database configuration when ``xdist_postgres_isolate="template"``.
+        init_sql: Optional SQL statement, ``.sql`` file path, or sequence of statements/paths applied once.
+        lock_dir: Optional directory for cross-worker coordination lock and marker files.
+        timeout: Seconds to wait for the external server to accept queries.
+        pause: Seconds between readiness probe attempts.
+
+    Yields:
+        Configured :class:`ExternalPostgresService` targeting the isolated database.
+
+    Raises:
+        ValueError: If ``user`` is empty, ``xdist_postgres_isolate="server"``, or timing values are non-positive.
+        TimeoutError: If the external server does not answer ``SELECT 1`` within ``timeout`` seconds.
+        RuntimeError: If database creation, template setup, or ``init_sql`` fails.
+    """
+    if not user:
+        msg = "PostgreSQL user must be non-empty."
+        raise ValueError(msg)
+    if xdist_postgres_isolate == "server":
+        msg = (
+            "xdist_postgres_isolate='server' is not supported for external PostgreSQL endpoints; "
+            "use 'database' or 'template'."
+        )
+        raise ValueError(msg)
+    if timeout <= 0 or pause <= 0:
+        msg = "timeout and pause must be strictly greater than zero."
+        raise ValueError(msg)
+
+    base_db = validate_identifier(database)
+    maint_db = validate_identifier(maintenance_database)
+    worker_num = get_xdist_worker_num()
+    db_name = validate_identifier(f"{base_db}_{worker_num}") if worker_num is not None else base_db
+
+    _wait_for_external_postgres(
+        host,
+        port,
+        user=user,
+        password=password,
+        database=maint_db,
+        timeout=timeout,
+        pause=pause,
+    )
+    admin = ExternalPostgresService(host=host, port=port, database=maint_db, user=user, password=password)
+    _provision_external_database(
+        admin, db_name=db_name, isolate=xdist_postgres_isolate, template=template, lock_dir=lock_dir
+    )
+    target = ExternalPostgresService(host=host, port=port, database=db_name, user=user, password=password)
+    _apply_external_init_sql(target, admin=admin, init_sql=init_sql, lock_dir=lock_dir)
+    yield target
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_external_service(
+    postgres_external_host: str | None,
+    postgres_external_port: int | None,
+    postgres_user: str,
+    postgres_password: str,
+    postgres_database: str,
+    xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
+    postgres_template_options: PostgresTemplateOptions,
+) -> Generator[ExternalPostgresService, None, None]:
+    """Attach to a pre-started PostgreSQL service configured via ``POSTGRES_EXTERNAL_HOST``.
+
+    Yields:
+        Configured :class:`ExternalPostgresService` targeting the isolated database.
+    """
+    if not postgres_external_host:
+        pytest.skip("Set POSTGRES_EXTERNAL_HOST or override postgres_external_host to use postgres_external_service.")
+    isolate: PostgresXdistIsolationLevel = (
+        "database" if xdist_postgres_isolation_level == "server" else xdist_postgres_isolation_level
+    )
+    with provide_external_postgres_service(
+        postgres_external_host,
+        postgres_external_port or 5432,
+        user=postgres_user,
+        password=postgres_password,
+        database=postgres_database,
+        xdist_postgres_isolate=isolate,
+        template=postgres_template_options,
+    ) as service:
+        yield service
+
+
+@contextmanager
 def provide_postgres_connection(
-    service: PostgresService,
+    service: PostgresService | ExternalPostgresService,
     *,
     fixture_name: str,
 ) -> Generator[Connection[Any], None, None]:
@@ -506,6 +791,7 @@ def _make_postgres_service_fixture(
             password=kwargs["postgres_password"],
             host_port=kwargs[port_fixture],
             template=kwargs["postgres_template_options"],
+            database=kwargs["postgres_database"],
         ) as service:
             yield service
 
@@ -517,6 +803,7 @@ def _make_postgres_service_fixture(
         "postgres_host",
         "postgres_user",
         "postgres_password",
+        "postgres_database",
         port_fixture,
         "postgres_template_options",
     ])
@@ -1030,7 +1317,210 @@ alloydb_omni_18_connection = _make_postgres_connection_fixture(
 )
 
 
-def _env_port(var_name: str) -> int | None:
-    """Return an integer port from environment variable ``var_name`` if set."""
-    value = os.environ.get(var_name)
-    return int(value) if value else None
+def _resolve_postgres_targets(
+    name: str,
+    base_db: str,
+    isolate: PostgresXdistIsolationLevel,
+) -> tuple[str, str]:
+    """Resolve the container logical name and isolated database name for the active xdist worker."""
+    worker_num = get_xdist_worker_num()
+    if worker_num is None:
+        return name, base_db
+    suffix = f"_{worker_num}"
+    if isolate == "server":
+        return f"{name}{suffix}", base_db
+    return name, validate_identifier(f"{base_db}{suffix}")
+
+
+def _build_postgres_env(
+    *,
+    user: str,
+    password: str,
+    database: str,
+    extra_env: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Compose container environment variables for PostgreSQL-compatible images."""
+    container_env: dict[str, str] = {
+        "POSTGRES_USER": user,
+        "POSTGRES_DB": database,
+    }
+    trust_auth = bool(extra_env and extra_env.get("POSTGRES_HOST_AUTH_METHOD") == "trust")
+    if password or not trust_auth:
+        container_env["POSTGRES_PASSWORD"] = password
+    if extra_env:
+        container_env.update(extra_env)
+    return container_env
+
+
+def _provision_container_database(
+    service: ServiceContainer,
+    *,
+    user: str,
+    password: str,
+    db_name: str,
+    isolate: PostgresXdistIsolationLevel,
+    template: PostgresTemplateOptions | None,
+) -> None:
+    """Create or clone ``db_name`` inside a started PostgreSQL container."""
+    if isolate != "template":
+        create_worker_database(service.container, user=user, password=password, db_name=db_name)
+        return
+    options = template or PostgresTemplateOptions()
+    setup_fn, setup_sql = split_template_setup(options.setup)
+    admin = PostgresService(
+        host=service.host,
+        port=service.port,
+        container=service.container,
+        database="postgres",
+        user=user,
+        password=password,
+    )
+    template_name = admin.ensure_template(
+        options.name or DEFAULT_TEMPLATE_NAME,
+        setup_fn=setup_fn,
+        setup_sql=setup_sql,
+        fingerprint_sources=options.fingerprint_sources,
+        lock_dir=options.lock_dir,
+        lock_timeout=options.lock_timeout,
+    )
+    admin.create_worker_database_from_template(template_name, db_name)
+
+
+def _apply_container_init_sql(
+    container: Container,
+    *,
+    user: str,
+    password: str,
+    db_name: str,
+    init_sql: str | Path | Sequence[str | Path] | None,
+) -> None:
+    """Execute ``init_sql`` statements once per ``(container, db_name)`` via ``psql``."""
+    statements = read_init_scripts(init_sql)
+    if not statements:
+        return
+    fingerprint = compute_fingerprint(*(stmt.encode("utf-8") for stmt in statements))
+
+    def _run() -> None:
+        for statement in statements:
+            exit_code, output = exec_psql(
+                container,
+                user=user,
+                password=password,
+                database=db_name,
+                sql=statement,
+            )
+            if exit_code != 0:
+                detail = output.decode(errors="replace").strip()
+                msg = f"PostgreSQL init_sql failed on database {db_name!r} (exit {exit_code}): {detail}"
+                raise RuntimeError(msg)
+
+    run_container_init_once(container, f"postgres:{db_name}", fingerprint, _run)
+
+
+def _wait_for_external_postgres(
+    host: str,
+    port: int,
+    *,
+    user: str,
+    password: str,
+    database: str,
+    timeout: float,
+    pause: float,
+) -> None:
+    """Poll an external PostgreSQL endpoint over the v3 wire protocol until ``SELECT 1`` succeeds."""
+    deadline = time.monotonic() + timeout
+    last_detail = "endpoint did not accept TCP connections"
+    while True:
+        if tcp_port_open(host, port, timeout=min(2.0, timeout)):
+            exit_code, output = run_simple_query(
+                host,
+                port,
+                user=user,
+                database=database,
+                sql="SELECT 1",
+                password=password,
+                timeout=min(5.0, timeout),
+            )
+            if exit_code == 0 and output.strip() == b"1":
+                return
+            last_detail = output.decode(errors="replace").strip() or f"exit code {exit_code}"
+        if time.monotonic() >= deadline:
+            msg = f"External PostgreSQL endpoint {host}:{port} was not ready within {timeout}s: {last_detail}"
+            raise TimeoutError(msg)
+        time.sleep(pause)
+
+
+def _provision_external_database(
+    admin: ExternalPostgresService,
+    *,
+    db_name: str,
+    isolate: PostgresXdistIsolationLevel,
+    template: PostgresTemplateOptions | None,
+    lock_dir: Path | str | None,
+) -> None:
+    """Create or template-clone ``db_name`` on an external PostgreSQL endpoint."""
+    if isolate == "template":
+        options = template or PostgresTemplateOptions()
+        setup_fn, setup_sql = split_template_setup(options.setup)
+        template_name = admin.ensure_template(
+            options.name or DEFAULT_TEMPLATE_NAME,
+            setup_fn=setup_fn,
+            setup_sql=setup_sql,
+            fingerprint_sources=options.fingerprint_sources,
+            lock_dir=options.lock_dir or lock_dir,
+            lock_timeout=options.lock_timeout,
+        )
+        admin.create_worker_database_from_template(template_name, db_name)
+        return
+
+    base_dir = Path(lock_dir) if lock_dir is not None else Path(tempfile.gettempdir())
+    base_dir.mkdir(parents=True, exist_ok=True)
+    lock_key = simple_string_hash(f"extpg:{admin.host}:{admin.port}:{db_name}")
+    lock_path = base_dir / f"pytest-databases-extpg-{lock_key}.lock"
+    with filelock.FileLock(str(lock_path), timeout=120.0):
+        exists_code, exists_out = admin.exec_sql(f"SELECT 1 FROM pg_database WHERE datname = '{db_name}';")
+        if exists_code != 0 or exists_out.strip() != b"1":
+            create_code, create_out = admin.exec_sql(f'CREATE DATABASE "{db_name}";')
+            if create_code != 0 and b"already exists" not in create_out:
+                detail = create_out.decode(errors="replace").strip()
+                msg = f"External PostgreSQL CREATE DATABASE {db_name!r} failed: {detail}"
+                raise RuntimeError(msg)
+    verify_code, verify_out = admin.exec_sql("SELECT 1", database=db_name)
+    if verify_code != 0 or verify_out.strip() != b"1":
+        detail = verify_out.decode(errors="replace").strip()
+        msg = f"Verification SELECT against external database {db_name!r} failed: {detail}"
+        raise RuntimeError(msg)
+
+
+def _apply_external_init_sql(
+    target: ExternalPostgresService,
+    *,
+    admin: ExternalPostgresService,
+    init_sql: str | Path | Sequence[str | Path] | None,
+    lock_dir: Path | str | None,
+) -> None:
+    """Execute ``init_sql`` once per ``(cluster_identity, database, digest)`` on an external endpoint."""
+    statements = read_init_scripts(init_sql)
+    if not statements:
+        return
+    fingerprint = compute_fingerprint(*(stmt.encode("utf-8") for stmt in statements))
+    sys_code, sys_out = admin.exec_sql("SELECT system_identifier FROM pg_control_system();")
+    sys_id = sys_out.decode(errors="replace").strip() if sys_code == 0 else ""
+
+    def _run() -> None:
+        for statement in statements:
+            exit_code, output = target.exec_sql(statement)
+            if exit_code != 0:
+                detail = output.decode(errors="replace").strip()
+                msg = f"External PostgreSQL init_sql failed on {target.database!r}: {detail}"
+                raise RuntimeError(msg)
+
+    if sys_id:
+        endpoint_id = f"extpg:{target.host}:{target.port}:{sys_id}"
+        run_container_init_once(endpoint_id, f"postgres:{target.database}", fingerprint, _run, lock_dir=lock_dir)
+        return
+    base_dir = Path(lock_dir) if lock_dir is not None else Path(tempfile.gettempdir())
+    base_dir.mkdir(parents=True, exist_ok=True)
+    key = simple_string_hash(f"extpg:{target.host}:{target.port}:{target.database}:{fingerprint}")
+    with filelock.FileLock(str(base_dir / f"pytest-databases-extpg-init-{key}.lock"), timeout=180.0):
+        _run()

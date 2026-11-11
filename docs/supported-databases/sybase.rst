@@ -48,7 +48,12 @@ be a valid ASE identifier of at most 30 characters. Each database is created on 
 copy of ``model``. With ``server`` isolation every worker starts its own container and uses ``sybase_database``.
 
 ``exec_isql`` and ``SybaseService.exec_sql`` run ``isql --retserverror -b`` against ``127.0.0.1:5000`` inside the
-container and return a non-zero exit code for server errors of severity 11 or higher.
+container and return a non-zero exit code for server errors of severity 11 or higher. Set ``SYBASE_ENABLE_MONITORING=1``
+(or override ``sybase_enable_monitoring`` to return ``True``) to run
+:func:`~pytest_databases.docker.sybase.configure_sybase_monitoring` once per container, enabling the ASE ``mon*`` MDA
+monitoring parameters via ``sp_configure`` and granting ``mon_role`` to non-``sa`` logins. Custom fixtures calling
+:func:`~pytest_databases.docker.sybase.provide_sybase_service` can also pass ``host_port``, ``env``, and one-shot
+``init_sql`` scripts.
 
 Available Fixtures
 ------------------
@@ -59,6 +64,9 @@ Available Fixtures
   The default image's ``sa`` password is fixed to ``myPassword``.
 * ``sybase_database``: Database the service uses outside ``pytest-xdist`` and the base name of the worker databases
   (default: ``master``, env ``SYBASE_DATABASE``). Any value other than ``master`` is created on startup.
+* ``sybase_port``: Optional pinned host TCP port (default: ``None``, env ``SYBASE_PORT``).
+* ``sybase_enable_monitoring``: Enable SAP ASE ``mon*`` MDA monitoring tables on startup (default: ``False``, env
+  ``SYBASE_ENABLE_MONITORING``).
 * ``sybase_startup_timeout``: Timeout in seconds for container startup (default: ``300``, env
   ``SYBASE_STARTUP_TIMEOUT``).
 * ``xdist_sybase_isolation_level``: Worker isolation mode (default: ``database``).

@@ -17,6 +17,7 @@ from pytest_databases.docker.sybase import (
     SybaseService,
     _is_sybase_ready,
     _resolve_sybase_database,
+    configure_sybase_monitoring,
     create_worker_database,
     exec_isql,
     provide_sybase_service,
@@ -24,6 +25,8 @@ from pytest_databases.docker.sybase import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pytest_databases.types import XdistIsolationLevel
 
 ISQL_SELECT_OUTPUT = b"        4242 \n\n(1 row affected)\n"
@@ -424,8 +427,115 @@ def test_sybase_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
             assert request.getfixturevalue("sybase_password")
             assert request.getfixturevalue("sybase_database") == "master"
             assert request.getfixturevalue("sybase_startup_timeout") == 300
+            assert request.getfixturevalue("sybase_enable_monitoring") is False
+            assert request.getfixturevalue("sybase_port") is None
             assert request.getfixturevalue("xdist_sybase_isolation_level") == "database"
             assert request.getfixturevalue("sybase_service") is mock_svc
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+@pytest.mark.parametrize("grant_to", [None, "sa", "app_monitor"])
+def test_configure_sybase_monitoring_and_grant(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    grant_to: str | None,
+) -> None:
+    """Verify configure_sybase_monitoring runs MDA sp_configure once per container and grants mon_role to non-sa."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(sybase_mod.tempfile, "tempdir", str(tmp_path))
+
+    scripts: list[str] = []
+    fake_container = MagicMock()
+    fake_container.id = "sybasecid123456"
+
+    def _exec(cmd: list[str]) -> SimpleNamespace:
+        scripts.append(cmd[2])
+        return SimpleNamespace(exit_code=0, output=b"Configuration option changed.\n")
+
+    fake_container.exec_run.side_effect = _exec
+
+    configure_sybase_monitoring(fake_container, grant_to=grant_to)
+    configure_sybase_monitoring(fake_container, grant_to=grant_to)
+
+    mda_calls = [s for s in scripts if "enable monitoring" in s]
+    grant_calls = [s for s in scripts if "grant role mon_role" in s]
+    assert len(mda_calls) == 1
+    assert "per object statistics active" in mda_calls[0]
+    assert "statement statistics active" in mda_calls[0]
+    assert "sql text pipe max messages" in mda_calls[0]
+    if grant_to == "app_monitor":
+        assert len(grant_calls) == 1
+        assert "grant role mon_role to app_monitor" in grant_calls[0]
+    else:
+        assert grant_calls == []
+
+
+def test_provide_sybase_service_monitoring_port_env_and_init_sql(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify provide_sybase_service wires enable_monitoring, host_port, env, init_sql, and exec_sql overrides."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(sybase_mod.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(sybase_mod, "tcp_port_open", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(sybase_mod, "get_xdist_worker_num", lambda: None)
+
+    scripts: list[str] = []
+    fake_container = MagicMock()
+    fake_container.id = "sybasecid999888"
+    fake_container.logs.return_value = b"=============== SYBASE INITIALIZED =========================="
+
+    def _exec(cmd: list[str]) -> SimpleNamespace:
+        scripts.append(cmd[2])
+        return SimpleNamespace(exit_code=0, output=ISQL_SELECT_OUTPUT)
+
+    fake_container.exec_run.side_effect = _exec
+    fake_service = SimpleNamespace(host="127.0.0.1", port=15000, container=fake_container)
+    run_ctx = MagicMock()
+    run_ctx.__enter__.return_value = fake_service
+    run_ctx.__exit__.return_value = False
+    container_service = MagicMock()
+    container_service.run.return_value = run_ctx
+
+    init_file = tmp_path / "init_sybase.sql"
+    init_file.write_text("CREATE TABLE mda_probe (id int)\ngo\n", encoding="utf-8")
+
+    with provide_sybase_service(
+        container_service=container_service,
+        sybase_image=DEFAULT_SYBASE_IMAGE,
+        sybase_user="sa",
+        sybase_password=SYBASE_PASSWORD,
+        sybase_database=SYBASE_DATABASE,
+        sybase_startup_timeout=60,
+        xdist_sybase_isolation_level="database",
+        enable_monitoring=True,
+        host_port=15000,
+        env={"CUSTOM_ASE_ENV": "enabled"},
+        init_sql=[init_file, "INSERT INTO mda_probe VALUES (1)"],
+    ) as svc:
+        assert svc.port == 15000
+        code, _ = svc.exec_sql("SELECT 4242", user="monitor_u", password="mpw")
+        assert code == 0
+
+    run_kwargs = container_service.run.call_args.kwargs
+    assert run_kwargs["host_port"] == 15000
+    assert run_kwargs["env"]["CUSTOM_ASE_ENV"] == "enabled"
+    assert any("enable monitoring" in s for s in scripts)
+    assert any("CREATE TABLE mda_probe" in s for s in scripts)
+    assert any("-U monitor_u -P mpw" in s for s in scripts)
+
+
+def test_configure_sybase_monitoring_raises_on_isql_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify configure_sybase_monitoring surfaces server errors instead of masking them."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(sybase_mod.tempfile, "tempdir", str(tmp_path))
+    fake_container = MagicMock()
+    fake_container.id = "sybaseerr123456"
+    fake_container.exec_run.return_value = SimpleNamespace(exit_code=0, output=ISQL_SERVER_ERROR)
+    with pytest.raises(RuntimeError, match="Failed to enable Sybase MDA monitoring"):
+        configure_sybase_monitoring(fake_container)

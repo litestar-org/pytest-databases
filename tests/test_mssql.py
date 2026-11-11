@@ -24,6 +24,9 @@ from tests.conftest import PLATFORM_PROCESSOR, unwrap_fixture
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from pathlib import Path
+
+    from pytest_databases.types import XdistIsolationLevel
 
 
 def test_plugin_imports_without_pymssql(pytester: pytest.Pytester) -> None:
@@ -64,10 +67,13 @@ def test_mssql_sqlcmd_fallback_and_images() -> None:
     assert exit_code == 0
     assert output == b"1\n"
     assert mock_container.exec_run.call_count == 2
-    first_cmd = mock_container.exec_run.call_args_list[0].args[0]
+    first_call = mock_container.exec_run.call_args_list[0]
+    first_cmd = first_call.args[0]
     second_cmd = mock_container.exec_run.call_args_list[1].args[0]
     assert first_cmd[0] == "/opt/mssql-tools18/bin/sqlcmd"
     assert second_cmd[0] == "/opt/mssql-tools/bin/sqlcmd"
+    assert "-P" not in first_cmd
+    assert first_call.kwargs["environment"] == {"SQLCMDPASSWORD": mssql.MSSQL_PASSWORD}
 
 
 @pytest.mark.parametrize(
@@ -99,6 +105,7 @@ def test_mssql_service_reuses_2022_container_for_default_image(
         "sa",
         "secret",
         "db",
+        None,
     )
 
     assert next(fixture_gen) == "service"
@@ -233,7 +240,7 @@ def test_xdist_isolate_server(pytester: pytest.Pytester, mssql_test_helpers: str
 def test_provide_mssql_service_and_prepare_database_branches(
     monkeypatch: pytest.MonkeyPatch,
     worker_num: int | None,
-    isolation_level: str,
+    isolation_level: XdistIsolationLevel,
     user: str,
     expected_name: str,
     expected_db: str,
@@ -241,6 +248,7 @@ def test_provide_mssql_service_and_prepare_database_branches(
     """Verify provide_mssql_service xdist modes, custom user creation, and retry exhaustion."""
     monkeypatch.setattr("pytest_databases.docker.mssql.time.sleep", lambda _s: None)
     monkeypatch.setattr("pytest_databases.docker.mssql.get_xdist_worker_num", lambda: worker_num)
+    monkeypatch.setattr("pytest_databases.docker.mssql.tcp_port_open", lambda _h, _p: True)
     mock_docker = MagicMock()
     mock_container = MagicMock()
     mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
@@ -249,7 +257,7 @@ def test_provide_mssql_service_and_prepare_database_branches(
 
     with provide_mssql_service(
         docker_service=mock_docker,
-        xdist_mssql_isolation_level=isolation_level,  # type: ignore[arg-type]
+        xdist_mssql_isolation_level=isolation_level,
         image="mcr.microsoft.com/mssql/server:2022-latest",
         name="mssql",
         mssql_user=user,
@@ -262,6 +270,9 @@ def test_provide_mssql_service_and_prepare_database_branches(
     check = mock_docker.run.call_args.kwargs["check"]
     assert mock_docker.run.call_args.kwargs["name"] == expected_name
     assert check(svc_container) is True
+    monkeypatch.setattr("pytest_databases.docker.mssql.tcp_port_open", lambda _h, _p: False)
+    assert check(svc_container) is False
+    monkeypatch.setattr("pytest_databases.docker.mssql.tcp_port_open", lambda _h, _p: True)
     mock_container.exec_run.side_effect = APIError("boom")
     assert check(svc_container) is False
 
@@ -320,7 +331,75 @@ def test_mssql_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
                 if name.isupper() or name in {"MSSQLService", "provide_mssql_service", "exec_sqlcmd"}:
                     continue
                 val = request.getfixturevalue(name)
-                assert val is not None
+                if name == "mssql_port":
+                    assert val is None
+                else:
+                    assert val is not None
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+def test_exec_sqlcmd_go_batches_sql_file_and_mssql_options(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify multi-batch GO staging, sql_file upload/cleanup, empty password handling, and service options."""
+    monkeypatch.setattr(mssql, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(mssql.tempfile, "tempdir", str(tmp_path))
+
+    mock_container = MagicMock()
+    mock_container.id = "mssqlcid123456"
+    mock_container.put_archive.return_value = True
+    mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
+
+    script = tmp_path / "batches.sql"
+    script.write_text("CREATE VIEW v AS SELECT 1 AS c;\nGO\nSELECT c FROM v;\n", encoding="utf-8")
+
+    code, out = exec_sqlcmd(mock_container, sql_file=script, database="appdb", password="", query_timeout=15)
+    assert (code, out) == (0, b"1\n")
+    mock_container.put_archive.assert_called_once()
+    sqlcmd_call = mock_container.exec_run.call_args_list[0]
+    cleanup_call = mock_container.exec_run.call_args_list[1]
+    assert "-P" in sqlcmd_call.args[0]
+    assert "-t" in sqlcmd_call.args[0] and "15" in sqlcmd_call.args[0]
+    assert "-i" in sqlcmd_call.args[0]
+    assert sqlcmd_call.kwargs["environment"] is None
+    assert cleanup_call.args[0][:2] == ["rm", "-f"]
+
+    mock_docker = MagicMock()
+    mock_docker.run.return_value.__enter__.return_value = ServiceContainer(
+        host="127.0.0.1",
+        port=21433,
+        container=mock_container,
+    )
+    with provide_mssql_service(
+        docker_service=mock_docker,
+        xdist_mssql_isolation_level="database",
+        image="mcr.microsoft.com/mssql/server:2022-latest",
+        name="mssql-2022",
+        mssql_user="sa",
+        mssql_password="Secret-password1",
+        mssql_database="telemetry",
+        host_port=21433,
+        env={"MSSQL_AGENT_ENABLED": "true", "MSSQL_PID": "Standard"},
+        mem_limit="4g",
+        shm_size="512m",
+        init_sql="ALTER DATABASE [telemetry] SET QUERY_STORE = ON;\nGO\nSELECT 1;",
+    ) as svc:
+        assert svc.port == 21433
+        assert svc.exec_sql("SELECT 1") == (0, b"1\n")
+
+    run_kwargs = mock_docker.run.call_args.kwargs
+    assert run_kwargs["env"]["MSSQL_AGENT_ENABLED"] == "true"
+    assert run_kwargs["env"]["MSSQL_PID"] == "Standard"
+    assert run_kwargs["mem_limit"] == "4g"
+    assert run_kwargs["shm_size"] == "512m"
+
+    with pytest.raises(ValueError, match="exactly one"):
+        exec_sqlcmd(mock_container)
+    with pytest.raises(ValueError, match="exactly one"):
+        exec_sqlcmd(mock_container, "SELECT 1", sql_file=script)
+    with pytest.raises(ValueError, match="query_timeout"):
+        exec_sqlcmd(mock_container, "SELECT 1", query_timeout=-1)

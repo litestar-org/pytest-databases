@@ -42,7 +42,15 @@ the ``db2_4k_device_support`` fixture to return ``False`` (or set
 ``Db2Service.exec_sql`` runs a statement through the in-container ``db2`` command
 line processor. Exit code 1 (no rows, ``SQL0100W``) and 2 (warnings) count as
 success and the warning text is returned with the output; error codes of 4 and
-above raise ``RuntimeError``.
+above raise ``RuntimeError``. By default ``db2_activate_database`` is enabled and
+runs ``db2 activate database`` (:func:`~pytest_databases.docker.db2.activate_db2_database`
+/ :meth:`~pytest_databases.docker.db2.Db2Service.activate_database`) so
+in-memory ``MON_GET_*`` monitoring snapshots persist across short-lived client
+connections. Custom fixtures calling
+:func:`~pytest_databases.docker.db2.provide_db2_service` can also pass
+``registry_vars`` (extra ``db2set`` entries applied before ``db2start``),
+``env``, ``host_port``, ``shm_size``, ``mem_limit``, ``platform``, and one-shot
+``init_sql`` scripts.
 
 .. note::
 
@@ -70,12 +78,15 @@ Available Fixtures
 ------------------
 
 * ``db2_image``: Container image (default: ``icr.io/db2_community/db2:12.1.5.0``, env ``DB2_IMAGE``).
-* ``db2_dbname``: 8-character-compliant database name (default: ``pytestdb``).
-* ``db2_username``: Instance owner username (default: ``db2inst1``).
-* ``db2_password``: Instance owner password (default: ``pytest_db2_pwd``).
-* ``db2_startup_timeout``: Startup timeout in seconds (default: ``600``).
+* ``db2_dbname``: 8-character-compliant database name (default: ``pytestdb``, env ``DB2_DBNAME``).
+* ``db2_username``: Instance owner username (default: ``db2inst1``, env ``DB2_USER``).
+* ``db2_password``: Instance owner password (default: ``pytest_db2_pwd``, env ``DB2_PASSWORD``).
+* ``db2_port``: Optional pinned host TCP port for Db2 port ``50000`` (default: ``None``, env ``DB2_PORT``).
+* ``db2_startup_timeout``: Startup timeout in seconds (default: ``600``, env ``DB2_STARTUP_TIMEOUT``).
 * ``db2_4k_device_support``: Apply ``DB2_4K_DEVICE_SUPPORT=ON`` and ``DB2_DIRECT_IO=NO``
   (default: ``True``, env ``DB2_4K_DEVICE_SUPPORT``).
+* ``db2_activate_database``: Explicitly activate the database so ``MON_GET_*`` metrics persist across disconnects
+  (default: ``True``, env ``DB2_ACTIVATE_DATABASE``).
 * ``xdist_db2_isolation_level``: ``"database"`` (per-worker ``ptdb_<n>`` database)
   or ``"server"`` (one transient ``db2_<n>`` container per xdist worker).
 * ``db2_service``: :class:`~pytest_databases.docker.db2.Db2Service` instance.

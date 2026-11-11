@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 from docker.errors import APIError, NotFound
 
-from pytest_databases.docker.mariadb import provide_mariadb_service
+from pytest_databases.docker import mariadb as mariadb_mod
+from pytest_databases.docker.mariadb import exec_mariadb, provide_mariadb_service
 from pytest_databases.types import ServiceContainer
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pytest_databases.types import XdistIsolationLevel
 
 
 def test_mariadb_performance_schema_and_version_fixtures() -> None:
@@ -137,22 +144,25 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
 
 
 @pytest.mark.parametrize(
-    ("worker_num", "isolation_level", "expected_name", "expected_db"),
+    ("worker_num", "isolation_level", "database", "expected_name", "expected_db"),
     [
-        (1, "database", "mariadb-11.8", "pytest_databases_1"),
-        (2, "server", "mariadb-11.8_2", "pytest_databases"),
+        (None, "database", "custom_db", "mariadb-11.8", "custom_db"),
+        (1, "database", "custom_db", "mariadb-11.8", "custom_db_1"),
+        (2, "server", "custom_db", "mariadb-11.8_2", "custom_db"),
     ],
 )
 def test_provide_mariadb_service_xdist_and_retry_exhaustion(
     monkeypatch: pytest.MonkeyPatch,
-    worker_num: int,
-    isolation_level: str,
+    worker_num: int | None,
+    isolation_level: XdistIsolationLevel,
+    database: str,
     expected_name: str,
     expected_db: str,
 ) -> None:
-    """Verify provide_mariadb_service xdist modes, readiness check, and setup retry failure."""
+    """Verify provide_mariadb_service honors custom database names, xdist modes, host-port gating, and retries."""
     monkeypatch.setattr("pytest_databases.docker.mariadb.time.sleep", lambda _s: None)
     monkeypatch.setattr("pytest_databases.docker.mariadb.get_xdist_worker_num", lambda: worker_num)
+    monkeypatch.setattr("pytest_databases.docker.mariadb.tcp_port_open", lambda _h, _p: True)
     mock_docker = MagicMock()
     mock_container = MagicMock()
     mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
@@ -163,17 +173,20 @@ def test_provide_mariadb_service_xdist_and_retry_exhaustion(
         docker_service=mock_docker,
         image="mariadb:11.8",
         name="mariadb-11.8",
-        isolation_level=isolation_level,  # type: ignore[arg-type]
+        isolation_level=isolation_level,
         user="app",
         password="secret",
         root_password="secret",
-        database="db",
+        database=database,
     ) as service:
         assert service.db == expected_db
 
     check = mock_docker.run.call_args.kwargs["check"]
     assert mock_docker.run.call_args.kwargs["name"] == expected_name
     assert check(svc_container) is True
+    monkeypatch.setattr("pytest_databases.docker.mariadb.tcp_port_open", lambda _h, _p: False)
+    assert check(svc_container) is False
+    monkeypatch.setattr("pytest_databases.docker.mariadb.tcp_port_open", lambda _h, _p: True)
     mock_container.exec_run.side_effect = APIError("not ready")
     assert check(svc_container) is False
 
@@ -188,7 +201,7 @@ def test_provide_mariadb_service_xdist_and_retry_exhaustion(
             user="app",
             password="secret",
             root_password="secret",
-            database="db",
+            database=database,
         ),
     ):
         pass
@@ -204,10 +217,65 @@ def test_provide_mariadb_service_xdist_and_retry_exhaustion(
             user="app",
             password="secret",
             root_password="secret",
-            database="db",
+            database=database,
         ),
     ):
         pass
+
+
+def test_mariadb_command_env_init_sql_and_exec_sql(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify command merging, env overrides, host_port, init_sql, and MariaDBService.exec_sql."""
+    monkeypatch.setattr(mariadb_mod, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(mariadb_mod.run_container_init_once.__globals__["tempfile"], "tempdir", str(tmp_path))
+
+    sql_file = tmp_path / "seed.sql"
+    sql_file.write_text("SET GLOBAL userstat = 1;", encoding="utf-8")
+
+    executed: list[tuple[list[str], dict[str, str] | None]] = []
+    mock_container = MagicMock()
+    mock_container.id = "mariadbcid1234"
+
+    def _record_exec(cmd: list[str], environment: dict[str, str] | None = None) -> MagicMock:
+        executed.append((cmd, environment))
+        return MagicMock(exit_code=0, output=b"1\n")
+
+    mock_container.exec_run.side_effect = _record_exec
+    mock_docker = MagicMock()
+    mock_docker.run.return_value.__enter__.return_value = ServiceContainer(
+        host="127.0.0.1",
+        port=43307,
+        container=mock_container,
+    )
+
+    with provide_mariadb_service(
+        docker_service=mock_docker,
+        image="mariadb:11.8",
+        name="mariadb-11.8",
+        isolation_level="database",
+        user="app",
+        password="secret",
+        root_password="rootpw",
+        database="maria-metrics",
+        host_port=43307,
+        command=["--userstat=1"],
+        env={"TZ": "UTC"},
+        init_sql=[sql_file, "CREATE TABLE t (id INT);"],
+    ) as svc:
+        assert svc.db == "maria-metrics"
+        code, out = svc.exec_sql("SELECT 1")
+        assert (code, out) == (0, b"1\n")
+        assert executed[-1][1] == {"MYSQL_PWD": "secret"}
+
+    run_kwargs = mock_docker.run.call_args.kwargs
+    assert run_kwargs["command"] == ["--performance-schema=ON", "--userstat=1"]
+    assert run_kwargs["host_port"] == 43307
+    assert run_kwargs["env"]["MARIADB_DATABASE"] == "maria-metrics"
+    assert any("`maria-metrics`" in cmd[-1] for cmd, _ in executed)
+    assert any("SET GLOBAL userstat = 1;" in cmd[-1] for cmd, _ in executed)
+
+    mock_container.exec_run.side_effect = APIError("daemon down")
+    assert exec_mariadb(mock_container, "SELECT 1")[0] == -1
 
 
 def test_mariadb_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
@@ -239,10 +307,13 @@ def test_mariadb_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     def test_all(request):
         with patch.object(mariadb_mod, "provide_mariadb_service", _fake_provide):
             for name in mariadb_mod.__all__:
-                if name in {"MariaDBService", "provide_mariadb_service"}:
+                if name in {"MariaDBService", "exec_mariadb", "provide_mariadb_service"}:
                     continue
                 val = request.getfixturevalue(name)
-                assert val is not None
+                if name == "mariadb_port":
+                    assert val is None
+                else:
+                    assert val is not None
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)

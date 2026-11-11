@@ -12,19 +12,24 @@ import pytest
 
 from pytest_databases.docker import postgres as postgres_mod
 from pytest_databases.docker.postgres import (
+    ExternalPostgresService,
     PostgresService,
     PostgresTemplateOptions,
     clone_template_database,
     drop_database_force,
     make_connection_string,
+    provide_external_postgres_service,
     provide_postgres_connection,
     provide_postgres_service,
 )
+from pytest_databases.embedded import postgres as embedded_pg_mod
 from pytest_databases.helpers import tcp_port_open
 from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from pytest_databases.types import PostgresXdistIsolationLevel
 
 
 def test_plugin_imports_without_psycopg(pytester: pytest.Pytester) -> None:
@@ -656,7 +661,11 @@ def test_provide_postgres_service_template_isolation(
 
 @pytest.mark.parametrize(
     "fixture_name",
-    [name for name in postgres_mod.__all__ if name.endswith("_service") and name != "provide_postgres_service"],
+    [
+        name
+        for name in postgres_mod.__all__
+        if name.endswith("_service") and name not in {"provide_postgres_service", "provide_external_postgres_service"}
+    ],
 )
 def test_family_services_forward_template_options(fixture_name: str) -> None:
     """Verify every PostgreSQL family service fixture requests ``postgres_template_options``."""
@@ -667,9 +676,11 @@ def test_family_services_forward_template_options(fixture_name: str) -> None:
 def test_family_services_template_count() -> None:
     """Verify all PostgreSQL family service fixtures remain covered."""
     service_fixtures = [
-        name for name in postgres_mod.__all__ if name.endswith("_service") and name != "provide_postgres_service"
+        name
+        for name in postgres_mod.__all__
+        if name.endswith("_service") and name not in {"provide_postgres_service", "provide_external_postgres_service"}
     ]
-    assert len(service_fixtures) == 26
+    assert len(service_fixtures) == 27
 
 
 def test_xdist_isolate_template(pytester: pytest.Pytester) -> None:
@@ -783,7 +794,7 @@ def test_postgres_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     from unittest.mock import MagicMock, patch
     import pytest
     from pytest_databases.docker import postgres as postgres_mod
-    from pytest_databases.docker.postgres import PostgresService
+    from pytest_databases.docker.postgres import ExternalPostgresService, PostgresService
 
     pytest_plugins = ["pytest_databases.docker.postgres"]
 
@@ -802,9 +813,19 @@ def test_postgres_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
             host=kwargs.get("host", "127.0.0.1"),
             port=kwargs.get("port") or 5432,
             container=MagicMock(),
-            database="pytest_databases",
+            database=kwargs.get("database", "pytest_databases"),
             user=kwargs.get("user", "postgres"),
             password=kwargs.get("password", "super-secret"),
+        )
+
+    @contextmanager
+    def _fake_provide_external(host, port=5432, **kwargs):
+        yield ExternalPostgresService(
+            host=host,
+            port=port,
+            database=kwargs.get("database", "pytest_databases"),
+            user=kwargs.get("user", "postgres"),
+            password=kwargs.get("password", ""),
         )
 
     @contextmanager
@@ -814,6 +835,7 @@ def test_postgres_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     def test_all_fixtures(request):
         with (
             patch.object(postgres_mod, "provide_postgres_service", _fake_provide_service),
+            patch.object(postgres_mod, "provide_external_postgres_service", _fake_provide_external),
             patch.object(postgres_mod, "provide_postgres_connection", _fake_provide_conn),
         ):
             for name in postgres_mod.__all__:
@@ -821,16 +843,260 @@ def test_postgres_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
                     ("postgres_", "xdist_")
                 ):
                     if name in {
+                        "ExternalPostgresService",
                         "PostgresService",
                         "PostgresTemplateOptions",
+                        "postgres_external_service",
                         "postgres_responsive",
+                        "provide_external_postgres_service",
                         "provide_postgres_service",
                         "provide_postgres_connection",
                     }:
                         continue
                     val = request.getfixturevalue(name)
-                    if name.endswith("_port"):
+                    if name.endswith("_port") or name == "postgres_external_host":
                         assert val is None
+            with pytest.raises(pytest.skip.Exception):
+                request.getfixturevalue("postgres_external_service")
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+def test_provide_postgres_service_env_resources_and_init_sql(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify custom user/database env forwarding, container resource options, init_sql, and service helpers."""
+    monkeypatch.setattr(postgres_mod, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(postgres_mod.tempfile, "tempdir", str(tmp_path))
+
+    sql_file = tmp_path / "ext.sql"
+    sql_file.write_text("CREATE EXTENSION IF NOT EXISTS pg_stat_statements;", encoding="utf-8")
+
+    container = RecordingContainer()
+    container.id = "pgcontainer123456"  # type: ignore[attr-defined]
+    fake_service = SimpleNamespace(host="127.0.0.1", port=15432, container=container)
+    run_ctx = MagicMock()
+    run_ctx.__enter__.return_value = fake_service
+    run_ctx.__exit__.return_value = False
+    docker_service = MagicMock()
+    docker_service.run.return_value = run_ctx
+
+    cmd = ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    with provide_postgres_service(
+        docker_service,
+        image="postgres:18",
+        name="postgres-18",
+        host="127.0.0.1",
+        user="custom_admin",
+        password="pw",
+        xdist_postgres_isolate="database",
+        database="metrics_db",
+        command=cmd,
+        env={"PGAPPNAME": "collector_suite"},
+        shm_size="256m",
+        mem_limit="1g",
+        volumes=["/host/conf:/etc/pg:ro"],
+        init_sql=[sql_file, "CREATE TABLE t (id int);"],
+    ) as svc:
+        assert svc.user == "custom_admin"
+        assert svc.database == "metrics_db"
+        assert "user=custom_admin" in svc.dsn
+        assert svc.connection_config == {
+            "host": "127.0.0.1",
+            "port": 15432,
+            "user": "custom_admin",
+            "database": "metrics_db",
+            "password": "pw",
+        }
+        code, out = svc.exec_sql("SELECT 1", tuples_only=True)
+        assert (code, out) == (0, b"1\n")
+
+    run_kwargs = docker_service.run.call_args.kwargs
+    assert run_kwargs["env"] == {
+        "POSTGRES_USER": "custom_admin",
+        "POSTGRES_DB": "metrics_db",
+        "POSTGRES_PASSWORD": "pw",
+        "PGAPPNAME": "collector_suite",
+    }
+    assert run_kwargs["command"] == cmd
+    assert run_kwargs["shm_size"] == "256m"
+    assert run_kwargs["mem_limit"] == "1g"
+    assert run_kwargs["volumes"] == ["/host/conf:/etc/pg:ro"]
+    assert ("metrics_db", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;") in container.statements
+    assert ("metrics_db", "CREATE TABLE t (id int);") in container.statements
+
+    before_count = sum(1 for _, stmt in container.statements if "CREATE TABLE t" in stmt)
+    with provide_postgres_service(
+        docker_service,
+        image="postgres:18",
+        name="postgres-18",
+        host="127.0.0.1",
+        user="custom_admin",
+        password="",
+        xdist_postgres_isolate="database",
+        database="metrics_db",
+        env={"POSTGRES_HOST_AUTH_METHOD": "trust"},
+        init_sql=[sql_file, "CREATE TABLE t (id int);"],
+    ) as trust_svc:
+        assert "password" not in trust_svc.connection_config
+    assert "POSTGRES_PASSWORD" not in docker_service.run.call_args.kwargs["env"]
+    after_count = sum(1 for _, stmt in container.statements if "CREATE TABLE t" in stmt)
+    assert after_count == before_count == 1
+
+
+@pytest.mark.parametrize(
+    ("user", "database", "init_fail", "exc_type", "pattern"),
+    [
+        ("", "pytest_databases", False, ValueError, "user must be non-empty"),
+        ("postgres", "bad-name", False, ValueError, "Invalid PostgreSQL database identifier"),
+        ("postgres", "pytest_databases", True, RuntimeError, "PostgreSQL init_sql failed"),
+    ],
+)
+def test_provide_postgres_service_error_branches(
+    monkeypatch: pytest.MonkeyPatch,
+    user: str,
+    database: str,
+    init_fail: bool,
+    exc_type: type[Exception],
+    pattern: str,
+) -> None:
+    """Verify provide_postgres_service rejects invalid parameters and surfaces init_sql failures."""
+    monkeypatch.setattr(postgres_mod, "get_xdist_worker_num", lambda: None)
+
+    def _respond(_db: str, sql: str) -> Any:
+        if init_fail and "BROKEN" in sql:
+            return SimpleNamespace(exit_code=1, output=b"ERROR: syntax error")
+        return SimpleNamespace(exit_code=0, output=b"1\n" if sql == "SELECT 1" else b"")
+
+    container = RecordingContainer(_respond)
+    run_ctx = MagicMock()
+    run_ctx.__enter__.return_value = SimpleNamespace(host="127.0.0.1", port=5432, container=container)
+    run_ctx.__exit__.return_value = False
+    docker_service = MagicMock()
+    docker_service.run.return_value = run_ctx
+
+    with (
+        pytest.raises(exc_type, match=pattern),
+        provide_postgres_service(
+            docker_service,
+            image="postgres:18",
+            name="pg",
+            host="127.0.0.1",
+            user=user,
+            password="pw",
+            xdist_postgres_isolate="database",
+            database=database,
+            init_sql="BROKEN SQL" if init_fail else None,
+        ),
+    ):
+        pass
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "exc_type", "pattern"),
+    [
+        ({"user": ""}, ValueError, "user must be non-empty"),
+        ({"xdist_postgres_isolate": "server"}, ValueError, "not supported for external"),
+        ({"timeout": 0}, ValueError, "strictly greater than zero"),
+        ({"pause": 0}, ValueError, "strictly greater than zero"),
+        ({"timeout": 0.05, "pause": 0.01}, TimeoutError, "was not ready within"),
+    ],
+)
+def test_provide_external_postgres_service_validation_and_timeout(
+    kwargs: dict[str, Any],
+    exc_type: type[Exception],
+    pattern: str,
+) -> None:
+    """Verify provide_external_postgres_service validates parameters and raises TimeoutError when unreachable."""
+    free_port = _pick_free_port()
+    with pytest.raises(exc_type, match=pattern), provide_external_postgres_service("127.0.0.1", free_port, **kwargs):
+        pass
+
+
+def _try_resolve_local_pg() -> embedded_pg_mod.PostgresBinaries | None:
+    try:
+        return embedded_pg_mod.resolve_postgres_binaries()
+    except FileNotFoundError:
+        return None
+
+
+_LOCAL_PG_BINARIES = _try_resolve_local_pg()
+
+
+def _bootstrap_scram_cluster(data_dir: Path) -> tuple[Any, int]:
+    """Initialize and launch a temporary local PostgreSQL cluster configured with SCRAM-SHA-256."""
+    assert _LOCAL_PG_BINARIES is not None
+    embedded_pg_mod.init_cluster(_LOCAL_PG_BINARIES, data_dir, user="postgres")
+    proc, port = embedded_pg_mod.start_cluster(
+        _LOCAL_PG_BINARIES, data_dir, host="127.0.0.1", port=0, startup_timeout=30.0
+    )
+    boot = ExternalPostgresService(host="127.0.0.1", port=port, database="postgres", user="postgres")
+    code, out = boot.exec_sql(
+        "SET password_encryption = 'scram-sha-256'; CREATE ROLE ext_admin WITH SUPERUSER LOGIN PASSWORD 'S3cret!Pass';"
+    )
+    if code != 0:
+        embedded_pg_mod.stop_cluster(_LOCAL_PG_BINARIES, data_dir, proc)
+        raise AssertionError(out.decode(errors="replace"))
+    (data_dir / "pg_hba.conf").write_text("host all all 127.0.0.1/32 scram-sha-256\n", encoding="utf-8")
+    reload_code, reload_out = boot.exec_sql("SELECT pg_reload_conf();")
+    if reload_code != 0 and b"authentication" not in reload_out.lower():
+        embedded_pg_mod.stop_cluster(_LOCAL_PG_BINARIES, data_dir, proc)
+        raise AssertionError(reload_out.decode(errors="replace"))
+    return proc, port
+
+
+@pytest.mark.skipif(_LOCAL_PG_BINARIES is None, reason="Local PostgreSQL server binaries are not installed")
+@pytest.mark.parametrize("isolate_mode", ["database", "template"])
+def test_provide_external_postgres_service_live_scram_and_template(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    isolate_mode: PostgresXdistIsolationLevel,
+) -> None:
+    """Verify ExternalPostgresService authenticates via real SCRAM-SHA-256 and provisions isolated databases."""
+    assert _LOCAL_PG_BINARIES is not None
+    data_dir = tmp_path / "pgdata"
+    proc, port = _bootstrap_scram_cluster(data_dir)
+    try:
+        bad_code, _bad_out = ExternalPostgresService(
+            host="127.0.0.1",
+            port=port,
+            database="postgres",
+            user="ext_admin",
+            password="wrong-password",
+        ).exec_sql("SELECT 1")
+        assert bad_code != 0
+
+        monkeypatch.setattr(postgres_mod, "get_xdist_worker_num", lambda: 1)
+        tpl = PostgresTemplateOptions(
+            name="ext_tpl",
+            setup="CREATE TABLE seeded (v int); INSERT INTO seeded VALUES (42);",
+            lock_dir=tmp_path,
+        )
+        init_file = tmp_path / "init.sql"
+        init_file.write_text("CREATE TABLE boot_marker (label text); INSERT INTO boot_marker VALUES ('ok');")
+
+        with provide_external_postgres_service(
+            "127.0.0.1",
+            port,
+            user="ext_admin",
+            password="S3cret!Pass",
+            database="ext_suite",
+            xdist_postgres_isolate=isolate_mode,
+            template=tpl if isolate_mode == "template" else None,
+            init_sql=init_file,
+            lock_dir=tmp_path,
+            timeout=15.0,
+        ) as ext_svc:
+            assert ext_svc.database == "ext_suite_1"
+            assert "password=S3cret!Pass" in ext_svc.dsn
+            assert ext_svc.connection_config["password"] == "S3cret!Pass"
+            q_code, q_out = ext_svc.exec_sql("SELECT label FROM boot_marker")
+            assert (q_code, q_out.strip()) == (0, b"ok")
+            if isolate_mode == "template":
+                t_code, t_out = ext_svc.exec_sql("SELECT v FROM seeded")
+                assert (t_code, t_out.strip()) == (0, b"42")
+    finally:
+        embedded_pg_mod.stop_cluster(_LOCAL_PG_BINARIES, data_dir, proc)

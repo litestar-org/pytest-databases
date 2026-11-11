@@ -94,7 +94,7 @@ Added
   the first ``db2start`` so the database is created on storage with 4096-byte logical sectors.
 * ``oracle_adb_service`` (``OracleADBService`` with TLS, mTLS, ORDS and MongoDB API ports, ``wallet_dir``,
   ``ords_url``, ``apex_url``, ``sql_developer_url``, ``mongo_uri``, ``extract_wallet()`` and ``enable_ords_schema()``)
-  for Oracle Autonomous Database Free (default ``container-registry.oracle.com/database/adb-free:latest-23ai``, env
+  for Oracle Autonomous AI Database Free (default ``container-registry.oracle.com/database/adb-free:latest-26ai``, env
   ``ORACLE_ADB_IMAGE``), the ``oracle_adb_image``, ``oracle_adb_workload_type``, ``oracle_adb_hostname``,
   ``oracle_adb_tz``, ``oracle_adb_password``, ``oracle_adb_admin_password``, ``oracle_adb_wallet_password``,
   ``oracle_adb_wallet_dir``, ``oracle_adb_volumes``, ``oracle_adb_devices`` and ``oracle_adb_filesystemio_options``
@@ -170,6 +170,58 @@ Added
   (default ``420``, env ``ORACLE_ADB_STARTUP_TIMEOUT``) fixtures, plus validated keyword-only ``timeout`` and ``pause``
   parameters on ``provide_oracle_service`` (defaults ``180`` and ``1.0``) and ``provide_oracle_adb_service``
   (defaults ``420`` and ``2.0``).
+* ``copy_to_container``, ``copy_from_container`` and ``exec_container_command`` in ``pytest_databases.types`` (also
+  exported from ``pytest_databases``), plus ``ServiceContainer.copy_to()``, ``ServiceContainer.copy_from()`` and
+  ``ServiceContainer.exec_command()`` for transferring files and executing commands inside service containers over the
+  Docker/Podman SDK archive API.
+* ``has_active_owner_sessions(owner_id)`` and advisory OS ``FileLock`` session leases so concurrent local ``pytest``
+  runs sharing an owner ID leave containers running until the final active session exits, while sweeping stale leases
+  from crashed processes automatically.
+* Keyword-only ``user``, ``tmpfs`` and ``extra_hosts`` parameters on ``ContainerService.run``, plus
+  ``pytest_databases.helpers.env_port``, ``read_init_scripts`` and ``run_container_init_once``.
+* ``ExternalPostgresService``, ``provide_external_postgres_service``, ``postgres_external_host`` (env
+  ``POSTGRES_EXTERNAL_HOST``), ``postgres_external_port`` (env ``POSTGRES_EXTERNAL_PORT``) and
+  ``postgres_external_service`` in ``pytest_databases.docker.postgres`` for attaching to pre-started PostgreSQL
+  endpoints with ``"database"`` or ``"template"`` isolation over the stdlib v3 wire client (which now supports
+  ``trust``, cleartext, MD5 and ``SCRAM-SHA-256`` authentication).
+* ``PostgresService.dsn``, ``PostgresService.connection_config`` and ``PostgresService.exec_sql()``, the
+  ``postgres_database`` fixture (default ``"pytest_databases"``, env ``POSTGRES_DATABASE``), ``POSTGRES_USER`` env
+  override on ``postgres_user``, and keyword-only ``database``, ``command``, ``env``, ``shm_size``, ``mem_limit``,
+  ``volumes`` and ``init_sql`` parameters on ``provide_postgres_service``.
+* ``exec_mysql`` / ``MySQLService.exec_sql()`` and ``exec_mariadb`` / ``MariaDBService.exec_sql()`` (passing
+  credentials via ``MYSQL_PWD``), ``mysql_port`` (env ``MYSQL_PORT``) and ``mariadb_port`` (env ``MARIADB_PORT``)
+  fixtures, ``MYSQL_*`` / ``MARIADB_*`` environment variable lookups on user/password/database fixtures, ``root``
+  application user support, and keyword-only ``host_port``, ``command``, ``env`` and ``init_sql`` parameters on
+  ``provide_mysql_service`` and ``provide_mariadb_service``.
+* ``MSSQLService.exec_sql()``, ``mssql_port`` (env ``MSSQL_PORT``), ``MSSQL_USER`` / ``MSSQL_PASSWORD`` /
+  ``MSSQL_DATABASE`` environment variable overrides, multi-batch standalone ``GO`` and ``sql_file`` staging with
+  ``SQLCMDPASSWORD`` credential delivery and ``query_timeout`` in ``exec_sqlcmd``, and keyword-only ``host_port``,
+  ``env``, ``mem_limit``, ``shm_size`` and ``init_sql`` parameters on ``provide_mssql_service``.
+* ``oracle_26ai_service`` (aliased by ``oracle_service``), ``oracle_26ai_image`` (default
+  ``gvenzl/oracle-free:23-slim-faststart`` delivering Oracle AI Database 26ai Free ``23.26.x``, env
+  ``ORACLE_26AI_IMAGE``), ``oracle_26ai_service_name`` (env ``ORACLE_26AI_SERVICE_NAME``), ``exec_oracle_sql`` and
+  ``OracleService.exec_sql()`` (supporting both PDB TNS targets and OS-authenticated ``CDB$ROOT``
+  ``sqlplus -L -S / as sysdba`` execution), ``oracle_port`` (env ``ORACLE_PORT``), ``oracle_26ai_port`` (env
+  ``ORACLE_26AI_PORT``, falling back to ``oracle_port``), ``oracle_18c_port`` (env ``ORACLE_18C_PORT``) and
+  ``oracle_adb_port`` (env ``ORACLE_ADB_PORT``) fixtures, ``ORACLE_USER`` / ``ORACLE_PASSWORD`` /
+  ``ORACLE_SYSTEM_PASSWORD`` environment variable overrides, and keyword-only ``host_port``, ``env``, ``volumes``,
+  ``shm_size``, ``mem_limit`` and ``init_sql`` parameters on ``provide_oracle_service`` and
+  ``provide_oracle_adb_service``.
+* ``activate_db2_database``, ``Db2Service.activate_database()``, ``db2_activate_database`` (default ``True``, env
+  ``DB2_ACTIVATE_DATABASE``, keeping in-memory ``MON_GET_*`` metrics alive across disconnects), ``db2_port`` (env
+  ``DB2_PORT``), and keyword-only ``activate_database``, ``host_port``, ``env``, ``registry_vars``, ``shm_size``,
+  ``mem_limit``, ``platform`` and ``init_sql`` parameters on ``provide_db2_service``.
+* ``configure_sybase_monitoring``, ``sybase_enable_monitoring`` (default ``False``, env ``SYBASE_ENABLE_MONITORING``)
+  and ``sybase_port`` (env ``SYBASE_PORT``) fixtures, ``user`` / ``password`` overrides on
+  ``SybaseService.exec_sql()``, and keyword-only ``enable_monitoring``, ``host_port``, ``env`` and ``init_sql``
+  parameters on ``provide_sybase_service``.
+* ``exec_mongosh``, ``MongoDBService.uri``, ``MongoDBService.exec_js()``, ``MongoDBService.set_profiling_level()`` and
+  ``MongoDBService.replica_set``, session fixtures ``mongodb_username`` (env ``MONGODB_USER``; ``""`` or ``None`` for
+  unauthenticated mode), ``mongodb_password`` (env ``MONGODB_PASSWORD``), ``mongodb_database_name`` (env
+  ``MONGODB_DATABASE``), ``mongodb_port`` (env ``MONGODB_PORT``) and ``mongodb_replica_set`` (env
+  ``MONGODB_REPLICA_SET``, bootstrapping a single-node replica set with an automatic internal ``--keyFile`` and
+  writable ``PRIMARY`` election), and keyword-only ``host_port``, ``replica_set``, ``command``, ``env``, ``init_js``,
+  ``profiling_level`` and ``slow_ms`` parameters on ``provide_mongodb_service``.
 
 Changed
 ~~~~~~~
@@ -245,6 +297,18 @@ Fixed
   ``ORA-01920`` and ``ORA-28007``), and ``ensure_oracle_user``, ``ensure_oracle_adb_user``, and
   ``enable_oracle_ords_schema`` escape single quotes in PL/SQL literals and retry transient ``ORA-*`` startup,
   listener, and lock errors.
+* ``provide_postgres_service`` now forwards ``POSTGRES_USER`` and ``POSTGRES_DB`` into the container environment (and
+  omits an empty ``POSTGRES_PASSWORD`` when ``POSTGRES_HOST_AUTH_METHOD=trust`` is supplied) so non-``postgres``
+  superusers and custom base database names pass readiness and provisioning cleanly.
+* ``provide_mysql_service`` and ``provide_mariadb_service`` now honor their ``database`` parameter on ``service.db``
+  (and ``<database>_<worker>`` under ``pytest-xdist`` ``"database"`` isolation) instead of hardcoding
+  ``"pytest_databases"``, and combine in-container readiness queries with ``tcp_port_open`` (alongside ``db2`` and
+  ``mongodb``).
+* ``provide_oracle_service`` now runs ``ensure_oracle_user`` under a cross-worker file lock in single-process runs and
+  ``pytest-xdist`` ``"server"`` isolation as well as ``"database"`` isolation, granting consistent ``CONNECT``,
+  ``RESOURCE``, ``DBA`` and ``QUOTA UNLIMITED ON USERS`` privileges across all execution modes.
+* ``ContainerService.run(exec_after_start=...)`` now runs once per shared container under a cross-worker file lock and
+  raises ``RuntimeError`` when the post-start command exits with a non-zero status.
 
 Deprecated
 ~~~~~~~~~~
@@ -264,7 +328,7 @@ Deprecated
 * ``cockroachdb_connection``; use ``cockroachdb_service`` and open your own ``psycopg`` connection. Removal in 1.0.0.
 * ``mongodb_connection`` and ``mongodb_database``; use ``mongodb_service`` and open your own ``pymongo`` client.
   Each now emits a single warning. Removal in 1.0.0.
-* ``oracle_18c_connection``, ``oracle_23ai_connection``, ``oracle_startup_connection`` and ``oracle_responsive``;
+* ``oracle_18c_connection``, ``oracle_26ai_connection``, ``oracle_startup_connection`` and ``oracle_responsive``;
   use ``oracle_service`` (or the versioned services) and open your own ``oracledb`` connection. Removal in 1.0.0.
 * ``spanner_connection``, ``SpannerService.credentials``, ``SpannerService.client_options`` and the ``credentials``
   argument of ``SpannerService`` (now ignored); build the client, ``AnonymousCredentials()`` and
@@ -302,6 +366,10 @@ Breaking
   (``oracledb``) and ``valkey`` extras no longer install a driver, because the services check readiness without
   one. If you use the deprecated ``cockroachdb_connection``, ``mongodb_connection``, ``mongodb_database`` or
   ``oracle_*_connection`` fixtures, install ``psycopg``, ``pymongo`` or ``oracledb`` directly.
+* ``oracle_23ai_service``, ``oracle_23ai_image``, ``oracle_23ai_service_name`` and ``oracle_23ai_connection`` are
+  renamed to ``oracle_26ai_service`` (container name ``oracle26ai``), ``oracle_26ai_image`` (env ``ORACLE_26AI_IMAGE``),
+  ``oracle_26ai_service_name`` (env ``ORACLE_26AI_SERVICE_NAME``) and ``oracle_26ai_connection`` to match Oracle AI
+  Database 26ai. ``oracle_service`` aliases ``oracle_26ai_service``.
 
 0.19.0 (2026-05-23)
 -------------------
