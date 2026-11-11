@@ -297,6 +297,7 @@ def test_spanner_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     import sys
     from unittest.mock import MagicMock
     import pytest
+    from pytest_databases._service import DockerService
     from pytest_databases.types import ServiceContainer
 
     pytest_plugins = ["pytest_databases.docker.spanner"]
@@ -318,8 +319,8 @@ def test_spanner_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
 
     @pytest.fixture(scope="session")
     def docker_service():
-        mock_ds = MagicMock()
-        mock_ds.get_port_for_Config.return_value = 9020
+        mock_ds = MagicMock(spec=DockerService)
+        mock_ds.resolve_port.return_value = 9020
         @contextmanager
         def _run(image, **kwargs):
             yield ServiceContainer(host="127.0.0.1", port=9010, container=MagicMock())
@@ -327,6 +328,7 @@ def test_spanner_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
         return mock_ds
 
     def test_fixtures(
+        docker_service,
         xdist_spanner_isolation_level,
         spanner_project,
         spanner_instance_name,
@@ -341,7 +343,10 @@ def test_spanner_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
         assert spanner_database_name == "emulator-test-database"
         assert "cloud-spanner-emulator" in spanner_image
         assert spanner_service.port == 9010
+        assert spanner_service.rest_port == 9020
+        assert spanner_service.rest_endpoint == "127.0.0.1:9020"
         assert spanner_connection is not None
+        docker_service.resolve_port.assert_called_once_with(spanner_service.container, 9020)
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", "-W", "ignore::DeprecationWarning")
     result.assert_outcomes(passed=1)

@@ -367,7 +367,7 @@ def test_provide_localstack_service_and_cli_errors(
 
     with localstack.provide_localstack_service(
         container_service=mock_docker,
-        localstack_image="nahuelnucera/ministack:latest",
+        localstack_image=localstack._DEFAULT_EMULATOR_IMAGE,
         localstack_region="us-east-1",
         localstack_access_key="test",
         localstack_secret_key="test",
@@ -379,6 +379,7 @@ def test_provide_localstack_service_and_cli_errors(
         assert svc.endpoint_url == "http://127.0.0.1:4566"
 
     check = mock_docker.run.call_args.kwargs["check"]
+    assert mock_docker.run.call_args.kwargs["image"] == localstack._DEFAULT_EMULATOR_IMAGE
     assert mock_docker.run.call_args.kwargs["name"] == expected_name
     assert check(svc_container) is True
     monkeypatch.setattr(localstack, "_health_is_ready", lambda *_a, **_kw: False)
