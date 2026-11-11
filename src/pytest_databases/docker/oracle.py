@@ -586,6 +586,9 @@ def provide_oracle_service(
 
     Yields:
         An OracleService handle configured for the active worker.
+
+    Raises:
+        ValueError: If ``timeout`` is not a positive integer.
     """
     _validate_positive_timeout(timeout, name="timeout")
     worker_num = get_xdist_worker_num()
