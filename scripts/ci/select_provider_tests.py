@@ -68,9 +68,18 @@ def validate_manifest(manifest: Mapping[str, Any], *, project_root: Path = PROJE
         if not isinstance(provider, Mapping):
             message = f"provider {provider_id} must be a mapping"
             raise ManifestValidationError(message)
+        image_required = provider.get("image_required", True)
+        if not isinstance(image_required, bool):
+            message = f"provider {provider_id} image_required must be a boolean"
+            raise ManifestValidationError(message)
         for key in ("source_globs", "test_paths", "images", "docs_globs"):
             values = provider.get(key)
-            if not isinstance(values, list) or not values or not all(isinstance(value, str) for value in values):
+            allow_empty = key == "images" and not image_required
+            if (
+                not isinstance(values, list)
+                or (not values and not allow_empty)
+                or not all(isinstance(value, str) for value in values)
+            ):
                 if key == "images":
                     message = f"provider {provider_id} must own at least one image"
                 else:
@@ -363,7 +372,7 @@ def render_summary(selection: Mapping[str, Any], *, manifest: Mapping[str, Any] 
     images = "\n".join(f"- `{image}`" for image in selection["images"]) or "- none"
     provider_images = (
         "\n".join(
-            f"- **{provider_id}**: {', '.join(f'`{image}`' for image in owned_images)}"
+            f"- **{provider_id}**: {', '.join(f'`{image}`' for image in owned_images) or 'none'}"
             for provider_id, owned_images in selection["provider_images"].items()
         )
         or "- none"

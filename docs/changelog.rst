@@ -188,6 +188,15 @@ Added
   ``postgres_database`` fixture (default ``"pytest_databases"``, env ``POSTGRES_DATABASE``), ``POSTGRES_USER`` env
   override on ``postgres_user``, and keyword-only ``database``, ``command``, ``env``, ``shm_size``, ``mem_limit``,
   ``volumes`` and ``init_sql`` parameters on ``provide_postgres_service``.
+* ``teradata_service`` (``TeradataService``) and ``teradata_external_service`` (``ExternalTeradataService``) in
+  ``pytest_databases.docker.teradata`` with ``dbs_port``, ``connection_config``, ``provide_teradata_service``,
+  ``provide_external_teradata_service``, and session fixtures ``teradata_image`` (env ``TERADATA_IMAGE`` /
+  ``TERADATA_TEST_IMAGE``), ``teradata_external_host`` (env ``TERADATA_EXTERNAL_HOST`` / ``TERADATA_HOST``),
+  ``teradata_external_port`` (env ``TERADATA_EXTERNAL_PORT`` / ``TERADATA_PORT``), ``teradata_port``,
+  ``teradata_user``, ``teradata_password``, ``teradata_database``, ``teradata_logmech``, ``teradata_logdata``,
+  ``teradata_sslmode``, ``teradata_encryptdata``, ``teradata_tmode``, ``teradata_startup_timeout`` (default
+  ``300.0``), ``teradata_service_environment`` and ``xdist_teradata_isolation_level`` (default ``"server"``),
+  plus ``image_required`` support in the CI provider manifest.
 * ``exec_mysql`` / ``MySQLService.exec_sql()`` and ``exec_mariadb`` / ``MariaDBService.exec_sql()`` (passing
   credentials via ``MYSQL_PWD``), ``mysql_port`` (env ``MYSQL_PORT``) and ``mariadb_port`` (env ``MARIADB_PORT``)
   fixtures, ``MYSQL_*`` / ``MARIADB_*`` environment variable lookups on user/password/database fixtures, ``root``

@@ -2571,7 +2571,7 @@ wheels = [
 
 [[package]]
 name = "pytest-databases"
-version = "0.20.0b2"
+version = "0.20.0b3"
 source = { editable = "." }
 dependencies = [
     { name = "docker" },
