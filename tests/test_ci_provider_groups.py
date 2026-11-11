@@ -371,10 +371,10 @@ def test_render_summary_dynamic_cost_budgets(
     if use_live:
         manifest = load_manifest()
         expected_budgets = {
-            "shared_runtime_jobs": 31,
-            "shared_runtime_pulls": 72,
-            "full_jobs": 155,
-            "full_pulls": 360,
+            "shared_runtime_jobs": 32,
+            "shared_runtime_pulls": 73,
+            "full_jobs": 160,
+            "full_pulls": 365,
         }
     else:
         manifest = _synthetic_budget_manifest()

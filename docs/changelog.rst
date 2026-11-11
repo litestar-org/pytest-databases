@@ -140,6 +140,11 @@ Added
   the native client libraries and sets ``SQLANY16`` / ``SQLANY_API_DLL`` for the session), and
   ``provide_sqlanywhere_service``, ``exec_dbisql``, ``extract_sqlanywhere_client_libs`` and
   ``sqlanywhere_client_environment``.
+* ``hardcharger_service`` (``HardchargerService`` with ``uri`` and ``connection_kwargs``) for
+  `Hardcharger <https://github.com/gizmodata/hardcharger>`_ (default ``ghcr.io/gizmodata/hardcharger:latest``, port
+  ``31337``, plain HTTP), the ``hardcharger_image``, ``hardcharger_username``, ``hardcharger_password`` and
+  ``xdist_hardcharger_isolation_level`` (default ``database``; one container per worker at either level) fixtures,
+  and ``provide_hardcharger_service``, ``exec_hardcharger`` and ``HARDCHARGER_PORT``.
 * ``"template"`` value for ``xdist_postgres_isolation_level`` (typed ``PostgresXdistIsolationLevel``): one container,
   a template database built once under a file lock, and the service database cloned from it with
   ``CREATE DATABASE ... TEMPLATE``, with or without ``pytest-xdist``, for every PostgreSQL family service. Fixtures
