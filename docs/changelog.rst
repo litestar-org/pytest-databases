@@ -166,6 +166,10 @@ Added
   worker), and ``provide_cloudflare_service``.
 * ``pytest_databases.helpers.http_request(url, *, method, data, headers, timeout)``, which returns ``(status, body)``
   for container endpoints without going through ``HTTP_PROXY``.
+* ``oracle_startup_timeout`` (default ``180``, env ``ORACLE_STARTUP_TIMEOUT``) and ``oracle_adb_startup_timeout``
+  (default ``420``, env ``ORACLE_ADB_STARTUP_TIMEOUT``) fixtures, plus keyword-only ``timeout`` and ``pause``
+  parameters on ``provide_oracle_service`` (defaults ``180`` and ``1.0``) and ``provide_oracle_adb_service``
+  (defaults ``420`` and ``2.0``).
 
 Changed
 ~~~~~~~
@@ -224,6 +228,22 @@ Changed
   fixtures ``elasticsearch8_service`` and ``oracle_23ai_startup_connection``.
 * The deprecated ``@contextmanager`` connection helpers warn with ``stacklevel=3``, which attributes the warning to
   the fixture rather than ``contextlib``.
+* CI workflows ``docs.yml`` and ``release.yaml`` enforce ``uv sync --frozen``, and the unused ``cd.yaml`` workflow is
+  removed.
+* ``scripts/ci/select_provider_tests.py`` computes provider cost budgets dynamically from
+  ``.github/ci/provider-groups.json``, dropping the unused ``cloud-sdk:slim`` image from ``spanner``.
+
+Fixed
+~~~~~
+
+* Loading the ``pytest11`` plugin (``pytest_databases._service``) no longer imports ``pytest_databases.docker`` on
+  startup; ``TRUE_VALUES`` is now defined in ``pytest_databases.helpers`` and re-exported from
+  ``pytest_databases.docker`` for backward compatibility.
+* ``provide_oracle_service`` (``timeout=180``, ``pause=1.0``) and ``provide_oracle_adb_service`` (``timeout=420``,
+  ``pause=2.0``) now gate ``sqlplus`` readiness probes with ``tcp_port_open`` before running in-container queries,
+  ``ensure_oracle_user`` provisions ``pytest-xdist`` worker users idempotently (tolerating ``ORA-01920``), and
+  ``ensure_oracle_user``, ``ensure_oracle_adb_user``, and ``enable_oracle_ords_schema`` retry transient ``ORA-*``
+  ``SQL*Plus`` errors.
 
 Deprecated
 ~~~~~~~~~~

@@ -96,12 +96,55 @@ The wallet and endpoints are available on the service:
        entries = parse_tnsnames((oracle_adb_service.wallet_dir / "tnsnames.ora").read_text(encoding="utf-8"))
        assert "myatp_high" in entries
 
+Parallel Execution
+------------------
+
+By default, ``xdist_oracle_isolation_level`` returns ``"database"``. Under
+``pytest-xdist``, workers share one container per Oracle flavor
+(``oracle23ai``, ``oracle18c``, and ``oracle_adb``) and each worker receives
+an isolated user named ``<oracle_user>_<worker>`` (for example ``app_0`` and
+``app_1``). Worker users are provisioned idempotently (tolerating
+``ORA-01920``) with bounded retries on transient ``ORA-*`` startup or lock
+errors.
+
+High-concurrency suites that open unpooled per-test connections against the
+shared container (for example, SQLAlchemy ``NullPool`` across large test suites
+without ``oracledb`` ``retry_count``) can briefly exhaust TNS listener handlers
+and fail with ``ORA-12516`` (``DPY-6000``). Resolve listener contention using
+either of the following options:
+
+1. Enable connection pooling instead of ``NullPool``, or configure ``oracledb``
+   ``retry_count`` and ``retry_delay`` in your driver connection arguments so
+   transient listener refusals retry automatically.
+2. Override ``xdist_oracle_isolation_level`` to return ``"server"`` so each
+   worker runs a dedicated transient container and listener (at higher memory
+   and startup cost):
+
+.. code-block:: python
+
+   import pytest
+   from pytest_databases.types import XdistIsolationLevel
+
+
+   @pytest.fixture(scope="session")
+   def xdist_oracle_isolation_level() -> XdistIsolationLevel:
+       return "server"
+
 Available Fixtures
 ------------------
 
 * ``oracle_user``: The application username created in the Oracle container.
 * ``oracle_password``: The application user password.
 * ``oracle_system_password``: The Oracle system password.
+* ``xdist_oracle_isolation_level``: Worker isolation mode: ``"database"`` (default,
+  shared container with per-worker users) or ``"server"`` (one transient container
+  per worker).
+* ``oracle_startup_timeout``: Startup timeout in seconds for ``oracle_18c_service``
+  and ``oracle_23ai_service`` (default ``180``, env ``ORACLE_STARTUP_TIMEOUT``;
+  non-integer or non-positive values raise ``ValueError``).
+* ``oracle_adb_startup_timeout``: Startup timeout in seconds for
+  ``oracle_adb_service`` (default ``420``, env ``ORACLE_ADB_STARTUP_TIMEOUT``;
+  non-integer or non-positive values raise ``ValueError``).
 * ``oracle_service``: Alias for the latest supported Oracle service.
 
 The following version-specific and Autonomous Database fixtures are also available:
