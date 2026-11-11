@@ -11,7 +11,7 @@ import warnings
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Any
 
-from pytest_databases.helpers import simple_string_hash
+from pytest_databases.helpers import TRUE_VALUES, simple_string_hash
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -27,7 +27,6 @@ __all__ = (
     "wait_until_responsive",
 )
 
-TRUE_VALUES = {"True", "true", "1", "yes", "y", "Y", "T", "on", "enabled", "ok"}
 SKIP_DOCKER_COMPOSE: bool = os.environ.get("SKIP_DOCKER_COMPOSE", "False") in TRUE_VALUES
 USE_LEGACY_DOCKER_COMPOSE: bool = os.environ.get("USE_LEGACY_DOCKER_COMPOSE", "False") in TRUE_VALUES
 COMPOSE_PROJECT_NAME: str = f"pytest-databases-{simple_string_hash(__file__)}"

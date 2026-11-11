@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
@@ -14,9 +15,11 @@ from pytest_databases import (
     ContainerService,
     DockerService,
     derive_session_owner_id,
+    docker,
+    helpers,
     stop_owned_containers,
 )
-from pytest_databases._service import _RUNTIME_STASH_KEY, _cleanup_session_containers
+from pytest_databases._service import _RUNTIME_STASH_KEY, _cleanup_session_containers, should_keep_containers
 from pytest_databases.runtime import ContainerRuntimeConfig, RuntimeResolutionError, RuntimeType
 
 if TYPE_CHECKING:
@@ -245,3 +248,59 @@ def test_session_cleanup_warns_instead_of_raising_on_resolution_error(
 
     with pytest.warns(RuntimeWarning, match="no runtime reachable"):
         _cleanup_session_containers(make_finishing_session(tmp_path, None), ctrl_file)
+
+
+def test_pytest_plugin_does_not_import_docker_package(pytester: pytest.Pytester) -> None:
+    """Ensure pytest11 plugin startup does not import pytest_databases.docker."""
+    pytester.makepyfile(
+        textwrap.dedent(
+            """
+            import sys
+
+
+            def test_no_eager_docker_import() -> None:
+                assert "pytest_databases._service" in sys.modules
+                assert "pytest_databases.docker" not in sys.modules
+            """
+        )
+    )
+    result = pytester.runpytest_subprocess("-o", "addopts=", "-q")
+    result.assert_outcomes(passed=1)
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [
+        ("True", True),
+        ("true", True),
+        ("1", True),
+        ("yes", True),
+        (" yes ", True),
+        ("y", True),
+        ("Y", True),
+        ("T", True),
+        ("on", True),
+        ("enabled", True),
+        ("ok", True),
+        (None, False),
+        ("", False),
+        ("false", False),
+        ("0", False),
+        ("TRUE", False),
+    ],
+)
+def test_true_values_compatibility_and_keep_containers(
+    monkeypatch: pytest.MonkeyPatch,
+    env_value: str | None,
+    expected: bool,
+) -> None:
+    """Ensure TRUE_VALUES stays compatible across helpers and docker packages."""
+    assert docker.TRUE_VALUES is helpers.TRUE_VALUES
+    assert len(helpers.TRUE_VALUES) == 10
+    assert "TRUE_VALUES" in helpers.__all__
+    assert "TRUE_VALUES" in docker.__all__
+    if env_value is None:
+        monkeypatch.delenv("PYTEST_DATABASES_KEEP_CONTAINERS", raising=False)
+    else:
+        monkeypatch.setenv("PYTEST_DATABASES_KEEP_CONTAINERS", env_value)
+    assert should_keep_containers(None) is expected

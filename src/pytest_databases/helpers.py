@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     import pytest
 
 __all__ = (
+    "TRUE_VALUES",
     "exec_output_to_bytes",
     "get_cpu_architecture",
     "get_xdist_worker_count",
@@ -31,6 +32,7 @@ __all__ = (
     "tcp_port_open",
 )
 
+TRUE_VALUES: set[str] = {"True", "true", "1", "yes", "y", "Y", "T", "on", "enabled", "ok"}
 _DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 

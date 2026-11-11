@@ -16,8 +16,7 @@ import filelock
 import pytest
 from docker.errors import APIError, DockerException, ImageNotFound
 
-from pytest_databases.docker import TRUE_VALUES
-from pytest_databases.helpers import get_xdist_worker_id
+from pytest_databases.helpers import TRUE_VALUES, get_xdist_worker_id
 from pytest_databases.runtime import (
     ContainerRuntimeConfig,
     RuntimeResolutionError,
