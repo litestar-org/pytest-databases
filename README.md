@@ -41,6 +41,7 @@ Ready-made database and cloud emulator fixtures for your pytest tests.
 - **YugabyteDB**: Distributed PostgreSQL-compatible database
 - **MongoDB**: Document database
 - **GizmoSQL**: Apache Arrow Flight SQL service (DuckDB and SQLite backends)
+- **Hardcharger**: DuckDB analytics server speaking Chargewire (HTTP + Apache Arrow)
 - **Redis / Valkey / Dragonfly / KeyDB**: In-memory key-value stores
 - **Elasticsearch**: Elasticsearch 7, 8, and 9
 - **Azure Blob Storage**: Azurite emulator

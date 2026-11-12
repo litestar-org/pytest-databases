@@ -38,6 +38,7 @@ keywords = [
   "gizmosql",
   "flightsql",
   "teradata",
+  "hardcharger",
 ]
 # options under https://pypi.org/classifiers/
 classifiers = [
@@ -425,6 +426,7 @@ markers = [
   "mssql: Microsoft SQL Server Tests",
   "elasticsearch: Elasticsearch Tests",
   "gizmosql: GizmoSQL Tests",
+  "hardcharger: Hardcharger Tests",
 ]
 testpaths = ["tests"]
 
