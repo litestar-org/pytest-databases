@@ -35,4 +35,5 @@ This section provides detailed information on the supported databases, including
    snowflake
    sybase
    sqlanywhere
+   teradata
    cloudflare

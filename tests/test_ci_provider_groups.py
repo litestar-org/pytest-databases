@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from scripts.ci import select_provider_tests
+from scripts.ci import pull_images, select_provider_tests
 from scripts.ci.check_required_jobs import evaluate_required_jobs
 from scripts.ci.pull_images import UnknownProviderError, pull_provider_images
 from scripts.ci.run_tests import build_compatibility_command, build_provider_command
@@ -300,6 +300,42 @@ def test_build_commands_and_evaluate_required_jobs() -> None:
     ]
 
 
+def test_validate_manifest_and_pull_images_allow_image_optional_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify image_required=false allows empty images in validation, summary rendering, and image pulls."""
+    manifest = load_manifest()
+    assert manifest["providers"]["teradata"]["images"] == []
+    assert manifest["providers"]["teradata"]["image_required"] is False
+
+    selection = select_providers(manifest, ["src/pytest_databases/docker/teradata.py"])
+    assert selection["providers"] == ["teradata"]
+    assert selection["image_pull_count"] == 0
+    assert selection["images"] == []
+    summary = render_summary(selection, manifest=manifest)
+    assert "- **teradata**: none" in summary
+
+    pull_calls: list[list[str]] = []
+
+    def _record_pull(cmd: list[str]) -> bool:
+        pull_calls.append(cmd)
+        return True
+
+    assert pull_provider_images(manifest, "teradata", run_command=_record_pull) == []
+    assert pull_calls == []
+
+    monkeypatch.setattr(pull_images.shutil, "which", lambda _name: None)
+    assert pull_images.main(["--provider", "teradata"]) == 0
+
+    missing_required_images = copy.deepcopy(manifest)
+    missing_required_images["providers"]["minio"]["images"] = []
+    with pytest.raises(ManifestValidationError, match="must own at least one image"):
+        validate_manifest(missing_required_images, project_root=PROJECT_ROOT)
+
+    invalid_flag = copy.deepcopy(manifest)
+    invalid_flag["providers"]["teradata"]["image_required"] = "no"
+    with pytest.raises(ManifestValidationError, match="image_required must be a boolean"):
+        validate_manifest(invalid_flag, project_root=PROJECT_ROOT)
+
+
 @pytest.mark.parametrize(
     ("use_live", "include_cost_budgets", "pass_manifest", "expected_load_calls"),
     [
@@ -334,9 +370,9 @@ def test_render_summary_dynamic_cost_budgets(
     if use_live:
         manifest = load_manifest()
         expected_budgets = {
-            "shared_runtime_jobs": 30,
+            "shared_runtime_jobs": 31,
             "shared_runtime_pulls": 72,
-            "full_jobs": 150,
+            "full_jobs": 155,
             "full_pulls": 360,
         }
     else:

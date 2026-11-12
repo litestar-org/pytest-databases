@@ -53,6 +53,8 @@ def pull_provider_images(
         return image
 
     images = providers[provider_id]["images"]
+    if not images:
+        return []
     with ThreadPoolExecutor(max_workers=min(workers, len(images))) as executor:
         return sorted(failure for failure in executor.map(pull, images) if failure is not None)
 
@@ -64,12 +66,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args(argv)
 
+    manifest = load_manifest()
+    validate_manifest(manifest)
+    providers = manifest["providers"]
+    if args.provider not in providers:
+        sys.stderr.write(f"unknown provider: {args.provider}\n")
+        return 2
+    if not providers[args.provider]["images"]:
+        return 0
     docker_executable = shutil.which("docker")
     if docker_executable is None:
         sys.stderr.write("docker executable was not found\n")
         return 2
-    manifest = load_manifest()
-    validate_manifest(manifest)
     try:
         failures = pull_provider_images(
             manifest,

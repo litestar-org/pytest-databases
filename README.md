@@ -52,6 +52,7 @@ Ready-made database and cloud emulator fixtures for your pytest tests.
 - **Floci**: Floci emulators for AWS, Azure, GCP, and OCI, one container per cloud
 - **SAP ASE (Sybase)**: SAP Adaptive Server Enterprise 16.0 (`datagrip/sybase:16.0`)
 - **SAP SQL Anywhere**: SQL Anywhere 16 (`jaschweder/sybase:latest`)
+- **Teradata Vantage**: Opt-in external endpoint (`teradata_external_service`) and BYO container image (`teradata_service`) fixtures
 - **Cloudflare KV, R2, and D1**: Miniflare 5 Local Explorer and R2 S3 APIs in a `node:22-slim` container
 - **PostgreSQL template databases**: build the schema once and clone it per test database (`"template"` isolation)
 - **Embedded PostgreSQL**: local `initdb`/`postgres` binaries without a container runtime (`embedded-postgres` extra)

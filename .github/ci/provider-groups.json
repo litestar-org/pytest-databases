@@ -70,6 +70,7 @@
     "tests/test_spanner.py::test_plugin_imports_without_google_cloud_spanner",
     "tests/test_sqlanywhere.py::test_plugin_imports_without_sqlanydb",
     "tests/test_sybase.py::test_plugin_imports_without_sybase_clients",
+    "tests/test_teradata.py::test_plugin_imports_without_teradata_clients",
     "tests/test_valkey.py::test_plugin_imports_without_valkey"
   ],
   "providers": {
@@ -317,6 +318,13 @@
       "test_paths": ["tests/test_sybase.py"],
       "images": ["datagrip/sybase:16.0"],
       "docs_globs": ["docs/supported-databases/sybase.rst"]
+    },
+    "teradata": {
+      "source_globs": ["src/pytest_databases/docker/teradata.py"],
+      "test_paths": ["tests/test_teradata.py"],
+      "images": [],
+      "image_required": false,
+      "docs_globs": ["docs/supported-databases/teradata.rst"]
     },
     "valkey": {
       "source_globs": ["src/pytest_databases/docker/valkey.py"],
