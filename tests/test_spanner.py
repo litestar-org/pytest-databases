@@ -2,27 +2,95 @@
 
 from __future__ import annotations
 
-import email.message
 import io
 import json
+import logging
+import os
+import socket
+import sys
+import threading
+import types
 import urllib.error
-import urllib.request
-from typing import Any
+from contextlib import contextmanager
+from datetime import timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from pytest_databases.docker.spanner import (
+    _SPANNER_LOGGER_NAMES,
     SpannerService,
     _send_spanner_request_with_retry,
     bootstrap_spanner_emulator,
+    configure_spanner_emulator_client_guards,
     provide_spanner_service,
     spanner_connection,
 )
 from pytest_databases.types import ServiceContainer
 from tests.conftest import unwrap_fixture
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
 pytest_plugins = ["pytest_databases.docker.spanner"]
+
+
+@contextmanager
+def _spanner_loopback_server(
+    statuses: list[int],
+    recorded_urls: list[str] | None = None,
+    recorded_payloads: list[dict[str, Any]] | None = None,
+) -> Generator[int, None, None]:
+    """Run a loopback HTTP server returning a deterministic sequence of status codes under poisoned proxies.
+
+    Yields:
+        Bound TCP port on 127.0.0.1.
+    """
+    remaining = list(statuses)
+    port_holder = [0]
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(length) if length > 0 else b"{}"
+            if recorded_urls is not None:
+                recorded_urls.append(f"http://127.0.0.1:{port_holder[0]}{self.path}")
+            if recorded_payloads is not None:
+                recorded_payloads.append(json.loads(raw_body.decode("utf-8")))
+            status = remaining.pop(0) if len(remaining) > 1 else remaining[0]
+            body = b"{}" if status < 400 else b'{"error": "spanner error"}'
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            return
+
+    saved_proxies = {
+        var: os.environ.get(var)
+        for var in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+    }
+    for var in saved_proxies:
+        os.environ[var] = "http://127.0.0.1:1"
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    port_holder[0] = server.server_port
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield port_holder[0]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        for var, prev in saved_proxies.items():
+            if prev is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = prev
 
 
 def test_xdist_spanner_isolation_level_default(xdist_spanner_isolation_level: str) -> None:
@@ -159,38 +227,28 @@ def test_bootstrap_spanner_emulator_rest_calls() -> None:
     recorded_urls: list[str] = []
     recorded_payloads: list[dict[str, Any]] = []
 
-    def fake_urlopen(req: urllib.request.Request, timeout: int = 5) -> io.BytesIO:
-        recorded_urls.append(req.full_url)
-        assert req.data is not None
-        raw_data = req.data if isinstance(req.data, bytes) else str(req.data).encode("utf-8")
-        recorded_payloads.append(json.loads(raw_data.decode("utf-8")))
-        return io.BytesIO(b"{}")
-
-    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+    with _spanner_loopback_server([200], recorded_urls=recorded_urls, recorded_payloads=recorded_payloads) as port:
         bootstrap_spanner_emulator(
             "127.0.0.1",
-            9020,
+            port,
             project="test-proj",
             instance_name="test-inst",
             database_name="test-db",
         )
 
     assert len(recorded_urls) == 2
-    assert recorded_urls[0] == "http://127.0.0.1:9020/v1/projects/test-proj/instances"
+    assert recorded_urls[0] == f"http://127.0.0.1:{port}/v1/projects/test-proj/instances"
     assert recorded_payloads[0]["instanceId"] == "test-inst"
-    assert recorded_urls[1] == "http://127.0.0.1:9020/v1/projects/test-proj/instances/test-inst/databases"
+    assert recorded_urls[1] == f"http://127.0.0.1:{port}/v1/projects/test-proj/instances/test-inst/databases"
     assert recorded_payloads[1]["createStatement"] == "CREATE DATABASE `test-db`"
 
 
 def test_bootstrap_spanner_emulator_handles_409() -> None:
     """Ensure bootstrap_spanner_emulator treats HTTP 409 conflict as success."""
-    headers = email.message.Message()
-    http_error = urllib.error.HTTPError("http://test", 409, "Conflict", headers, io.BytesIO(b"already exists"))
-
-    with patch("urllib.request.urlopen", side_effect=http_error):
+    with _spanner_loopback_server([409]) as port:
         bootstrap_spanner_emulator(
             "127.0.0.1",
-            9020,
+            port,
             project="test-proj",
             instance_name="test-inst",
             database_name="test-db",
@@ -199,26 +257,28 @@ def test_bootstrap_spanner_emulator_handles_409() -> None:
 
 def test_bootstrap_spanner_emulator_raises_on_500() -> None:
     """Ensure bootstrap_spanner_emulator raises HTTPError on 500 error."""
-    headers = email.message.Message()
-    http_error = urllib.error.HTTPError(
-        "http://test",
-        500,
-        "Internal Server Error",
-        headers,
-        io.BytesIO(b"internal error"),
-    )
-
-    with (
-        patch("urllib.request.urlopen", side_effect=http_error),
-        pytest.raises(urllib.error.HTTPError),
-    ):
+    with _spanner_loopback_server([500]) as port, pytest.raises(urllib.error.HTTPError) as exc_info:
         bootstrap_spanner_emulator(
             "127.0.0.1",
-            9020,
+            port,
             project="test-proj",
             instance_name="test-inst",
             database_name="test-db",
         )
+    assert exc_info.value.code == 500
+
+
+def test_send_spanner_request_with_retry_retries_503_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _send_spanner_request_with_retry retries transient 503 responses and succeeds on 200."""
+    monkeypatch.setattr("pytest_databases.docker.spanner.time.sleep", lambda _: None)
+    recorded_urls: list[str] = []
+    with _spanner_loopback_server([503, 200], recorded_urls=recorded_urls) as port:
+        _send_spanner_request_with_retry(
+            f"http://127.0.0.1:{port}/v1/projects/p/instances",
+            {"instanceId": "inst"},
+            max_attempts=3,
+        )
+    assert len(recorded_urls) == 2
 
 
 def test_plugin_imports_without_google_cloud_spanner(pytester: pytest.Pytester) -> None:
@@ -278,16 +338,162 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
 def test_send_spanner_request_with_retry_urlerror_exhaustion(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _send_spanner_request_with_retry retries URLError and raises after max attempts."""
     monkeypatch.setattr("pytest_databases.docker.spanner.time.sleep", lambda _: None)
-    monkeypatch.setattr(
-        "pytest_databases.docker.spanner.urllib.request.urlopen",
-        MagicMock(side_effect=urllib.error.URLError("connection refused")),
-    )
-    with pytest.raises(urllib.error.URLError, match="connection refused"):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]
+
+    with pytest.raises(urllib.error.URLError):
         _send_spanner_request_with_retry(
-            "http://127.0.0.1:9020/v1/projects/p/instances",
+            f"http://127.0.0.1:{closed_port}/v1/projects/p/instances",
             {"instanceId": "inst"},
             max_attempts=2,
         )
+
+
+def test_spanner_service_emulator_host_property() -> None:
+    """Verify SpannerService.emulator_host exposes host:port for SPANNER_EMULATOR_HOST."""
+    service = SpannerService(
+        host="127.0.0.1",
+        port=9010,
+        container=MagicMock(),
+        project="test-proj",
+        instance_name="test-inst",
+        database_name="test-db",
+    )
+    assert service.emulator_host == "127.0.0.1:9010"
+
+
+@pytest.mark.parametrize(
+    ("preset_metrics", "expected_inside", "expected_after"),
+    [
+        (None, "true", None),
+        ("false", "false", "false"),
+    ],
+)
+def test_configure_spanner_emulator_client_guards_metrics_env(
+    monkeypatch: pytest.MonkeyPatch,
+    preset_metrics: str | None,
+    expected_inside: str,
+    expected_after: str | None,
+) -> None:
+    """Verify SPANNER_DISABLE_BUILTIN_METRICS defaults to true and restores prior environment state."""
+    if preset_metrics is None:
+        monkeypatch.delenv("SPANNER_DISABLE_BUILTIN_METRICS", raising=False)
+    else:
+        monkeypatch.setenv("SPANNER_DISABLE_BUILTIN_METRICS", preset_metrics)
+
+    with configure_spanner_emulator_client_guards():
+        assert os.environ.get("SPANNER_DISABLE_BUILTIN_METRICS") == expected_inside
+
+    assert os.environ.get("SPANNER_DISABLE_BUILTIN_METRICS") == expected_after
+
+
+def test_configure_spanner_emulator_client_guards_sessions_and_loggers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify maintenance polling intervals, logger levels, and closed-stream ValueError handling restore on exit."""
+    google_pkg = types.ModuleType("google")
+    cloud_pkg = types.ModuleType("google.cloud")
+    spanner_pkg = types.ModuleType("google.cloud.spanner_v1")
+    async_pkg = types.ModuleType("google.cloud.spanner_v1._async")
+    sync_mod = types.ModuleType("google.cloud.spanner_v1.database_sessions_manager")
+    async_mod = types.ModuleType("google.cloud.spanner_v1._async.database_sessions_manager")
+    original_sync_interval = timedelta(seconds=300)
+    original_async_interval = timedelta(seconds=600)
+
+    class _SyncManager:
+        _MAINTENANCE_THREAD_POLLING_INTERVAL = original_sync_interval
+
+    class _AsyncManager:
+        _MAINTENANCE_THREAD_POLLING_INTERVAL = original_async_interval
+
+    sync_mod.DatabaseSessionsManager = _SyncManager  # type: ignore[attr-defined]
+    async_mod.DatabaseSessionsManager = _AsyncManager  # type: ignore[attr-defined]
+    spanner_pkg.database_sessions_manager = sync_mod  # type: ignore[attr-defined]
+    async_pkg.database_sessions_manager = async_mod  # type: ignore[attr-defined]
+    spanner_pkg._async = async_pkg  # type: ignore[attr-defined]
+    cloud_pkg.spanner_v1 = spanner_pkg  # type: ignore[attr-defined]
+    google_pkg.cloud = cloud_pkg  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, google_pkg.__name__, google_pkg)
+    monkeypatch.setitem(sys.modules, cloud_pkg.__name__, cloud_pkg)
+    monkeypatch.setitem(sys.modules, spanner_pkg.__name__, spanner_pkg)
+    monkeypatch.setitem(sys.modules, async_pkg.__name__, async_pkg)
+    monkeypatch.setitem(sys.modules, sync_mod.__name__, sync_mod)
+    monkeypatch.setitem(sys.modules, async_mod.__name__, async_mod)
+
+    target_logger = logging.getLogger(_SPANNER_LOGGER_NAMES[0])
+    error_logger = logging.getLogger(_SPANNER_LOGGER_NAMES[1])
+    original_target_level = target_logger.level
+    original_error_level = error_logger.level
+    target_logger.setLevel(logging.INFO)
+    error_logger.setLevel(logging.ERROR)
+
+    closed_stream = io.StringIO()
+    closed_stream.close()
+    closed_handler = logging.StreamHandler(closed_stream)
+    target_logger.addHandler(closed_handler)
+
+    def _raise_closed(_record: logging.LogRecord) -> None:
+        msg = "I/O operation on closed file."
+        raise ValueError(msg)
+
+    def _raise_other(_record: logging.LogRecord) -> None:
+        msg = "unrelated value error"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(error_logger, "callHandlers", _raise_closed)
+    dummy_record = logging.LogRecord("x", logging.INFO, __file__, 1, "msg", (), None)
+
+    try:
+        with configure_spanner_emulator_client_guards():
+            assert timedelta(milliseconds=100) == _SyncManager._MAINTENANCE_THREAD_POLLING_INTERVAL
+            assert timedelta(milliseconds=100) == _AsyncManager._MAINTENANCE_THREAD_POLLING_INTERVAL
+            assert target_logger.level == logging.WARNING
+            assert error_logger.level == logging.ERROR
+
+            target_logger.callHandlers(dummy_record)
+            error_logger.callHandlers(dummy_record)
+
+            target_logger.removeHandler(closed_handler)
+            monkeypatch.setattr(target_logger, "callHandlers", _raise_other)
+            with pytest.raises(ValueError, match="unrelated value error"):
+                target_logger.callHandlers(dummy_record)
+
+        assert original_sync_interval == _SyncManager._MAINTENANCE_THREAD_POLLING_INTERVAL
+        assert original_async_interval == _AsyncManager._MAINTENANCE_THREAD_POLLING_INTERVAL
+        assert target_logger.level == logging.INFO
+        assert error_logger.level == logging.ERROR
+    finally:
+        target_logger.removeHandler(closed_handler)
+        target_logger.setLevel(original_target_level)
+        error_logger.setLevel(original_error_level)
+
+
+def test_provide_spanner_service_activates_emulator_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify provide_spanner_service enables emulator client guards around yield and restores on teardown."""
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    monkeypatch.delenv("SPANNER_DISABLE_BUILTIN_METRICS", raising=False)
+    monkeypatch.setattr("pytest_databases.docker.spanner.bootstrap_spanner_emulator", lambda *_a, **_kw: None)
+
+    mock_docker = MagicMock()
+    mock_docker.run.return_value.__enter__.return_value = ServiceContainer(
+        host="127.0.0.1",
+        port=9010,
+        container=MagicMock(),
+    )
+    mock_docker.run.return_value.__exit__.return_value = False
+    mock_docker.resolve_port.return_value = 9020
+
+    with provide_spanner_service(
+        mock_docker,
+        spanner_image="gcr.io/cloud-spanner-emulator/emulator:latest",
+        spanner_project="p",
+        spanner_instance_name="i",
+        spanner_database_name="d",
+        isolation_level="database",
+    ) as service:
+        assert service.emulator_host == "127.0.0.1:9010"
+        assert os.environ.get("SPANNER_DISABLE_BUILTIN_METRICS") == "true"
+
+    assert "SPANNER_DISABLE_BUILTIN_METRICS" not in os.environ
 
 
 def test_spanner_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:

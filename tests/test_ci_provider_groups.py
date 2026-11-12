@@ -47,6 +47,7 @@ def test_live_manifest_validates_against_repository_inventory() -> None:
     assert manifest["supported_python_versions"] == ["3.11", "3.12", "3.13", "3.14", "3.15"]
     assert manifest["providers"]["minio"]["images"] == ["cgr.dev/chainguard/minio:latest"]
     assert manifest["providers"]["spanner"]["images"] == ["gcr.io/cloud-spanner-emulator/emulator:latest"]
+    assert manifest["providers"]["bigquery"]["images"] == ["ghcr.io/goccy/bigquery-emulator:0.8.1"]
 
 
 def test_validate_manifest_rejects_invalid_schema_and_unsafe_paths() -> None:

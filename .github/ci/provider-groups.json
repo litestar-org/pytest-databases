@@ -81,7 +81,7 @@
     "bigquery": {
       "source_globs": ["src/pytest_databases/docker/bigquery.py"],
       "test_paths": ["tests/test_bigquery.py"],
-      "images": ["ghcr.io/goccy/bigquery-emulator:latest"],
+      "images": ["ghcr.io/goccy/bigquery-emulator:0.8.1"],
       "docs_globs": ["docs/supported-databases/bigquery.rst"]
     },
     "cloudflare": {

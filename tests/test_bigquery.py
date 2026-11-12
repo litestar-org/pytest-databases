@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
-import io
 import json
+import os
+import socket
 import sys
+import threading
 import urllib.error
 from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
 
 from pytest_databases.docker import bigquery as bigquery_mod
 from pytest_databases.docker.bigquery import (
+    DEFAULT_BIGQUERY_IMAGE,
     BigQueryService,
     _ensure_bigquery_dataset,
     provide_bigquery_client,
@@ -23,6 +27,56 @@ from pytest_databases.docker.bigquery import (
 )
 from pytest_databases.types import ServiceContainer
 from tests.conftest import assert_legacy_platform_handling
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+
+@contextmanager
+def _bigquery_loopback_server(
+    handler_fn: Any,
+) -> Generator[int, None, None]:
+    """Run a loopback HTTP server dispatching POST requests to handler_fn under poisoned proxy env vars.
+
+    Yields:
+        Bound TCP port on 127.0.0.1.
+    """
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(length) if length > 0 else b"{}"
+            status, payload = handler_fn(self.path, json.loads(raw_body.decode("utf-8")))
+            encoded = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            return
+
+    saved_proxies = {
+        var: os.environ.get(var)
+        for var in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+    }
+    for var in saved_proxies:
+        os.environ[var] = "http://127.0.0.1:1"
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_address[1]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        for var, prev in saved_proxies.items():
+            if prev is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = prev
 
 
 def test_plugin_imports_without_google_cloud_bigquery(pytester: pytest.Pytester) -> None:
@@ -54,19 +108,25 @@ def test_plugin_imports_without_google_cloud_bigquery(pytester: pytest.Pytester)
     result.assert_outcomes(passed=1)
 
 
-def test_query_bigquery_emulator_unit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_query_bigquery_emulator_unit() -> None:
     """Verify ``query_bigquery_emulator`` posts JSON payload and parses emulator response."""
     expected_payload = {"jobComplete": True, "rows": [{"f": [{"v": "1"}]}]}
-    resp = MagicMock()
-    resp.__enter__.return_value = SimpleNamespace(
-        read=lambda: json.dumps(expected_payload).encode("utf-8"),
-    )
-    resp.__exit__.return_value = False
+    captured: list[tuple[str, dict[str, Any]]] = []
 
-    monkeypatch.setattr(bigquery_mod.urllib.request, "urlopen", lambda _req, **_kwargs: resp)
+    def handle_post(path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        captured.append((path, body))
+        return 200, expected_payload
 
-    result = query_bigquery_emulator("127.0.0.1", 9050, "emulator-test-project", "SELECT 1 as one")
+    with _bigquery_loopback_server(handle_post) as port:
+        result = query_bigquery_emulator("127.0.0.1", port, "emulator-test-project", "SELECT 1 as one")
+
     assert result == expected_payload
+    assert captured == [
+        (
+            "/bigquery/v2/projects/emulator-test-project/queries",
+            {"query": "SELECT 1 as one", "useLegacySql": False},
+        )
+    ]
 
 
 def test_deprecated_bigquery_client_and_properties(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -155,7 +215,6 @@ def test_provide_bigquery_service_isolation_modes(monkeypatch: pytest.MonkeyPatc
             ctx.__exit__.return_value = False
             return ctx
 
-    monkeypatch.setattr(bigquery_mod, "get_xdist_worker_num", lambda: 1)
     monkeypatch.setattr(
         bigquery_mod,
         "_ensure_bigquery_dataset",
@@ -163,16 +222,17 @@ def test_provide_bigquery_service_isolation_modes(monkeypatch: pytest.MonkeyPatc
     )
 
     fake_docker: Any = FakeDockerService()
-    with provide_bigquery_service(
-        fake_docker, "database", "ghcr.io/goccy/bigquery-emulator:latest", "linux/x86_64"
-    ) as svc_db:
+    monkeypatch.setattr(bigquery_mod, "get_xdist_worker_num", lambda: None)
+    with provide_bigquery_service(fake_docker, "server", DEFAULT_BIGQUERY_IMAGE, "linux/x86_64") as svc_master:
+        assert svc_master.dataset == "test-dataset"
+
+    monkeypatch.setattr(bigquery_mod, "get_xdist_worker_num", lambda: 1)
+    with provide_bigquery_service(fake_docker, "database", DEFAULT_BIGQUERY_IMAGE, "linux/x86_64") as svc_db:
         assert svc_db.dataset == "test-dataset_1"
-    with provide_bigquery_service(
-        fake_docker, "server", "ghcr.io/goccy/bigquery-emulator:latest", "linux/x86_64"
-    ) as svc_srv:
+    with provide_bigquery_service(fake_docker, "server", DEFAULT_BIGQUERY_IMAGE, "linux/x86_64") as svc_srv:
         assert svc_srv.dataset == "test-dataset"
 
-    assert captured == [("bigquery", False), ("bigquery_1", True)]
+    assert captured == [("bigquery", False), ("bigquery", False), ("bigquery_1", True)]
     assert ensured_datasets == ["test-dataset_1"]
 
 
@@ -191,24 +251,15 @@ def test_bigquery_platform_and_legacy_platform_fixture(pytester: pytest.Pytester
 def test_service_fixture(pytester: pytest.Pytester) -> None:
     """Verify ``bigquery_service`` starts and answers REST queries."""
     pytester.makepyfile("""
-    import json
-    import urllib.request
+    from pytest_databases.docker.bigquery import query_bigquery_emulator
 
     pytest_plugins = ["pytest_databases.docker.bigquery"]
 
-    def run_bigquery(service, sql):
-        body = json.dumps({"query": sql, "useLegacySql": False}).encode("utf-8")
-        request = urllib.request.Request(
-            f"{service.endpoint}/bigquery/v2/projects/{service.project}/queries",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return json.loads(response.read().decode("utf-8"))
-
     def test(bigquery_service) -> None:
-        payload = run_bigquery(bigquery_service, "SELECT 1 as one")
+        assert bigquery_service.is_healthy() is True
+        payload = query_bigquery_emulator(
+            bigquery_service.host, bigquery_service.port, bigquery_service.project, "SELECT 1 as one"
+        )
         assert payload.get("jobComplete") is True
         assert payload["rows"][0]["f"][0]["v"] == "1"
     """)
@@ -220,31 +271,23 @@ def test_service_fixture(pytester: pytest.Pytester) -> None:
 def test_xdist(pytester: pytest.Pytester) -> None:
     """Verify ``bigquery_service`` supports parallel ``pytest-xdist`` workers."""
     pytester.makepyfile("""
-    import json
-    import urllib.request
+    from pytest_databases.docker.bigquery import query_bigquery_emulator
 
     pytest_plugins = ["pytest_databases.docker.bigquery"]
 
-    def run_bigquery(service, sql):
-        body = json.dumps({"query": sql, "useLegacySql": False}).encode("utf-8")
-        request = urllib.request.Request(
-            f"{service.endpoint}/bigquery/v2/projects/{service.project}/queries",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-
     def test_one(bigquery_service) -> None:
-        run_bigquery(
-            bigquery_service,
+        query_bigquery_emulator(
+            bigquery_service.host,
+            bigquery_service.port,
+            bigquery_service.project,
             f"CREATE TABLE `{bigquery_service.dataset}.test_one` AS SELECT 1 AS the_value",
         )
 
     def test_two(bigquery_service) -> None:
-        run_bigquery(
-            bigquery_service,
+        query_bigquery_emulator(
+            bigquery_service.host,
+            bigquery_service.port,
+            bigquery_service.project,
             f"CREATE TABLE `{bigquery_service.dataset}.test_two` AS SELECT 1 AS the_value",
         )
     """)
@@ -289,25 +332,21 @@ def test_bigquery_service_deprecated_properties_and_init_credentials(monkeypatch
     ],
 )
 def test_ensure_bigquery_dataset_status_codes(
-    monkeypatch: pytest.MonkeyPatch,
     status_code: int,
     should_raise: bool,
 ) -> None:
     """Verify _ensure_bigquery_dataset handles 200, 409 Conflict, and re-raises other HTTPError codes."""
 
-    def fake_urlopen(req: Any, timeout: float = 5.0) -> Any:
-        if status_code == 200:
-            cm = MagicMock()
-            cm.__enter__.return_value = MagicMock(status=200)
-            return cm
-        raise urllib.error.HTTPError(req.full_url, status_code, "Error", MagicMock(), io.BytesIO(b""))
+    def handle_post(_path: str, _body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        return status_code, {}
 
-    monkeypatch.setattr("pytest_databases.docker.bigquery.urllib.request.urlopen", fake_urlopen)
-    if should_raise:
-        with pytest.raises(urllib.error.HTTPError):
-            _ensure_bigquery_dataset("127.0.0.1", 9050, "proj", "ds")
-    else:
-        _ensure_bigquery_dataset("127.0.0.1", 9050, "proj", "ds")
+    with _bigquery_loopback_server(handle_post) as port:
+        if should_raise:
+            with pytest.raises(urllib.error.HTTPError) as exc_info:
+                _ensure_bigquery_dataset("127.0.0.1", port, "proj", "ds")
+            assert exc_info.value.code == 500
+        else:
+            _ensure_bigquery_dataset("127.0.0.1", port, "proj", "ds")
 
 
 @pytest.mark.parametrize(
@@ -326,52 +365,120 @@ def test_query_bigquery_emulator_and_provide_bigquery_service_check_branches(
     expected_name: str,
 ) -> None:
     """Verify query_bigquery_emulator and provide_bigquery_service readiness check branches."""
-    responses: list[Any] = [
-        urllib.error.URLError("down"),
+    responses: list[dict[str, Any]] = [
         {"jobComplete": False},
         {"jobComplete": True, "rows": []},
         {"jobComplete": True, "rows": [{"f": [{"v": "1"}]}]},
     ]
 
-    def fake_urlopen(req: Any, timeout: float = 5.0) -> Any:
-        item = responses.pop(0)
-        if isinstance(item, Exception):
-            raise item
-        cm = MagicMock()
-        cm.__enter__.return_value.read.return_value = json.dumps(item).encode("utf-8")
-        return cm
+    def handle_post(_path: str, _body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        return 200, responses.pop(0)
 
-    monkeypatch.setattr("pytest_databases.docker.bigquery.urllib.request.urlopen", fake_urlopen)
     monkeypatch.setattr("pytest_databases.docker.bigquery._ensure_bigquery_dataset", lambda *_a, **_kw: None)
     monkeypatch.setattr("pytest_databases.docker.bigquery.get_xdist_worker_num", lambda: worker_num)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]
 
     docker_service = MagicMock()
     captured_name: list[str] = []
 
-    def fake_run(image: str, **kwargs: Any) -> Any:
-        @contextmanager
-        def _ctx() -> Any:
-            captured_name.append(kwargs["name"])
-            svc = ServiceContainer(host="127.0.0.1", port=9050, container=MagicMock())
-            check = kwargs["check"]
-            assert check(svc) is False
-            assert check(svc) is False
-            assert check(svc) is False
-            assert check(svc) is True
-            yield svc
+    with _bigquery_loopback_server(handle_post) as port:
 
-        return _ctx()
+        def fake_run(image: str, **kwargs: Any) -> Any:
+            @contextmanager
+            def _ctx() -> Any:
+                captured_name.append(kwargs["name"])
+                svc = ServiceContainer(host="127.0.0.1", port=port, container=MagicMock())
+                down_svc = ServiceContainer(host="127.0.0.1", port=closed_port, container=MagicMock())
+                check = kwargs["check"]
+                assert check(down_svc) is False
+                assert check(svc) is False
+                assert check(svc) is False
+                assert check(svc) is True
+                yield svc
 
-    docker_service.run.side_effect = fake_run
+            return _ctx()
 
-    with provide_bigquery_service(
-        docker_service=docker_service,
-        image="ghcr.io/goccy/bigquery-emulator:0.6.6",
-        platform_arch="linux/x86_64",
-        isolation_level=isolation_level,  # type: ignore[arg-type]
-    ) as service:
-        assert service.dataset == expected_dataset
-        assert captured_name == [expected_name]
+        docker_service.run.side_effect = fake_run
+
+        with provide_bigquery_service(
+            docker_service=docker_service,
+            image=DEFAULT_BIGQUERY_IMAGE,
+            platform_arch="linux/x86_64",
+            isolation_level=isolation_level,  # type: ignore[arg-type]
+        ) as service:
+            assert service.dataset == expected_dataset
+            assert captured_name == [expected_name]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "payload", "expected"),
+    [
+        (200, {"jobComplete": True, "rows": [{"f": [{"v": "1"}]}]}, True),
+        (200, {"jobComplete": True, "rows": []}, False),
+        (200, {"jobComplete": False}, False),
+        (500, {"error": "boom"}, False),
+    ],
+)
+def test_bigquery_service_is_healthy_http_responses(
+    status_code: int,
+    payload: dict[str, Any],
+    expected: bool,
+) -> None:
+    """Verify BigQueryService.is_healthy evaluates emulator SELECT 1 readiness responses."""
+
+    def handle_post(_path: str, _body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        return status_code, payload
+
+    with _bigquery_loopback_server(handle_post) as port:
+        service = BigQueryService(
+            host="127.0.0.1",
+            port=port,
+            container=MagicMock(),
+            project="test-proj",
+            dataset="test-dataset",
+        )
+        assert service.is_healthy(timeout=1.0) is expected
+
+
+def test_bigquery_service_is_healthy_unreachable() -> None:
+    """Verify BigQueryService.is_healthy returns False when emulator TCP port is closed."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]
+
+    service = BigQueryService(
+        host="127.0.0.1",
+        port=closed_port,
+        container=MagicMock(),
+        project="test-proj",
+        dataset="test-dataset",
+    )
+    assert service.is_healthy(timeout=1.0) is False
+
+
+def test_bigquery_image_and_isolation_defaults(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify bigquery_image pins 0.8.1 by default, honors BIGQUERY_IMAGE, and defaults xdist to server."""
+    monkeypatch.delenv("BIGQUERY_IMAGE", raising=False)
+    pytester.makepyfile(f"""
+    pytest_plugins = ["pytest_databases.docker.bigquery"]
+
+    def test_defaults(bigquery_image, xdist_bigquery_isolation_level) -> None:
+        assert bigquery_image == {DEFAULT_BIGQUERY_IMAGE!r}
+        assert xdist_bigquery_isolation_level == "server"
+    """)
+    pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases").assert_outcomes(passed=1)
+
+    monkeypatch.setenv("BIGQUERY_IMAGE", "ghcr.io/goccy/bigquery-emulator:0.9.0")
+    pytester.makepyfile("""
+    pytest_plugins = ["pytest_databases.docker.bigquery"]
+
+    def test_override(bigquery_image) -> None:
+        assert bigquery_image == "ghcr.io/goccy/bigquery-emulator:0.9.0"
+    """)
+    pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases").assert_outcomes(passed=1)
 
 
 def test_bigquery_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
@@ -416,8 +523,8 @@ def test_bigquery_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
         bigquery_service,
         bigquery_client,
     ):
-        assert xdist_bigquery_isolation_level == "database"
-        assert "bigquery-emulator" in bigquery_image
+        assert xdist_bigquery_isolation_level == "server"
+        assert ":0.8.1" in bigquery_image
         assert bigquery_platform == "linux/x86_64"
         assert bigquery_service.port == 9050
         assert bigquery_client is not None
