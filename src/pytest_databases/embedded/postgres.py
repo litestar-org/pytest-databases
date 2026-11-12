@@ -540,6 +540,41 @@ def _fixture_or_default(request: pytest.FixtureRequest, name: str, default: Any)
     return default
 
 
+def _resolve_embedded_fallback_template(
+    request: pytest.FixtureRequest,
+) -> tuple[str, Any, Any, Path | str | None]:
+    """Resolve ``(template_name, template_setup, fingerprint_sources, lock_dir)`` across embedded/Docker fixtures."""
+    docker_opts = _fixture_or_default(request, "postgres_template_options", None)
+    name = (
+        _fixture_or_default(
+            request,
+            "embedded_postgres_template_name",
+            _fixture_or_default(request, "postgres_template_name", getattr(docker_opts, "name", None)),
+        )
+        or DEFAULT_TEMPLATE_NAME
+    )
+    setup = _fixture_or_default(
+        request,
+        "embedded_postgres_template_setup",
+        _fixture_or_default(request, "postgres_template_setup", getattr(docker_opts, "setup", None)),
+    )
+    sources = _fixture_or_default(
+        request,
+        "embedded_postgres_template_fingerprint_sources",
+        _fixture_or_default(
+            request,
+            "postgres_template_fingerprint_sources",
+            getattr(docker_opts, "fingerprint_sources", ()),
+        ),
+    )
+    lock_dir = _fixture_or_default(
+        request,
+        "embedded_postgres_template_lock_dir",
+        _fixture_or_default(request, "postgres_template_lock_dir", getattr(docker_opts, "lock_dir", None)),
+    )
+    return name, setup, sources, lock_dir
+
+
 @contextmanager
 def provide_default_embedded_postgres_session(
     request: pytest.FixtureRequest,
@@ -555,16 +590,23 @@ def provide_default_embedded_postgres_session(
         return
 
     binaries = resolve_postgres_binaries(_fixture_or_default(request, "embedded_postgres_bin_dir", None))
-    user: str = _fixture_or_default(request, "embedded_postgres_user", "postgres")
-    database: str = _fixture_or_default(request, "embedded_postgres_database", "pytest_databases")
+    user: str = _fixture_or_default(
+        request,
+        "embedded_postgres_user",
+        _fixture_or_default(request, "postgres_user", "postgres"),
+    )
+    database: str = _fixture_or_default(
+        request,
+        "embedded_postgres_database",
+        _fixture_or_default(request, "postgres_database", "pytest_databases"),
+    )
     port: int = _fixture_or_default(request, "embedded_postgres_port", 0)
     isolation: PostgresXdistIsolationLevel = _fixture_or_default(
-        request, "xdist_embedded_postgres_isolation_level", "template"
+        request,
+        "xdist_embedded_postgres_isolation_level",
+        _fixture_or_default(request, "xdist_postgres_isolation_level", "template"),
     )
-    template_name: str = _fixture_or_default(request, "embedded_postgres_template_name", None) or DEFAULT_TEMPLATE_NAME
-    template_setup = _fixture_or_default(request, "embedded_postgres_template_setup", None)
-    fingerprint_sources = _fixture_or_default(request, "embedded_postgres_template_fingerprint_sources", ())
-    lock_dir = _fixture_or_default(request, "embedded_postgres_template_lock_dir", None)
+    template_name, template_setup, fingerprint_sources, lock_dir = _resolve_embedded_fallback_template(request)
     worker_id = get_xdist_worker_id()
     worker_num = get_xdist_worker_num()
     db_name = f"{database}_{worker_num}" if (worker_num is not None and isolation != "server") else database

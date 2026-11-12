@@ -1147,3 +1147,60 @@ def test_public_http_and_s3_exports_acyclic(first_module: str) -> None:
     )
     proc = subprocess.run([sys.executable, "-c", script], check=False, capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
+
+
+@pytest.mark.parametrize(
+    ("headers", "raw_stream", "expected"),
+    [
+        (
+            {"Transfer-Encoding": "chunked"},
+            b"5\r\nhello\r\n6;ext=1\r\n world\r\n0\r\nX-Trailer: 1\r\n\r\n",
+            b"hello world",
+        ),
+        ({"Content-Length": "4"}, b"ping", b"ping"),
+        ({}, b"ignored", b""),
+    ],
+)
+def test_read_http_handler_body_chunked_and_content_length(
+    headers: dict[str, str],
+    raw_stream: bytes,
+    expected: bytes,
+) -> None:
+    """Verify read_http_handler_body decodes chunked streams and Content-Length headers accurately."""
+    assert helpers_mod.read_http_handler_body(headers, io.BytesIO(raw_stream)) == expected
+
+
+@pytest.mark.parametrize(
+    ("headers", "raw_stream"),
+    [
+        ({"Content-Length": "-1"}, b""),
+        ({"Content-Length": "abc"}, b""),
+        ({"Transfer-Encoding": "chunked"}, b"5\r\nhi"),
+    ],
+)
+def test_read_http_handler_body_rejects_malformed_framing(headers: dict[str, str], raw_stream: bytes) -> None:
+    """Verify read_http_handler_body raises ValueError on negative/invalid lengths or truncated chunks."""
+    with pytest.raises(ValueError):
+        helpers_mod.read_http_handler_body(headers, io.BytesIO(raw_stream))
+
+
+def test_compute_fingerprint_long_inline_sql_without_enametoolong() -> None:
+    """Verify compute_fingerprint hashes >255-byte inline SQL strings without raising ENAMETOOLONG."""
+    long_sql = "CREATE TABLE big_schema (" + ", ".join(f"col_{i} integer" for i in range(60)) + ");"
+    assert len(long_sql) > 500
+    digest = helpers_mod.compute_fingerprint(long_sql, " null\x00byte ")
+    assert len(digest) == 12
+
+
+def test_exec_after_start_runs_distinct_commands_on_shared_container(tmp_path: Path) -> None:
+    """Verify _run_exec_after_start hashes commands so distinct commands on one container both execute."""
+    client = MagicMock()
+    service = make_service(tmp_path, client)
+    container = MagicMock()
+    container.id = "shared0123456789"
+    container.exec_run.return_value = MagicMock(exit_code=0, output=b"ok")
+
+    service._run_exec_after_start(container, "svc", ["echo", "first"], transient=False)
+    service._run_exec_after_start(container, "svc", ["echo", "first"], transient=False)
+    service._run_exec_after_start(container, "svc", ["echo", "second"], transient=False)
+    assert container.exec_run.call_count == 2

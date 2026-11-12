@@ -388,22 +388,20 @@ def test_configure_spanner_emulator_client_guards_metrics_env(
     assert os.environ.get("SPANNER_DISABLE_BUILTIN_METRICS") == expected_after
 
 
-def test_configure_spanner_emulator_client_guards_sessions_and_loggers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify maintenance polling intervals, logger levels, and closed-stream ValueError handling restore on exit."""
+def _register_fake_spanner_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[type[Any], type[Any]]:
+    """Register synthetic sync and async Spanner session manager modules in ``sys.modules``."""
     google_pkg = types.ModuleType("google")
     cloud_pkg = types.ModuleType("google.cloud")
     spanner_pkg = types.ModuleType("google.cloud.spanner_v1")
     async_pkg = types.ModuleType("google.cloud.spanner_v1._async")
     sync_mod = types.ModuleType("google.cloud.spanner_v1.database_sessions_manager")
     async_mod = types.ModuleType("google.cloud.spanner_v1._async.database_sessions_manager")
-    original_sync_interval = timedelta(seconds=300)
-    original_async_interval = timedelta(seconds=600)
 
     class _SyncManager:
-        _MAINTENANCE_THREAD_POLLING_INTERVAL = original_sync_interval
+        _MAINTENANCE_THREAD_POLLING_INTERVAL = timedelta(seconds=300)
 
     class _AsyncManager:
-        _MAINTENANCE_THREAD_POLLING_INTERVAL = original_async_interval
+        _MAINTENANCE_THREAD_POLLING_INTERVAL = timedelta(seconds=600)
 
     sync_mod.DatabaseSessionsManager = _SyncManager  # type: ignore[attr-defined]
     async_mod.DatabaseSessionsManager = _AsyncManager  # type: ignore[attr-defined]
@@ -412,59 +410,55 @@ def test_configure_spanner_emulator_client_guards_sessions_and_loggers(monkeypat
     spanner_pkg._async = async_pkg  # type: ignore[attr-defined]
     cloud_pkg.spanner_v1 = spanner_pkg  # type: ignore[attr-defined]
     google_pkg.cloud = cloud_pkg  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, google_pkg.__name__, google_pkg)
-    monkeypatch.setitem(sys.modules, cloud_pkg.__name__, cloud_pkg)
-    monkeypatch.setitem(sys.modules, spanner_pkg.__name__, spanner_pkg)
-    monkeypatch.setitem(sys.modules, async_pkg.__name__, async_pkg)
-    monkeypatch.setitem(sys.modules, sync_mod.__name__, sync_mod)
-    monkeypatch.setitem(sys.modules, async_mod.__name__, async_mod)
+    for mod in (google_pkg, cloud_pkg, spanner_pkg, async_pkg, sync_mod, async_mod):
+        monkeypatch.setitem(sys.modules, mod.__name__, mod)
+    return _SyncManager, _AsyncManager
 
+
+def test_configure_spanner_emulator_client_guards_sessions_and_loggers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify maintenance polling intervals, logger levels, and closed-stream ValueError handling restore on exit."""
+    sync_mgr, async_mgr = _register_fake_spanner_modules(monkeypatch)
+    parent_logger = logging.getLogger("google.cloud")
     target_logger = logging.getLogger(_SPANNER_LOGGER_NAMES[0])
     error_logger = logging.getLogger(_SPANNER_LOGGER_NAMES[1])
-    original_target_level = target_logger.level
-    original_error_level = error_logger.level
-    target_logger.setLevel(logging.INFO)
-    error_logger.setLevel(logging.ERROR)
+    orig_levels = (parent_logger.level, target_logger.level, error_logger.level)
+    parent_logger.setLevel(logging.ERROR)
+    target_logger.setLevel(logging.NOTSET)
+    error_logger.setLevel(logging.INFO)
 
+    healthy_stream = io.StringIO()
+    healthy_handler = logging.StreamHandler(healthy_stream)
     closed_stream = io.StringIO()
     closed_stream.close()
     closed_handler = logging.StreamHandler(closed_stream)
-    target_logger.addHandler(closed_handler)
-
-    def _raise_closed(_record: logging.LogRecord) -> None:
-        msg = "I/O operation on closed file."
-        raise ValueError(msg)
-
-    def _raise_other(_record: logging.LogRecord) -> None:
-        msg = "unrelated value error"
-        raise ValueError(msg)
-
-    monkeypatch.setattr(error_logger, "callHandlers", _raise_closed)
-    dummy_record = logging.LogRecord("x", logging.INFO, __file__, 1, "msg", (), None)
+    error_logger.addHandler(closed_handler)
+    error_logger.addHandler(healthy_handler)
+    orig_error_call = error_logger.callHandlers
 
     try:
         with configure_spanner_emulator_client_guards():
-            assert timedelta(milliseconds=100) == _SyncManager._MAINTENANCE_THREAD_POLLING_INTERVAL
-            assert timedelta(milliseconds=100) == _AsyncManager._MAINTENANCE_THREAD_POLLING_INTERVAL
-            assert target_logger.level == logging.WARNING
-            assert error_logger.level == logging.ERROR
+            assert timedelta(milliseconds=100) == sync_mgr._MAINTENANCE_THREAD_POLLING_INTERVAL
+            assert timedelta(milliseconds=100) == async_mgr._MAINTENANCE_THREAD_POLLING_INTERVAL
+            assert target_logger.level == logging.NOTSET
+            assert target_logger.getEffectiveLevel() == logging.ERROR
+            assert error_logger.level == logging.WARNING
 
-            target_logger.callHandlers(dummy_record)
-            error_logger.callHandlers(dummy_record)
+            record = logging.LogRecord("x", logging.WARNING, __file__, 1, "healthy-msg", (), None)
+            error_logger.callHandlers(record)
+            assert "healthy-msg" in healthy_stream.getvalue()
+            target_logger.callHandlers(record)
 
-            target_logger.removeHandler(closed_handler)
-            monkeypatch.setattr(target_logger, "callHandlers", _raise_other)
-            with pytest.raises(ValueError, match="unrelated value error"):
-                target_logger.callHandlers(dummy_record)
-
-        assert original_sync_interval == _SyncManager._MAINTENANCE_THREAD_POLLING_INTERVAL
-        assert original_async_interval == _AsyncManager._MAINTENANCE_THREAD_POLLING_INTERVAL
-        assert target_logger.level == logging.INFO
-        assert error_logger.level == logging.ERROR
+        assert timedelta(seconds=300) == sync_mgr._MAINTENANCE_THREAD_POLLING_INTERVAL
+        assert timedelta(seconds=600) == async_mgr._MAINTENANCE_THREAD_POLLING_INTERVAL
+        assert target_logger.level == logging.NOTSET
+        assert error_logger.level == logging.INFO
+        assert error_logger.callHandlers == orig_error_call
     finally:
-        target_logger.removeHandler(closed_handler)
-        target_logger.setLevel(original_target_level)
-        error_logger.setLevel(original_error_level)
+        error_logger.removeHandler(closed_handler)
+        error_logger.removeHandler(healthy_handler)
+        parent_logger.setLevel(orig_levels[0])
+        target_logger.setLevel(orig_levels[1])
+        error_logger.setLevel(orig_levels[2])
 
 
 def test_provide_spanner_service_activates_emulator_guards(monkeypatch: pytest.MonkeyPatch) -> None:

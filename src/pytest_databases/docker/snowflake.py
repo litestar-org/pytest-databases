@@ -27,7 +27,14 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from pytest_databases.helpers import TRUE_VALUES, get_xdist_worker_num, http_get_ok, http_request, send_http_request
+from pytest_databases.helpers import (
+    TRUE_VALUES,
+    get_xdist_worker_num,
+    http_get_ok,
+    http_request,
+    read_http_handler_body,
+    send_http_request,
+)
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
@@ -667,6 +674,10 @@ class _SnowflakeWireHandler(http.server.BaseHTTPRequestHandler):
         """Forward a PUT request."""
         self._forward_request()
 
+    def do_PATCH(self) -> None:
+        """Forward a PATCH request."""
+        self._forward_request()
+
     def do_DELETE(self) -> None:
         """Forward a DELETE request."""
         self._forward_request()
@@ -693,8 +704,11 @@ class _SnowflakeWireHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _prepare_upstream_body(self) -> bytes:
-        content_length = int(self.headers.get("Content-Length", "0"))
-        raw_body = self.rfile.read(content_length) if content_length > 0 else b""
+        try:
+            raw_body = read_http_handler_body(self.headers, self.rfile)
+        except ValueError as exc:
+            msg = f"Invalid HTTP request body: {exc}"
+            raise _InvalidSnowflakeRequestError(msg) from exc
         content_encoding = self.headers.get("Content-Encoding", "")
         if "gzip" in content_encoding.lower():
             try:

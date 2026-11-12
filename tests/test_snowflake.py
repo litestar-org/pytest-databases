@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import http.client
 import http.server
 import json
 import os
@@ -673,3 +674,45 @@ def test_snowflake_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+def test_snowflake_wire_proxy_patch_and_chunked_request() -> None:
+    """Verify _SnowflakeWireHandler forwards PATCH requests and decodes chunked request bodies."""
+    seen: list[tuple[str, bytes]] = []
+
+    class _UpstreamHandler(http.server.BaseHTTPRequestHandler):
+        def do_PATCH(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            seen.append(("PATCH", self.rfile.read(length)))
+            out = b'{"success":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            _ = (code, size)
+
+    upstream = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _UpstreamHandler)
+    up_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+    up_thread.start()
+    try:
+        with snowflake._start_snowflake_wire_proxy("127.0.0.1", int(upstream.server_address[1])) as (host, port):
+            conn = http.client.HTTPConnection(host, port, timeout=5.0)
+            try:
+                conn.putrequest("PATCH", "/session")
+                conn.putheader("Transfer-Encoding", "chunked")
+                conn.endheaders()
+                conn.send(b'b\r\n{"ok":true}\r\n0\r\n\r\n')
+                resp = conn.getresponse()
+                body = resp.read()
+                assert resp.status == 200
+                assert json.loads(body) == {"success": True}
+            finally:
+                conn.close()
+            assert seen == [("PATCH", b'{"ok":true}')]
+    finally:
+        upstream.shutdown()
+        upstream.server_close()
+        up_thread.join(timeout=5.0)

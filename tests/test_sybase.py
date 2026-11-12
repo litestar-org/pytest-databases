@@ -349,8 +349,10 @@ def test_provide_sybase_service_timeout_diagnostics(monkeypatch: pytest.MonkeyPa
     assert "MYSYBASE failed" in message
 
 
-def test_sybase_service_live(pytester: pytest.Pytester) -> None:
+def test_sybase_service_live(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     """Start Sybase ASE without xdist and run SQL through the in-container isql."""
+    for var in ("PYTEST_XDIST_WORKER", "PYTEST_XDIST_TESTRUNUID", "PYTEST_XDIST_WORKER_COUNT"):
+        monkeypatch.delenv(var, raising=False)
     pytester.makepyfile("""
     from pytest_databases.docker.sybase import SybaseService
 
@@ -370,8 +372,10 @@ def test_sybase_service_live(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
-def test_sybase_service_live_database_isolation(pytester: pytest.Pytester) -> None:
+def test_sybase_service_live_database_isolation(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     """Start one Sybase ASE container for two xdist workers and check each worker uses its own database."""
+    for var in ("PYTEST_XDIST_WORKER", "PYTEST_XDIST_TESTRUNUID", "PYTEST_XDIST_WORKER_COUNT"):
+        monkeypatch.delenv(var, raising=False)
     pytester.makepyfile("""
     from pytest_databases.docker.sybase import SybaseService
     from pytest_databases.helpers import get_xdist_worker_num
@@ -657,3 +661,30 @@ def test_sybase_freetds_alias_fixture_lifecycle_and_env_restore(
     with pytest.raises(StopIteration):
         next(gen)
     assert sybase_mod.os.environ.get("FREETDSCONF") == prior_env
+
+
+def test_write_freetds_conf_preserves_sections_when_prior_conf_has_duplicate_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify write_freetds_conf parses duplicate keys in existing FREETDSCONF without dropping later sections."""
+    prior_file = tmp_path / "existing_freetds.conf"
+    prior_file.write_text(
+        "[global]\ntds version = 7.4\ntds version = 7.3\n\n[MSSQL_PROD]\nhost = 10.0.0.5\nport = 1433\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FREETDSCONF", str(prior_file))
+    service = SybaseService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=45000,
+        user="sa",
+        password="pw",
+        database="master",
+    )
+    conf_path, alias = service.write_freetds_conf(tmp_path / "merged")
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.read(conf_path, encoding="utf-8")
+    assert parser.has_section("MSSQL_PROD")
+    assert parser["MSSQL_PROD"]["port"] == "1433"
+    assert parser[alias]["tds version"] == "5.0"

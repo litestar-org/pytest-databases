@@ -73,7 +73,15 @@ _DB2_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 _DB2_SETUP_SCRIPT = "/var/db2_setup/lib/setup_db2_instance.sh"
 _DB2_SETUP_FUNCTIONS = "/var/db2_setup/include/db2_common_functions"
 _DB2_4K_MISSING_DATABASE_MARKERS: tuple[str, ...] = ("SQL1013N", "SQL0293N", "42705")
-_DB2_FATAL_STARTUP_MARKERS: tuple[str, ...] = ("SQL1042C", "57019")
+_DB2_FATAL_STARTUP_MARKERS: tuple[str, ...] = ("SQL1042C", "SQL5005C", "SQL1084C", "SQL1220C")
+_DB2_TRANSIENT_57019_MARKERS: tuple[str, ...] = (
+    "SQL1032N",
+    "SQL1035N",
+    "SQL1015N",
+    "SQL1493N",
+    "SQL1063N",
+    "SQL1064N",
+)
 
 
 @dataclass
@@ -331,25 +339,25 @@ def provide_db2_service(
         nonlocal recreate_attempted
         if not tcp_port_open(service.host, service.port):
             return False
-        try:
-            output = exec_db2_sql(
-                service.container,
-                "SELECT 1 FROM SYSIBM.SYSDUMMY1",
-                db_name=initial_db,
-                instance_user=db2_username,
-            )
-        except RuntimeError as exc:
-            err_text = str(exc)
-            _raise_if_fatal_db2_failure(service.container, initial_db, err_text)
-            if settings and _is_missing_db2_database_error(err_text) and not recreate_attempted:
-                recreate_attempted = True
-                probe_lock = _resolve_db2_lock_path(container_service, service.container)
-                lock_cm: contextlib.AbstractContextManager[object] = (
-                    filelock.FileLock(str(probe_lock), timeout=_DB2_INIT_LOCK_TIMEOUT)
-                    if probe_lock is not None
-                    else contextlib.nullcontext()
+        probe_lock = _resolve_db2_lock_path(container_service, service.container)
+        lock_cm: contextlib.AbstractContextManager[object] = (
+            filelock.FileLock(str(probe_lock), timeout=_DB2_INIT_LOCK_TIMEOUT)
+            if probe_lock is not None
+            else contextlib.nullcontext()
+        )
+        with lock_cm:
+            try:
+                output = exec_db2_sql(
+                    service.container,
+                    "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+                    db_name=initial_db,
+                    instance_user=db2_username,
                 )
-                with lock_cm:
+            except RuntimeError as exc:
+                err_text = str(exc)
+                _raise_if_fatal_db2_failure(service.container, initial_db, err_text)
+                if settings and _is_missing_db2_database_error(err_text) and not recreate_attempted:
+                    recreate_attempted = True
                     try:
                         reprobe = exec_db2_sql(
                             service.container,
@@ -370,8 +378,8 @@ def provide_db2_service(
                     else:
                         if reprobe == "1":
                             return True
-            return False
-        return output == "1"
+                return False
+            return output == "1"
 
     entrypoint, command = _build_db2_startup_command(settings)
     with container_service.run(
@@ -700,8 +708,15 @@ def _raise_if_fatal_db2_failure(container: Container, db_name: str, err_text: st
         log_text = raw_logs.decode("utf-8", errors="replace")
     elif isinstance(raw_logs, str):
         log_text = raw_logs
+    upper_err = err_text.upper()
     upper_combined = f"{err_text}\n{log_text}".upper()
     matched = next((marker for marker in _DB2_FATAL_STARTUP_MARKERS if marker in upper_combined), None)
+    if (
+        matched is None
+        and "57019" in upper_err
+        and not any(transient in upper_err for transient in _DB2_TRANSIENT_57019_MARKERS)
+    ):
+        matched = "57019"
     if matched is None:
         return
     diag_lines = [line.strip() for line in (*err_text.splitlines(), *log_text.splitlines()) if line.strip()]

@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import filelock
 import pytest
 from docker.errors import APIError, NotFound
 
@@ -96,13 +97,15 @@ def provide_yugabyte_service(
         timeout=120,
         pause=1.0,
     ) as service:
-        _prepare_yugabyte_database(
-            service.container,
-            container_name,
-            db_name,
-            user,
-            password,
-        )
+        init_lock = docker_service.temp_dir / f"{service.container.id}_db_init.lock"
+        with filelock.FileLock(str(init_lock)):
+            _prepare_yugabyte_database(
+                service.container,
+                container_name,
+                db_name,
+                user,
+                password,
+            )
 
         last_output = b""
         for attempt in range(5):
@@ -223,6 +226,8 @@ _TRANSIENT_YUGABYTE_ERROR_MARKERS: tuple[str, ...] = (
     "could not serialize access",
     "restart read required",
     "catalog version mismatch",
+    "catalog snapshot used for this transaction has been invalidated",
+    "mismatched_schema",
     "schema version mismatch",
     "conflict with higher priority transaction",
 )

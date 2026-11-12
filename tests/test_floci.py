@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import socket
@@ -702,3 +703,59 @@ def test_floci_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+def test_floci_gcp_proxy_preserves_xml_objects_strips_accept_encoding_and_handles_chunked() -> None:
+    """Verify GCP proxy preserves XML object downloads, strips Accept-Encoding, and decodes chunked PUTs."""
+    seen_headers: list[dict[str, str]] = []
+    seen_bodies: list[bytes] = []
+    stored_xml = b'<?xml version="1.0"?><ListBucketResult><Contents><Key>raw.txt</Key></Contents></ListBucketResult>'
+
+    class _UpstreamHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            seen_headers.append({k.lower(): v for k, v in self.headers.items()})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(stored_xml)))
+            self.end_headers()
+            self.wfile.write(stored_xml)
+
+        def do_PUT(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            seen_bodies.append(self.rfile.read(length))
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            _ = (code, size)
+
+    upstream = ThreadingHTTPServer(("127.0.0.1", 0), _UpstreamHandler)
+    up_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+    up_thread.start()
+    try:
+        with floci._start_floci_gcp_compat_proxy("127.0.0.1", int(upstream.server_address[1])) as (host, port):
+            status, _headers, body = send_http_request(
+                f"http://{host}:{port}/my-bucket/nested/report.xml",
+                headers={"Accept-Encoding": "gzip, deflate"},
+            )
+            assert status == 200
+            assert body == stored_xml
+            assert seen_headers[-1].get("accept-encoding") == "identity"
+
+            conn = http.client.HTTPConnection(host, port, timeout=5.0)
+            try:
+                conn.putrequest("PUT", "/my-bucket/chunked.bin")
+                conn.putheader("Transfer-Encoding", "chunked")
+                conn.endheaders()
+                conn.send(b"4\r\ndata\r\n0\r\n\r\n")
+                resp = conn.getresponse()
+                resp.read()
+                assert resp.status == 200
+            finally:
+                conn.close()
+            assert seen_bodies == [b"data"]
+    finally:
+        upstream.shutdown()
+        upstream.server_close()
+        up_thread.join(timeout=5.0)

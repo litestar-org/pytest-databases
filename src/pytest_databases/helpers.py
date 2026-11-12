@@ -63,6 +63,7 @@ __all__ = (
     "http_request",
     "is_fixture_registered",
     "make_connection_string",
+    "read_http_handler_body",
     "read_init_scripts",
     "resolve_legacy_platform",
     "resolve_template_name",
@@ -449,6 +450,42 @@ def http_request(
     return status, body
 
 
+class _HeaderGetter(Protocol):
+    """Structural lookup protocol satisfied by ``Mapping`` and ``email.message.Message``."""
+
+    def get(self, key: str, /) -> Any: ...
+
+
+def read_http_handler_body(headers: _HeaderGetter, rfile: Any) -> bytes:
+    """Read an HTTP/1.x request body from ``rfile`` honoring ``Transfer-Encoding: chunked`` and ``Content-Length``.
+
+    Args:
+        headers: Request header mapping from ``BaseHTTPRequestHandler``.
+        rfile: Readable binary request body stream.
+
+    Returns:
+        Decoded request body bytes.
+
+    Raises:
+        ValueError: If ``Content-Length`` is malformed/negative or chunked framing is invalid.
+    """
+    raw_transfer = headers.get("Transfer-Encoding")
+    transfer_encoding = str(raw_transfer) if raw_transfer is not None else ""
+    if "chunked" in transfer_encoding.lower():
+        return _read_chunked_body(rfile)
+    raw_length = headers.get("Content-Length")
+    if raw_length is None:
+        return b""
+    length_str = str(raw_length).strip()
+    if not length_str:
+        return b""
+    content_length = int(length_str)
+    if content_length < 0:
+        msg = f"Negative Content-Length: {content_length}"
+        raise ValueError(msg)
+    return rfile.read(content_length) if content_length > 0 else b""
+
+
 def env_port(var_name: str) -> int | None:
     """Return an integer TCP port from environment variable ``var_name`` when set and non-empty.
 
@@ -721,8 +758,8 @@ def compute_fingerprint(*sources: str | bytes | Path) -> str:
             hasher.update(b"bytes:")
             hasher.update(source)
             continue
-        path = Path(source)
-        if path.exists():
+        path = _resolve_existing_path(source)
+        if path is not None:
             _hash_path(hasher, path)
         elif isinstance(source, Path):
             hasher.update(b"path:")
@@ -1009,6 +1046,47 @@ def _escape_like(value: str) -> str:
         The escaped pattern fragment.
     """
     return value.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%")
+
+
+def _read_chunked_body(rfile: Any) -> bytes:
+    """Decode an HTTP/1.1 ``Transfer-Encoding: chunked`` byte stream from ``rfile``."""
+    chunks: list[bytes] = []
+    while True:
+        size_line = rfile.readline(65537)
+        if not size_line or not size_line.endswith(b"\n"):
+            msg = "Unexpected EOF reading chunk size line"
+            raise ValueError(msg)
+        size_token = size_line.split(b";", 1)[0].strip()
+        if not size_token:
+            msg = "Empty chunk size token"
+            raise ValueError(msg)
+        chunk_size = int(size_token, 16)
+        if chunk_size < 0:
+            msg = f"Negative chunk size: {chunk_size}"
+            raise ValueError(msg)
+        if chunk_size == 0:
+            while True:
+                trailer = rfile.readline(65537)
+                if not trailer or trailer in {b"\r\n", b"\n"}:
+                    return b"".join(chunks)
+        payload = rfile.read(chunk_size)
+        if len(payload) != chunk_size:
+            msg = "Unexpected EOF reading chunk payload"
+            raise ValueError(msg)
+        crlf = rfile.readline(4)
+        if crlf not in {b"\r\n", b"\n"}:
+            msg = "Missing CRLF after chunk payload"
+            raise ValueError(msg)
+        chunks.append(payload)
+
+
+def _resolve_existing_path(source: str | Path) -> Path | None:
+    """Return ``Path(source)`` when it resolves to an existing filesystem entry, else ``None``."""
+    try:
+        candidate = Path(source)
+        return candidate if candidate.exists() else None
+    except (OSError, ValueError):
+        return None
 
 
 def _hash_path(hasher: Any, path: Path) -> None:

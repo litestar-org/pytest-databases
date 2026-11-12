@@ -172,7 +172,7 @@ __all__ = (
 
 DEFAULT_POSTGRES_STARTUP_TIMEOUT: int = 60
 DEFAULT_ALLOYDB_OMNI_STARTUP_TIMEOUT: int = 90
-DEFAULT_ALLOYDB_OMNI_SHM_SIZE: str = "256m"
+DEFAULT_ALLOYDB_OMNI_SHM_SIZE: str = "512m"
 
 ALLOYDB_OMNI_LEGACY_PRELOAD_LIBRARIES: tuple[str, ...] = (
     "g_stats",
@@ -1533,6 +1533,18 @@ def _is_legacy_alloydb_omni_image(image: str) -> bool:
     return tag in {"15", "16"} or tag.startswith(("15.", "15-", "16.", "16-"))
 
 
+def _first_registered_fixture(
+    request: pytest.FixtureRequest,
+    *names: str,
+    default: Any = None,
+) -> Any:
+    """Return the value of the first fixture in ``names`` registered in ``request``, else ``default``."""
+    for name in names:
+        if is_fixture_registered(request, name):
+            return request.getfixturevalue(name)
+    return default
+
+
 def _resolve_optional_postgres_template(request: pytest.FixtureRequest) -> PostgresTemplateOptions | None:
     """Build ``PostgresTemplateOptions`` when user template fixtures are registered in the active session."""
     if is_fixture_registered(request, "postgres_template_options"):
@@ -1544,30 +1556,23 @@ def _resolve_optional_postgres_template(request: pytest.FixtureRequest) -> Postg
             "postgres_template_name",
             "postgres_template_fingerprint_sources",
             "postgres_template_lock_dir",
+            "embedded_postgres_template_setup",
+            "embedded_postgres_template_name",
+            "embedded_postgres_template_fingerprint_sources",
+            "embedded_postgres_template_lock_dir",
         )
     )
     if not has_override:
         return None
-    name = (
-        request.getfixturevalue("postgres_template_name")
-        if is_fixture_registered(request, "postgres_template_name")
-        else None
+    name = _first_registered_fixture(request, "postgres_template_name", "embedded_postgres_template_name")
+    setup = _first_registered_fixture(request, "postgres_template_setup", "embedded_postgres_template_setup")
+    fingerprint_sources = _first_registered_fixture(
+        request,
+        "postgres_template_fingerprint_sources",
+        "embedded_postgres_template_fingerprint_sources",
+        default=(),
     )
-    setup = (
-        request.getfixturevalue("postgres_template_setup")
-        if is_fixture_registered(request, "postgres_template_setup")
-        else None
-    )
-    fingerprint_sources = (
-        request.getfixturevalue("postgres_template_fingerprint_sources")
-        if is_fixture_registered(request, "postgres_template_fingerprint_sources")
-        else ()
-    )
-    lock_dir = (
-        request.getfixturevalue("postgres_template_lock_dir")
-        if is_fixture_registered(request, "postgres_template_lock_dir")
-        else None
-    )
+    lock_dir = _first_registered_fixture(request, "postgres_template_lock_dir", "embedded_postgres_template_lock_dir")
     return PostgresTemplateOptions(
         name=name,
         setup=setup,

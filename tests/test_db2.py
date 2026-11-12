@@ -390,8 +390,10 @@ def test_db2_4k_device_support_fixture(
     result.assert_outcomes(passed=1)
 
 
-def test_db2_service_live_database_isolation(pytester: pytest.Pytester) -> None:
+def test_db2_service_live_database_isolation(pytester: pytest.Pytester, monkeypatch: MonkeyPatch) -> None:
     """Start Db2 for two xdist workers and query each worker's own database through the in-container CLP."""
+    for var in ("PYTEST_XDIST_WORKER", "PYTEST_XDIST_TESTRUNUID", "PYTEST_XDIST_WORKER_COUNT"):
+        monkeypatch.delenv(var, raising=False)
     pytester.makepyfile("""
     from pytest_databases.docker.db2 import Db2Service
     from pytest_databases.helpers import get_xdist_worker_num
@@ -815,9 +817,10 @@ def test_db2_create_worker_database_serializes_concurrent_workers(
     ("clp_output", "container_logs", "expected_marker"),
     [
         (b"SQL1042C  An unexpected system error occurred.\n", b"", "SQL1042C"),
-        (b"SQL5005C  System Error. SQLSTATE=57019\n", b"", "57019"),
+        (b"SQL5005C  System Error. SQLSTATE=57019\n", b"", "SQL5005C"),
+        (b"DB21034E  Fatal failure SQLSTATE=57019\n", b"", "57019"),
         (
-            b"SQL1032N  No start database manager command was issued.\n",
+            b"SQL1032N  No start database manager command was issued. SQLSTATE=57019\n",
             b"ADM0503C  Instance stopped SQL1042C\n",
             "SQL1042C",
         ),
@@ -867,3 +870,51 @@ def test_db2_check_fails_fast_on_fatal_startup_errors(
     ):
         pass
     assert not any("db2stop force" in script for script in scripts)
+
+
+@pytest.mark.parametrize(
+    "transient_output",
+    [
+        b"SQL1032N  No start database manager command was issued.  SQLSTATE=57019\n",
+        b"SQL1035N  The database is currently in use.  SQLSTATE=57019\n",
+    ],
+)
+def test_db2_check_allows_transient_57019_during_startup(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    transient_output: bytes,
+) -> None:
+    """Verify transient SQL1032N/SQL1035N with SQLSTATE=57019 return False from check() instead of aborting."""
+    monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: True)
+    mock_container = MagicMock()
+    mock_container.id = "db2-transient-cid"
+    mock_container.logs.return_value = b""
+    mock_container.exec_run.side_effect = [
+        MagicMock(exit_code=4, output=transient_output),
+        MagicMock(exit_code=0, output=b"1\n"),
+    ]
+
+    @contextmanager
+    def _fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
+        check_fn = kwargs["check"]
+        assert callable(check_fn)
+        svc = ServiceContainer(container=mock_container, host="127.0.0.1", port=50000)
+        assert check_fn(svc) is False
+        assert check_fn(svc) is True
+        yield svc
+
+    container_service = MagicMock()
+    container_service.temp_dir = tmp_path
+    container_service.run.side_effect = _fake_run
+    with db2.provide_db2_service(
+        container_service=container_service,
+        db2_image=DEFAULT_DB2_IMAGE,
+        db2_dbname="pytestdb",
+        db2_username="db2inst1",
+        db2_password="pw",
+        db2_startup_timeout=300,
+        xdist_db2_isolation_level="database",
+        activate_database=False,
+    ):
+        pass

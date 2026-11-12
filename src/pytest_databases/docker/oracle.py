@@ -1649,7 +1649,12 @@ def _normalize_sqlplus_statement(sql: str) -> str:
         return statement
     tail = statement.rsplit("\n/", 1)[-1]
     tail_code = re.sub(r"^(?:\s*--[^\n]*\n|\s*/\*.*?\*/\s*)*", "", tail, flags=re.DOTALL).lstrip()
-    if re.match(r"^(?:BEGIN|DECLARE)\b", tail_code, re.IGNORECASE):
+    if re.match(
+        r"^(?:BEGIN|DECLARE|CREATE(?:\s+OR\s+REPLACE)?(?:\s+(?:EDITIONABLE|NONEDITIONABLE))?"
+        r"\s+(?:PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE))\b",
+        tail_code,
+        re.IGNORECASE,
+    ):
         return f"{statement}\n/" if statement.endswith(";") else f"{statement};\n/"
     if not statement.endswith(";"):
         return f"{statement};"

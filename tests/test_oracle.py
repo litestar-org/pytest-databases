@@ -88,7 +88,7 @@ def test_plugin_imports_without_oracledb(pytester: pytest.Pytester) -> None:
         original_import = builtins.__import__
 
         def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name.partition(".")[0] in {"oracledb", "cx_Oracle"}:
+            if name.partition(".")[0] in {"oracledb", "cx_Oracle", "cryptography"}:
                 raise ModuleNotFoundError(name)
             return original_import(name, globals, locals, fromlist, level)
 
@@ -1908,7 +1908,7 @@ def test_oracle_adb_build_wallet_zip_synthesizes_pkcs12_from_pem(
     override_password: str | None,
 ) -> None:
     """Verify build_wallet_zip synthesizes encrypted ewallet.p12 from ewallet.pem when cryptography is installed."""
-    pkcs12 = importlib.import_module("cryptography.hazmat.primitives.serialization.pkcs12")
+    pkcs12 = pytest.importorskip("cryptography.hazmat.primitives.serialization.pkcs12")
     pem_bundle, leaf_cert, ca_cert = _create_test_ca_and_leaf_pem()
     wallet_dir = tmp_path / "wallet"
     wallet_dir.mkdir()
@@ -1948,3 +1948,17 @@ def test_oracle_adb_build_wallet_zip_synthesizes_pkcs12_from_pem(
         assert loaded_key is not None
         assert loaded_cert == leaf_cert
         assert ca_cert in loaded_cas
+
+
+@pytest.mark.parametrize(
+    ("raw_sql", "expected_suffix"),
+    [
+        ("CREATE OR REPLACE PROCEDURE demo_proc AS BEGIN NULL; END;", "END;\n/"),
+        ("CREATE EDITIONABLE FUNCTION demo_fn RETURN NUMBER IS BEGIN RETURN 1; END", "END;\n/"),
+        ("CREATE TRIGGER demo_trg BEFORE INSERT ON t BEGIN NULL; END;", "END;\n/"),
+        ("SELECT 1 FROM dual", "SELECT 1 FROM dual;"),
+    ],
+)
+def test_oracle_normalize_sqlplus_statement_plsql_ddl(raw_sql: str, expected_suffix: str) -> None:
+    """Verify stored PL/SQL DDL statements receive a trailing SQL*Plus slash terminator."""
+    assert oracle._normalize_sqlplus_statement(raw_sql).endswith(expected_suffix)

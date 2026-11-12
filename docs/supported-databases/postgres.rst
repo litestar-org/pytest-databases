@@ -212,7 +212,7 @@ AlloyDB Omni
 ^^^^^^^^^^^^
 
 ``alloydb_omni_service`` and ``alloydb_omni_15_service`` through ``alloydb_omni_18_service`` configure shared memory
-(``alloydb_omni_shm_size = "256m"``, env ``ALLOYDB_OMNI_SHM_SIZE``), a ``90``-second readiness timeout
+(``alloydb_omni_shm_size = "512m"``, env ``ALLOYDB_OMNI_SHM_SIZE``), a ``90``-second readiness timeout
 (``alloydb_omni_startup_timeout``, env ``ALLOYDB_OMNI_STARTUP_TIMEOUT``), postmaster startup GUCs
 (``alloydb_omni_command`` via :func:`~pytest_databases.docker.postgres.build_alloydb_omni_command` for versions ``17``
 and ``18``, automatically adapting when ``alloydb_omni_image`` resolves to a ``:15`` or ``:16`` tag, and
@@ -254,7 +254,7 @@ PostgreSQL services can be configured using environment variables:
 * ``POSTGRES_DATABASE``: Base database name created for PostgreSQL family services and ``postgres_external_service`` (default: ``"pytest_databases"``)
 * ``POSTGRES_EXTERNAL_HOST`` and ``POSTGRES_EXTERNAL_PORT``: Hostname/IP and optional TCP port (default ``5432``) used by ``postgres_external_service`` to attach to an existing server
 * ``POSTGRES_STARTUP_TIMEOUT`` / ``ALLOYDB_OMNI_STARTUP_TIMEOUT``: Readiness timeouts in seconds for PostgreSQL (``60``) and AlloyDB Omni (``90``)
-* ``ALLOYDB_OMNI_SHM_SIZE`` / ``ALLOYDB_OMNI_COMMAND`` / ``ALLOYDB_OMNI_LEGACY_COMMAND``: Shared memory size (``"256m"``) and postmaster command overrides for AlloyDB Omni
+* ``ALLOYDB_OMNI_SHM_SIZE`` / ``ALLOYDB_OMNI_COMMAND`` / ``ALLOYDB_OMNI_LEGACY_COMMAND``: Shared memory size (``"512m"``) and postmaster command overrides for AlloyDB Omni
 * ``PYTEST_DATABASES_POSTGRES_BACKEND``: Default backend selector for ``postgres_any_service`` (``"docker"`` or ``"embedded"``)
 * ``POSTGRES_PORT`` / ``POSTGRES_NN_PORT`` / ``PGVECTOR_PORT`` / ``PGVECTOR_NN_PORT`` / ``PARADEDB_PORT`` / ``PARADEDB_NN_PORT`` / ``ALLOYDB_OMNI_PORT`` / ``ALLOYDB_OMNI_NN_PORT``: Pin a specific host-side port for the matching service fixture. When unset, Docker picks a random free port (the default). See GitHub issue #131.
 

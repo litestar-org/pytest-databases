@@ -1163,6 +1163,78 @@ def test_postgres_any_service_embedded_plugin_and_fallback(
     result.assert_outcomes(passed=1)
 
 
+def test_postgres_any_service_forwards_cross_backend_template_fixtures(pytester: pytest.Pytester) -> None:
+    """Verify postgres_any_service forwards postgres_template_* to embedded fallback and vice versa."""
+    pytester.makepyfile("""
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+    import pytest
+    import pytest_databases.embedded.postgres as ep_mod
+    from pytest_databases.embedded.postgres import EmbeddedPostgresService, PostgresBinaries
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+    captured_prep = []
+
+    @pytest.fixture(scope="session")
+    def postgres_database() -> str:
+        return "cross_db"
+
+    @pytest.fixture(scope="session")
+    def postgres_template_name() -> str:
+        return "cross_tpl"
+
+    @pytest.fixture(scope="session")
+    def postgres_template_setup() -> list[str]:
+        return ["CREATE TABLE cross_items (id int)"]
+
+    @pytest.fixture(scope="session")
+    def postgres_template_fingerprint_sources() -> tuple[str, ...]:
+        return ("v1",)
+
+    @pytest.fixture(autouse=True, scope="session")
+    def mock_emb(tmp_path_factory):
+        d = tmp_path_factory.mktemp("emb_cross")
+        bins = PostgresBinaries(initdb=d / "initdb", postgres=d / "postgres")
+        orig_res = ep_mod.resolve_postgres_binaries
+        orig_prov = ep_mod.provide_embedded_postgres_service
+        orig_prep = ep_mod._prepare_database
+
+        @contextmanager
+        def fake_prov(**kwargs):
+            yield EmbeddedPostgresService(
+                host="127.0.0.1",
+                port=55433,
+                user=kwargs["user"],
+                database=kwargs["database"],
+                data_dir=d,
+                binaries=bins,
+            )
+
+        def fake_prep(admin, **kwargs):
+            captured_prep.append(kwargs)
+            return admin
+
+        ep_mod.resolve_postgres_binaries = lambda *a, **kw: bins
+        ep_mod.provide_embedded_postgres_service = fake_prov
+        ep_mod._prepare_database = fake_prep
+        yield
+        ep_mod.resolve_postgres_binaries = orig_res
+        ep_mod.provide_embedded_postgres_service = orig_prov
+        ep_mod._prepare_database = orig_prep
+
+    def test_cross(postgres_any_service):
+        assert isinstance(postgres_any_service, EmbeddedPostgresService)
+        assert len(captured_prep) == 1
+        assert captured_prep[0]["db_name"] == "cross_db"
+        assert captured_prep[0]["template_name"] == "cross_tpl"
+        assert captured_prep[0]["template_setup"] == ["CREATE TABLE cross_items (id int)"]
+        assert captured_prep[0]["fingerprint_sources"] == ("v1",)
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", "--postgres-backend=embedded")
+    result.assert_outcomes(passed=1)
+
+
 @requires_binaries
 def test_postgres_any_service_live_embedded_without_docker(pytester: pytest.Pytester) -> None:
     """Verify --postgres-backend=embedded starts real embedded Postgres even with only docker.postgres loaded."""

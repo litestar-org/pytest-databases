@@ -179,7 +179,7 @@ Added
 * ``PostgresServiceProtocol``, ``PostgresBackend``, ``--postgres-backend`` CLI flag / ``postgres_backend`` ini
   setting / ``PYTEST_DATABASES_POSTGRES_BACKEND`` env var (resolved via ``resolve_postgres_backend``), and portable
   session-scoped ``postgres_any_service`` fixture switching cleanly between Docker and embedded PostgreSQL (gh-193).
-* ``postgres_startup_timeout`` (default ``60``), ``alloydb_omni_shm_size`` (default ``"256m"``),
+* ``postgres_startup_timeout`` (default ``60``), ``alloydb_omni_shm_size`` (default ``"512m"``),
   ``alloydb_omni_startup_timeout`` (default ``90``), ``alloydb_omni_command`` and ``alloydb_omni_legacy_command``
   (``build_alloydb_omni_command``), automatic ``CREATE EXTENSION IF NOT EXISTS vector`` across ``pgvector_service``
   and ``pgvector_13_service``..``pgvector_18_service``, out-of-the-box AlloyDB Omni ``google_columnar_engine``,

@@ -1030,7 +1030,7 @@ def test_provide_external_postgres_service_validation_and_timeout(
 def _try_resolve_local_pg() -> embedded_pg_mod.PostgresBinaries | None:
     try:
         return embedded_pg_mod.resolve_postgres_binaries()
-    except FileNotFoundError:
+    except (RuntimeError, OSError):
         return None
 
 
@@ -1204,7 +1204,7 @@ def test_build_alloydb_omni_command_and_fixtures(
     monkeypatch.delenv("ALLOYDB_OMNI_SHM_SIZE", raising=False)
     monkeypatch.delenv("POSTGRES_STARTUP_TIMEOUT", raising=False)
     monkeypatch.delenv("ALLOYDB_OMNI_STARTUP_TIMEOUT", raising=False)
-    assert unwrap_fixture(postgres_mod.alloydb_omni_shm_size)() == "256m"
+    assert unwrap_fixture(postgres_mod.alloydb_omni_shm_size)() == "512m"
     assert unwrap_fixture(postgres_mod.postgres_startup_timeout)() == 60
     assert unwrap_fixture(postgres_mod.alloydb_omni_startup_timeout)() == 90
 

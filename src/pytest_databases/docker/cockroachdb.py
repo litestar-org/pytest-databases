@@ -13,7 +13,7 @@ from urllib.parse import quote, urlencode
 import pytest
 from docker.errors import APIError, NotFound
 
-from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num
+from pytest_databases.helpers import exec_output_to_bytes, get_xdist_worker_num, tcp_port_open
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
@@ -126,6 +126,8 @@ def provide_cockroachdb_service(
     """
 
     def check(_service: ServiceContainer) -> bool:
+        if not tcp_port_open(_service.host, _service.port):
+            return False
         exit_code, _ = exec_cockroach_sql(_service.container, "SELECT 1")
         return exit_code == 0
 

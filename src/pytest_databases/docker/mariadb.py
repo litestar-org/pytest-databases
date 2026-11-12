@@ -193,6 +193,7 @@ def provide_mariadb_service(
             db_name=db_name,
             root_password=root_password,
             init_sql=init_sql,
+            lock_dir=docker_service.temp_dir,
         )
         yield MariaDBService(
             host=service.host,
@@ -441,6 +442,7 @@ def _apply_mariadb_init_sql(
     db_name: str,
     root_password: str,
     init_sql: str | Path | Sequence[str | Path] | None,
+    lock_dir: Path | None = None,
 ) -> None:
     """Execute ``init_sql`` statements once per ``(container, db_name)`` as ``root``."""
     statements = read_init_scripts(init_sql)
@@ -463,4 +465,4 @@ def _apply_mariadb_init_sql(
                 msg = f"MariaDB init_sql failed on database {db_name!r} (exit {code}): {detail}"
                 raise RuntimeError(msg)
 
-    run_container_init_once(container, f"mariadb:{db_name}", fingerprint, _run)
+    run_container_init_once(container, f"mariadb:{db_name}", fingerprint, _run, lock_dir=lock_dir)

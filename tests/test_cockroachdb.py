@@ -193,6 +193,11 @@ def test_provide_cockroachdb_service_and_helpers(
     """Verify provide_cockroachdb_service xdist modes, readiness check, and retry exhaustion."""
     monkeypatch.setattr("pytest_databases.docker.cockroachdb.time.sleep", lambda _s: None)
     monkeypatch.setattr("pytest_databases.docker.cockroachdb.get_xdist_worker_num", lambda: worker_num)
+    port_states = iter([False, True])
+    monkeypatch.setattr(
+        "pytest_databases.docker.cockroachdb.tcp_port_open",
+        lambda *_a, **_kw: next(port_states, True),
+    )
     mock_docker = MagicMock()
     mock_container = MagicMock()
     mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
@@ -213,6 +218,7 @@ def test_provide_cockroachdb_service_and_helpers(
 
     check = mock_docker.run.call_args.kwargs["check"]
     assert mock_docker.run.call_args.kwargs["name"] == expected_name
+    assert check(svc_container) is False
     assert check(svc_container) is True
 
     mock_container.exec_run.side_effect = APIError("boom")
@@ -274,11 +280,11 @@ def test_provide_cockroachdb_service_and_helpers(
         ),
         pytest.param(
             "127.0.0.1",
-            "ro ot",
+            "ro user",
             "db/1",
             {"sslmode": "disable"},
-            "postgresql://ro%20ot@127.0.0.1:26257/db%2F1?sslmode=disable",
-            {"host": "127.0.0.1", "port": 26257, "user": "ro ot", "database": "db/1", "sslmode": "disable"},
+            "postgresql://ro%20user@127.0.0.1:26257/db%2F1?sslmode=disable",
+            {"host": "127.0.0.1", "port": 26257, "user": "ro user", "database": "db/1", "sslmode": "disable"},
             id="url-encoded-user-db",
         ),
     ],

@@ -179,7 +179,7 @@ class SybaseService(ServiceContainer):
         conf_dir.mkdir(parents=True, exist_ok=True)
         conf_path = conf_dir / "freetds.conf"
 
-        parser = configparser.ConfigParser(interpolation=None)
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
         setattr(parser, "optionxform", str)
         prior_env = os.environ.get("FREETDSCONF")
         if prior_env:

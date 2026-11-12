@@ -34,6 +34,7 @@ from pytest_databases.helpers import (
     get_xdist_worker_num,
     http_get_json,
     http_request,
+    read_http_handler_body,
     send_http_request,
 )
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
@@ -102,8 +103,14 @@ DEFAULT_FLOCI_OCI_NAMESPACE = "floci-local"
 DEFAULT_FLOCI_OCI_COMPARTMENT_ID = "ocid1.tenancy.oc1..flocilocaltenancy0000000000000000000000000000000000000000"
 _AZURITE_DEFAULT_ACCOUNT = "devstoreaccount1"
 _AZURITE_DEFAULT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
-_HOP_BY_HOP_REQUEST_HEADERS = frozenset({"host", "content-length", "connection", "transfer-encoding"})
-_HOP_BY_HOP_RESPONSE_HEADERS = frozenset({"transfer-encoding", "content-length", "connection"})
+_HOP_BY_HOP_REQUEST_HEADERS = frozenset({
+    "accept-encoding",
+    "connection",
+    "content-length",
+    "host",
+    "transfer-encoding",
+})
+_HOP_BY_HOP_RESPONSE_HEADERS = frozenset({"connection", "content-encoding", "content-length", "transfer-encoding"})
 
 
 @dataclass
@@ -754,6 +761,10 @@ class _FlociGCPCompatHandler(http.server.BaseHTTPRequestHandler):
         """Serve XML/REST HEAD requests via upstream GET with exact Content-Length and empty body."""
         self._handle_head_via_get()
 
+    def do_OPTIONS(self) -> None:
+        """Forward an OPTIONS request."""
+        self._handle_standard_request()
+
     def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
         """Suppress HTTP access logging during test runs."""
         _ = (self.command, code, size)
@@ -769,8 +780,16 @@ class _FlociGCPCompatHandler(http.server.BaseHTTPRequestHandler):
         return {key: value for key, value in self.headers.items() if key.lower() not in _HOP_BY_HOP_REQUEST_HEADERS}
 
     def _read_request_body(self) -> bytes:
-        content_length = int(self.headers.get("Content-Length", "0"))
-        return self.rfile.read(content_length) if content_length > 0 else b""
+        return read_http_handler_body(self.headers, self.rfile)
+
+    def _is_xml_bucket_listing_request(self, body: bytes) -> bool:
+        if self.command != "GET":
+            return False
+        path = urllib.parse.urlsplit(self.path).path.strip("/")
+        if not path or "/" in path:
+            return False
+        trimmed = body.lstrip()
+        return trimmed.startswith((b"<?xml", b"<ListBucketResult"))
 
     def _send_upstream_failure(self, status: int, message: str) -> None:
         body = message.encode("utf-8")
@@ -790,7 +809,7 @@ class _FlociGCPCompatHandler(http.server.BaseHTTPRequestHandler):
         is_head: bool = False,
     ) -> None:
         final_body = body
-        if 200 <= status < 300 and b"ListBucketResult" in final_body:
+        if not is_head and 200 <= status < 300 and self._is_xml_bucket_listing_request(final_body):
             final_body = _augment_list_bucket_xml(final_body)
         headers_out: list[tuple[str, str]] = [
             (key, value) for key, value in upstream_headers.items() if key.lower() not in _HOP_BY_HOP_RESPONSE_HEADERS
@@ -887,7 +906,11 @@ class _FlociGCPCompatHandler(http.server.BaseHTTPRequestHandler):
 
     def _handle_standard_request(self) -> None:
         server = self._get_server()
-        raw_body = self._read_request_body()
+        try:
+            raw_body = self._read_request_body()
+        except ValueError as exc:
+            self._send_upstream_failure(400, f"Invalid HTTP request body: {exc}")
+            return
         upstream_url = f"http://{server.upstream_host}:{server.upstream_port}{self.path}"
         outgoing_headers = self._forward_headers()
         if raw_body or self.command in {"POST", "PUT", "PATCH"}:

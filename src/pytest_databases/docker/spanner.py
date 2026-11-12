@@ -198,18 +198,20 @@ def configure_spanner_emulator_client_guards() -> Generator[None, None, None]:
             if manager_cls is not None and hasattr(manager_cls, _POLLING_ATTR):
                 saved_polling.append((manager_cls, getattr(manager_cls, _POLLING_ATTR)))
                 setattr(manager_cls, _POLLING_ATTR, _FAST_POLLING_INTERVAL)
-    saved_levels: list[tuple[logging.Logger, int]] = []
+    saved_levels: list[tuple[logging.Logger, int, Any]] = []
     for logger_name in _SPANNER_LOGGER_NAMES:
         logger = logging.getLogger(logger_name)
-        saved_levels.append((logger, logger.level))
-        if logger.level < logging.WARNING:
+        orig_call_handlers = _install_closed_stream_guard(logger)
+        saved_levels.append((logger, logger.level, orig_call_handlers))
+        if logger.getEffectiveLevel() < logging.WARNING:
             logger.setLevel(logging.WARNING)
-        _install_closed_stream_guard(logger)
     try:
         yield
     finally:
-        for logger, prev_level in reversed(saved_levels):
+        for logger, prev_level, orig_call_handlers in reversed(saved_levels):
             logger.setLevel(prev_level)
+            if orig_call_handlers is not None:
+                setattr(logger, "callHandlers", orig_call_handlers)
         for manager_cls, prev_interval in reversed(saved_polling):
             setattr(manager_cls, _POLLING_ATTR, prev_interval)
         if not had_metrics_env:
@@ -403,34 +405,45 @@ def _send_spanner_request_with_retry(
         raise urllib.error.HTTPError(url, status, f"HTTP {status}", msg_headers, io.BytesIO(body))
 
 
-def _has_closed_stream_handler(logger: logging.Logger) -> bool:
+def _is_handler_stream_closed(handler: logging.Handler) -> bool:
+    stream = getattr(handler, "stream", None)
+    return bool(stream is not None and getattr(stream, "closed", False))
+
+
+def _dispatch_skipping_closed_streams(logger: logging.Logger, record: logging.LogRecord) -> None:
     current: logging.Logger | None = logger
+    found = 0
     while current is not None:
         for handler in current.handlers:
-            stream = getattr(handler, "stream", None)
-            if stream is not None and getattr(stream, "closed", False):
-                return True
-        if not current.propagate:
-            break
-        current = current.parent
-    return False
+            found += 1
+            if record.levelno < handler.level or _is_handler_stream_closed(handler):
+                continue
+            try:
+                handler.handle(record)
+            except ValueError as exc:
+                if "closed file" in str(exc).lower() or _is_handler_stream_closed(handler):
+                    continue
+                raise
+        current = None if not current.propagate else current.parent
+    if (
+        found == 0
+        and logging.lastResort
+        and record.levelno >= logging.lastResort.level
+        and not _is_handler_stream_closed(logging.lastResort)
+    ):
+        with contextlib.suppress(ValueError):
+            logging.lastResort.handle(record)
 
 
-def _install_closed_stream_guard(logger: logging.Logger) -> None:
+def _install_closed_stream_guard(logger: logging.Logger) -> Any:
     orig_call_handlers: Any = logger.callHandlers
     if getattr(orig_call_handlers, _STREAM_GUARD_MARKER, False):
-        return
+        return None
 
     @wraps(orig_call_handlers)
     def guarded_call_handlers(record: logging.LogRecord) -> None:
-        if _has_closed_stream_handler(logger):
-            return
-        try:
-            orig_call_handlers(record)
-        except ValueError as exc:
-            if "closed file" in str(exc).lower() or _has_closed_stream_handler(logger):
-                return
-            raise
+        _dispatch_skipping_closed_streams(logger, record)
 
     setattr(guarded_call_handlers, _STREAM_GUARD_MARKER, True)
-    logger.callHandlers = guarded_call_handlers  # type: ignore[method-assign]
+    setattr(logger, "callHandlers", guarded_call_handlers)
+    return orig_call_handlers
