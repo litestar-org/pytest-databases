@@ -25,17 +25,28 @@ and schema. ``SnowflakeService.connection_kwargs`` provides parameters for ``sno
 
 .. code-block:: python
 
-   from pytest_databases.docker.snowflake import SnowflakeService
+   from pytest_databases.docker.snowflake import (
+       SnowflakeService,
+       login_snowflake_emulator,
+       query_snowflake_emulator,
+   )
 
    pytest_plugins = ["pytest_databases.docker.snowflake"]
 
 
    def test_snowflake(snowflake_service: SnowflakeService) -> None:
-       response = snowflake_service.query("SELECT 1")
-       assert response["data"]["rowset"] == [[1]]
+       token = login_snowflake_emulator(snowflake_service)
+       response = query_snowflake_emulator(snowflake_service, token, "SELECT 1")
+       assert response["success"] is True
+       assert response["data"]["rowset"] == [["1"]]
        assert snowflake_service.connection_kwargs["protocol"] == "http"
 
-``query()`` raises ``RuntimeError`` with the emulator's message when a statement fails.
+``query()`` raises ``RuntimeError`` with the emulator's message when a statement fails. By default,
+``snowflake_wire_compat`` (``SNOWFLAKE_WIRE_COMPAT``, default ``True``) runs a loopback REST v1 compatibility proxy in
+front of Embucket that decompresses ``Content-Encoding: gzip`` request payloads, substitutes positional ``?``
+``bindings`` parameters in SQL text, and stringifies non-``None`` ``rowset`` cells (such as ``[["1"]]``) for
+``snowflake-connector-python``. Set ``SNOWFLAKE_WIRE_COMPAT=0`` (or override ``snowflake_wire_compat`` to ``False`` and
+pass ``wire_compat=False`` to ``provide_snowflake_service``) to target the raw Embucket port directly (``[[1]]``).
 
 The container is started with ``snowflake_user`` and ``snowflake_password`` as its login (``AUTH_DEMO_USER`` /
 ``AUTH_DEMO_PASSWORD``) and an in-memory volume that holds ``snowflake_database`` and its ``public`` schema. Data
@@ -55,6 +66,7 @@ Available Fixtures
 * ``snowflake_image``: Container image (default ``embucket/embucket:0.2.2``, env ``SNOWFLAKE_IMAGE``).
 * ``snowflake_user``, ``snowflake_password`` (default ``embucket`` / ``embucket``), ``snowflake_account``
 * ``snowflake_database``, ``snowflake_schema``, ``snowflake_warehouse``, ``snowflake_role``
+* ``snowflake_wire_compat``: Enable the REST v1 compatibility loopback proxy (default ``True``, env ``SNOWFLAKE_WIRE_COMPAT``).
 * ``xdist_snowflake_isolation_level``: ``"database"`` (worker-scoped schema) or ``"server"``
 * ``snowflake_service``: :class:`~pytest_databases.docker.snowflake.SnowflakeService`
 

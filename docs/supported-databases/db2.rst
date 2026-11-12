@@ -21,12 +21,14 @@ Docker Image & Runtime Capabilities
 -----------------------------------
 
 The default image is ``icr.io/db2_community/db2:12.1.5.0`` on container port
-``50000``. Db2 adjusts kernel IPC parameters inside its own namespace during
-startup, so ``db2_service`` starts the container with ``privileged=True`` (as in
-IBM's documented ``docker run``). Each container keeps its own IPC namespace, so
-several Db2 containers on one host do not share IPC keys. Sample database
-creation is disabled (``SAMPLEDB="false"``, ``AUTOCONFIG="false"``) for faster
-startup.
+``50000``. Db2 adjusts kernel IPC parameters and allocates large SysV IPC
+semaphores during startup, so ``db2_service`` starts the container with
+``privileged=True`` (as in IBM's documented ``docker run``) and defaults
+``db2_ipc_mode`` to ``"host"`` across Docker and Podman to avoid private IPC
+exhaustion (``SQL1042C`` / ``SQLSTATE=57019``). Set ``DB2_IPC_MODE=""`` (or
+override ``db2_ipc_mode`` to ``None``) if you run isolated IPC namespaces with
+enlarged container ``sysctls``. Sample database creation is disabled
+(``SAMPLEDB="false"``, ``AUTOCONFIG="false"``) for faster startup.
 
 Storage with 4096-byte logical sectors (for example an overlay2 Docker root on a
 4Kn or dm-crypt device) makes Db2's default direct I/O fail with ``SQL0293N``, and
@@ -34,9 +36,14 @@ the initial database is never created. ``db2_service`` therefore sets the Db2
 registry variables ``DB2_4K_DEVICE_SUPPORT=ON`` and ``DB2_DIRECT_IO=NO`` by
 default: the image setup script is patched to set them before its first
 ``db2start``, and if the initial database is still missing after setup
-(``SQL1013N``) the variables are applied, the instance is restarted, and the
-database is created once. Both settings also work on 512-byte storage. Override
-the ``db2_4k_device_support`` fixture to return ``False`` (or set
+(``SQL1013N`` or SQLSTATE ``42705``) the recovery path runs once under a host
+``filelock.FileLock`` (under ``docker_service.temp_dir``) and in-container
+``flock`` serialization (``db2stop force``, registry update, ``db2start``, and
+initial database creation). Both settings also work on 512-byte storage, and
+``create_worker_database`` uses the same locking so concurrent ``pytest-xdist``
+workers never race. Startup also fast-fails immediately with ``RuntimeError``
+when ``SQL1042C`` or ``SQLSTATE=57019`` appears in container logs. Override the
+``db2_4k_device_support`` fixture to return ``False`` (or set
 ``DB2_4K_DEVICE_SUPPORT=off``) to start the image unchanged.
 
 ``Db2Service.exec_sql`` runs a statement through the in-container ``db2`` command
@@ -49,8 +56,8 @@ in-memory ``MON_GET_*`` monitoring snapshots persist across short-lived client
 connections. Custom fixtures calling
 :func:`~pytest_databases.docker.db2.provide_db2_service` can also pass
 ``registry_vars`` (extra ``db2set`` entries applied before ``db2start``),
-``env``, ``host_port``, ``shm_size``, ``mem_limit``, ``platform``, and one-shot
-``init_sql`` scripts.
+``env``, ``host_port``, ``ipc_mode``, ``volumes``, ``shm_size``, ``mem_limit``,
+``platform``, and one-shot ``init_sql`` scripts.
 
 .. note::
 
@@ -87,6 +94,8 @@ Available Fixtures
   (default: ``True``, env ``DB2_4K_DEVICE_SUPPORT``).
 * ``db2_activate_database``: Explicitly activate the database so ``MON_GET_*`` metrics persist across disconnects
   (default: ``True``, env ``DB2_ACTIVATE_DATABASE``).
+* ``db2_ipc_mode``: Container IPC mode (default: ``"host"``, env ``DB2_IPC_MODE``; set ``DB2_IPC_MODE=""`` or override to ``None`` to disable).
+* ``db2_volumes``: Optional volume mount mapping or sequence forwarded to ``provide_db2_service`` (default: ``None``).
 * ``xdist_db2_isolation_level``: ``"database"`` (per-worker ``ptdb_<n>`` database)
   or ``"server"`` (one transient ``db2_<n>`` container per xdist worker).
 * ``db2_service``: :class:`~pytest_databases.docker.db2.Db2Service` instance.

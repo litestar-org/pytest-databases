@@ -26,6 +26,7 @@ Usage Example
 
 
     def test_bigquery(bigquery_service: BigQueryService) -> None:
+        assert bigquery_service.is_healthy() is True
         client = bigquery.Client(
             project=bigquery_service.project,
             client_options=ClientOptions(api_endpoint=bigquery_service.endpoint),
@@ -39,15 +40,12 @@ Usage Example
 Available Fixtures
 ------------------
 
-* ``bigquery_image``: The Docker image to use for the BigQuery emulator.
-* ``bigquery_service``: A fixture that provides a :class:`~pytest_databases.docker.bigquery.BigQueryService` instance.
+* ``bigquery_image``: The Docker image to use for the BigQuery emulator (default ``ghcr.io/goccy/bigquery-emulator:0.8.1`` via ``DEFAULT_BIGQUERY_IMAGE``, env ``BIGQUERY_IMAGE``; note that the image tag omits a leading ``v``).
+* ``bigquery_service``: A fixture that provides a :class:`~pytest_databases.docker.bigquery.BigQueryService` instance (with ``is_healthy(*, timeout=5.0) -> bool``).
 * ``bigquery_client``: Deprecated fixture that provides a ``google.cloud.bigquery.Client``.
-* ``xdist_bigquery_isolation_level``: ``database`` (default) or ``server``.
+* ``xdist_bigquery_isolation_level``: ``"server"`` (default) or ``"database"``.
 
-``BigQueryService.dataset`` is the dataset reserved for the current test process. Under ``pytest-xdist`` with
-``database`` isolation, workers share one emulator and each worker gets its own dataset (``test-dataset_<worker>``),
-created before the fixture yields. With ``server`` isolation every worker gets its own emulator and the dataset is
-``test-dataset``. Read the dataset from the service instead of hard-coding it.
+By default (``"server"``), single-process sessions reuse a non-transient shared container while ``pytest-xdist`` gives each worker its own isolated container to avoid ``goccy/bigquery-emulator`` SQLite catalog DDL races. With opt-in ``"database"`` isolation, workers share one emulator and each worker receives ``test-dataset_<worker>`` in ``BigQueryService.dataset``. Read ``bigquery_service.dataset`` instead of hard-coding it.
 
 Service API
 -----------

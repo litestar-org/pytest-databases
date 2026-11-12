@@ -7,11 +7,13 @@ Overview
 --------
 
 ``pytest_databases.embedded.postgres`` runs ``initdb`` and ``postgres`` in a temporary directory and serves the
-cluster on a loopback TCP port. The cluster uses ``trust`` authentication (no password) and has Unix-domain sockets
+cluster on a loopback TCP port. The cluster uses ``trust`` authentication (``password`` defaults to ``""`` and is
+reflected in ``dsn`` and ``connection_config`` whenever non-empty) and has Unix-domain sockets
 disabled, plus non-durable settings (``fsync = off``, ``synchronous_commit = off``, ``full_page_writes = off``) that
 suit throwaway test data. The fixture runs its own SQL over a stdlib PostgreSQL v3 wire client (which supports ``trust``, cleartext, MD5, and
 ``SCRAM-SHA-256`` authentication and also powers ``postgres_external_service`` in :doc:`postgres`), so neither ``psql``
-nor a Python driver is required. Any PostgreSQL client (``psycopg``, ``asyncpg``, SQLAlchemy, SQLSpec) connects with
+nor a Python driver is required. ``EmbeddedPostgresService`` satisfies :class:`~pytest_databases.PostgresServiceProtocol`
+alongside ``PostgresService`` and ``ExternalPostgresService``. Any PostgreSQL client (``psycopg``, ``asyncpg``, SQLAlchemy, SQLSpec) connects with
 ``dsn`` or ``connection_config``.
 
 Installation
@@ -47,12 +49,36 @@ Usage Example
 
 
     def test_exec_sql(embedded_postgres_service: EmbeddedPostgresService) -> None:
-        exit_code, output = embedded_postgres_service.exec_sql("SELECT current_database()")
+        exit_code, output = embedded_postgres_service.exec_sql("SELECT current_database()", tuples_only=True)
         assert exit_code == 0
-        assert output.decode() == embedded_postgres_service.database
+        assert output.strip().decode() == embedded_postgres_service.database
 
-``exec_sql()`` returns ``(exit_code, output)`` like ``psql -tA``: one line per row with ``|`` between columns, exit
-code ``1`` for an SQL error, and ``2`` for a connection failure.
+``exec_sql(sql, *, database=None, tuples_only=False, timeout=30.0)`` returns ``(exit_code, output)`` as
+``tuple[int, bytes]``, matching :meth:`~pytest_databases.docker.postgres.PostgresService.exec_sql`: one line per row
+with ``|`` between columns, exit code ``1`` for an SQL error, and ``2`` for a connection failure.
+
+Portable PostgreSQL Backend Switching
+-------------------------------------
+
+Use the ``postgres_any_service`` fixture typed as :class:`~pytest_databases.PostgresServiceProtocol` to write suites
+that target either containerized PostgreSQL or local embedded binaries:
+
+.. code-block:: python
+
+    from pytest_databases import PostgresServiceProtocol
+
+    pytest_plugins = ["pytest_databases.embedded.postgres"]
+
+
+    def test_portable_postgres(postgres_any_service: PostgresServiceProtocol) -> None:
+        exit_code, output = postgres_any_service.exec_sql("SELECT 1", tuples_only=True, timeout=30.0)
+        assert exit_code == 0
+        assert output.strip() == b"1"
+
+Switch backends with ``--postgres-backend=embedded``, ini ``postgres_backend = "embedded"``, or
+``PYTEST_DATABASES_POSTGRES_BACKEND=embedded`` (precedence ``CLI -> ini -> env -> "docker"``). Suites registering
+only ``pytest_databases.docker.postgres`` still resolve ``embedded`` lazily via ``resolve_postgres_binaries()`` (honoring
+``PG_BIN_DIR``) without probing Docker or Podman.
 
 Isolation and Template Databases
 --------------------------------
@@ -117,7 +143,9 @@ Available Fixtures
 ------------------
 
 * ``embedded_postgres_service``: An :class:`~pytest_databases.embedded.postgres.EmbeddedPostgresService` pointed at
-  this process's database.
+  this process's database (with ``password=""`` default under ``trust`` auth).
+* ``postgres_any_service``: Cross-backend session fixture yielding a :class:`~pytest_databases.PostgresServiceProtocol`
+  instance (delegating to ``embedded_postgres_service`` when ``--postgres-backend=embedded``).
 * ``embedded_postgres_user``: Superuser name (defaults to ``"postgres"``).
 * ``embedded_postgres_database``: Base name of the yielded database (defaults to ``"pytest_databases"``;
   ``pytest_databases_<worker>`` under xdist).
@@ -132,8 +160,10 @@ Available Fixtures
 * ``embedded_postgres_template_lock_dir``: Directory for the template lock file (``None`` means the system temp
   directory).
 
-For a cluster outside the fixture, use ``provide_embedded_postgres_service()``. Its ``cleanup_mode="delete"`` removes
-the temporary data directory on exit and ``"keep"`` leaves it for inspection; a ``data_dir`` you pass is never deleted.
+For a cluster outside the fixture, use ``provide_embedded_postgres_service(..., password="", init_sql=None)`` and
+``ensure_template(..., init_sql=...)`` for extension initialization prior to user template setup. Its
+``cleanup_mode="delete"`` removes the temporary data directory on exit and ``"keep"`` leaves it for inspection; a
+``data_dir`` you pass is never deleted.
 
 Service API
 -----------
@@ -142,3 +172,4 @@ Service API
     :members:
     :undoc-members:
     :show-inheritance:
+    :exclude-members: PostgresServiceProtocol
