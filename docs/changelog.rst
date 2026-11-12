@@ -171,9 +171,10 @@ Added
   worker), and ``provide_cloudflare_service``.
 * ``ContainerService.temp_dir`` exposing a session-scoped temporary :class:`pathlib.Path` on ``container_service`` /
   ``docker_service`` for cross-worker ``FileLock`` and session state coordination (gh-184, gh-186).
-* ``pytest_databases.send_http_request``, ``ssl_context`` support on ``pytest_databases.helpers.http_request``, and
-  public ``pytest_databases.create_s3_bucket(..., timeout=10.0, ssl_context=None)`` (also exported from
-  ``pytest_databases.helpers``) returning ``(status, body)`` and creating S3 buckets without routing through ambient
+* ``pytest_databases.send_http_request`` (returning ``(status, headers, body)``), ``ssl_context`` support on
+  ``pytest_databases.helpers.http_request`` (returning ``(status, body)``), and public
+  ``pytest_databases.create_s3_bucket(..., timeout=10.0, ssl_context=None) -> bool`` (also exported from
+  ``pytest_databases.helpers``) for creating S3 buckets without routing through ambient
   ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``ALL_PROXY`` variables (gh-184, gh-188).
 * ``PostgresServiceProtocol``, ``PostgresBackend``, ``--postgres-backend`` CLI flag / ``postgres_backend`` ini
   setting / ``PYTEST_DATABASES_POSTGRES_BACKEND`` env var (resolved via ``resolve_postgres_backend``), and portable
@@ -193,7 +194,7 @@ Added
   verbosity to ``WARNING``, and suppressing closed-stream ``ValueError`` teardown tracebacks (gh-189).
 * ``BigQueryService.is_healthy(*, timeout=5.0)`` and ``BIGQUERY_IMAGE`` environment override on ``bigquery_image``
   (gh-190).
-* ``db2_volumes`` fixture (`#186`), public ``exec_sqlplus``, ``OracleADBService.mtls_alias``, and
+* ``db2_volumes`` fixture (gh-186), public ``exec_sqlplus``, ``OracleADBService.mtls_alias``, and
   ``OracleADBService.build_wallet_zip`` with optional ``cryptography`` PKCS#12 ``ewallet.p12`` synthesis (gh-191), and
   ``SybaseService.write_freetds_conf`` plus session-scoped ``sybase_freetds_alias`` for FreeTDS 5.0 clients (gh-192).
 * ``oracle_startup_timeout`` (default ``180``, env ``ORACLE_STARTUP_TIMEOUT``) and ``oracle_adb_startup_timeout``

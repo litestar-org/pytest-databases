@@ -157,7 +157,7 @@ Available Fixtures
 * ``postgres_image``: The Docker image to use for PostgreSQL (defaults to ``"postgres:18"``).
 * ``postgres_port``: Optional host-side port pin (default ``None``, override via ``POSTGRES_PORT`` env).
 * ``postgres_startup_timeout``: Startup readiness timeout in seconds for containerized PostgreSQL services (default ``60``, env ``POSTGRES_STARTUP_TIMEOUT``).
-* ``postgres_any_service``: Cross-backend session fixture returning a :class:`~pytest_databases.PostgresServiceProtocol` (`PostgresService`, `ExternalPostgresService`, or lazily imported `EmbeddedPostgresService` controlled by ``--postgres-backend`` / ``postgres_backend`` / ``PYTEST_DATABASES_POSTGRES_BACKEND``).
+* ``postgres_any_service``: Cross-backend session fixture returning a :class:`~pytest_databases.PostgresServiceProtocol` (``PostgresService``, ``ExternalPostgresService``, or lazily imported ``EmbeddedPostgresService`` controlled by ``--postgres-backend`` / ``postgres_backend`` / ``PYTEST_DATABASES_POSTGRES_BACKEND``).
 * ``postgres_external_host``: Optional hostname or IP of a pre-started PostgreSQL endpoint (default ``None``, env ``POSTGRES_EXTERNAL_HOST``).
 * ``postgres_external_port``: Optional TCP port for ``postgres_external_service`` (default ``None``, falling back to ``5432``; env ``POSTGRES_EXTERNAL_PORT``).
 * ``postgres_external_service``: Yields an :class:`~pytest_databases.docker.postgres.ExternalPostgresService` connected to ``postgres_external_host`` (skips when unset).

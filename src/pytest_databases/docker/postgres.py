@@ -26,6 +26,7 @@ from pytest_databases.helpers import (
     env_port,
     exec_output_to_bytes,
     get_xdist_worker_num,
+    is_fixture_registered,
     make_connection_string,
     read_init_scripts,
     run_container_init_once,
@@ -1532,17 +1533,12 @@ def _is_legacy_alloydb_omni_image(image: str) -> bool:
     return tag in {"15", "16"} or tag.startswith(("15.", "15-", "16.", "16-"))
 
 
-def _is_fixture_registered(request: pytest.FixtureRequest, name: str) -> bool:
-    """Return whether pytest has registered a fixture named ``name`` for the current node."""
-    return bool(request.session._fixturemanager.getfixturedefs(name, request.node))
-
-
 def _resolve_optional_postgres_template(request: pytest.FixtureRequest) -> PostgresTemplateOptions | None:
     """Build ``PostgresTemplateOptions`` when user template fixtures are registered in the active session."""
-    if _is_fixture_registered(request, "postgres_template_options"):
+    if is_fixture_registered(request, "postgres_template_options"):
         return request.getfixturevalue("postgres_template_options")
     has_override = any(
-        _is_fixture_registered(request, fixture_name)
+        is_fixture_registered(request, fixture_name)
         for fixture_name in (
             "postgres_template_setup",
             "postgres_template_name",
@@ -1554,22 +1550,22 @@ def _resolve_optional_postgres_template(request: pytest.FixtureRequest) -> Postg
         return None
     name = (
         request.getfixturevalue("postgres_template_name")
-        if _is_fixture_registered(request, "postgres_template_name")
+        if is_fixture_registered(request, "postgres_template_name")
         else None
     )
     setup = (
         request.getfixturevalue("postgres_template_setup")
-        if _is_fixture_registered(request, "postgres_template_setup")
+        if is_fixture_registered(request, "postgres_template_setup")
         else None
     )
     fingerprint_sources = (
         request.getfixturevalue("postgres_template_fingerprint_sources")
-        if _is_fixture_registered(request, "postgres_template_fingerprint_sources")
+        if is_fixture_registered(request, "postgres_template_fingerprint_sources")
         else ()
     )
     lock_dir = (
         request.getfixturevalue("postgres_template_lock_dir")
-        if _is_fixture_registered(request, "postgres_template_lock_dir")
+        if is_fixture_registered(request, "postgres_template_lock_dir")
         else None
     )
     return PostgresTemplateOptions(
@@ -1589,38 +1585,38 @@ def provide_default_postgres_session(
     Yields:
         Active :class:`PostgresService` or :class:`ExternalPostgresService`.
     """
-    if _is_fixture_registered(request, "postgres_service"):
+    if is_fixture_registered(request, "postgres_service"):
         yield request.getfixturevalue("postgres_service")
         return
 
     external_host = (
         request.getfixturevalue("postgres_external_host")
-        if _is_fixture_registered(request, "postgres_external_host")
+        if is_fixture_registered(request, "postgres_external_host")
         else os.environ.get("POSTGRES_EXTERNAL_HOST", "").strip() or None
     )
     isolate: PostgresXdistIsolationLevel = (
         request.getfixturevalue("xdist_postgres_isolation_level")
-        if _is_fixture_registered(request, "xdist_postgres_isolation_level")
+        if is_fixture_registered(request, "xdist_postgres_isolation_level")
         else "database"
     )
     user = (
         request.getfixturevalue("postgres_user")
-        if _is_fixture_registered(request, "postgres_user")
+        if is_fixture_registered(request, "postgres_user")
         else os.environ.get("POSTGRES_USER", "postgres")
     )
     password = (
         request.getfixturevalue("postgres_password")
-        if _is_fixture_registered(request, "postgres_password")
+        if is_fixture_registered(request, "postgres_password")
         else "super-secret"
     )
     database = (
         request.getfixturevalue("postgres_database")
-        if _is_fixture_registered(request, "postgres_database")
+        if is_fixture_registered(request, "postgres_database")
         else os.environ.get("POSTGRES_DATABASE", "pytest_databases")
     )
     timeout = (
         request.getfixturevalue("postgres_startup_timeout")
-        if _is_fixture_registered(request, "postgres_startup_timeout")
+        if is_fixture_registered(request, "postgres_startup_timeout")
         else int(os.environ.get("POSTGRES_STARTUP_TIMEOUT", str(DEFAULT_POSTGRES_STARTUP_TIMEOUT)))
     )
     template = _resolve_optional_postgres_template(request)
@@ -1628,7 +1624,7 @@ def provide_default_postgres_session(
     if external_host:
         external_port = (
             request.getfixturevalue("postgres_external_port")
-            if _is_fixture_registered(request, "postgres_external_port")
+            if is_fixture_registered(request, "postgres_external_port")
             else env_port("POSTGRES_EXTERNAL_PORT")
         )
         ext_isolate: PostgresXdistIsolationLevel = "database" if isolate == "server" else isolate
@@ -1647,18 +1643,16 @@ def provide_default_postgres_session(
 
     host = (
         request.getfixturevalue("postgres_host")
-        if _is_fixture_registered(request, "postgres_host")
+        if is_fixture_registered(request, "postgres_host")
         else os.environ.get("POSTGRES_HOST", "127.0.0.1")
     )
     host_port = (
         request.getfixturevalue("postgres_port")
-        if _is_fixture_registered(request, "postgres_port")
+        if is_fixture_registered(request, "postgres_port")
         else env_port("POSTGRES_PORT")
     )
     image = (
-        request.getfixturevalue("postgres_image")
-        if _is_fixture_registered(request, "postgres_image")
-        else "postgres:18"
+        request.getfixturevalue("postgres_image") if is_fixture_registered(request, "postgres_image") else "postgres:18"
     )
     docker_service = request.getfixturevalue("docker_service")
     with provide_postgres_service(

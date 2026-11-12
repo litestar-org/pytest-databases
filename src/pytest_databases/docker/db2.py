@@ -571,11 +571,6 @@ def _build_db2_startup_command(
     return ["/bin/bash", "-c"], [_db2_registry_setup_command(settings)]
 
 
-def _db2_4k_setup_command() -> str:
-    """Build the container command that applies the 4096-byte sector registry settings before Db2 setup runs."""
-    return _db2_registry_setup_command(_DB2_4K_REGISTRY_SETTINGS)
-
-
 def _db2_registry_setup_command(settings: tuple[tuple[str, str], ...]) -> str:
     """Build a ``bash -c`` command patching ``db2_common_functions`` to set ``settings`` before ``db2start``."""
 
@@ -750,12 +745,14 @@ def _finalize_db2_database(
     target_db = validate_db2_database_name(db2_dbname)
     if target_db != initial_db:
         create_worker_database(container, target_db, instance_user=instance_user, lock_path=lock_path)
+    lock_dir = lock_path.parent if lock_path is not None else Path(tempfile.gettempdir())
     if activate:
         container_id = getattr(container, "id", None)
         lock_cm: contextlib.AbstractContextManager[object] = contextlib.nullcontext()
         if isinstance(container_id, str) and container_id:
-            lock_path = Path(tempfile.gettempdir()) / f"pytest-databases-db2-act-{container_id[:12]}-{target_db}.lock"
-            lock_cm = filelock.FileLock(str(lock_path), timeout=120.0)
+            lock_dir.mkdir(parents=True, exist_ok=True)
+            act_lock_path = lock_dir / f"pytest-databases-db2-act-{container_id[:12]}-{target_db}.lock"
+            lock_cm = filelock.FileLock(str(act_lock_path), timeout=120.0)
         with lock_cm:
             activate_db2_database(container, target_db, instance_user=instance_user)
     statements = read_init_scripts(init_sql)
@@ -767,4 +764,4 @@ def _finalize_db2_database(
         for statement in statements:
             exec_db2_sql(container, statement, db_name=target_db, instance_user=instance_user)
 
-    run_container_init_once(container, f"db2:{target_db}", fingerprint, _run)
+    run_container_init_once(container, f"db2:{target_db}", fingerprint, _run, lock_dir=lock_dir)

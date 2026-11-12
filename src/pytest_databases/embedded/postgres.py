@@ -36,6 +36,7 @@ from pytest_databases.helpers import (
     PostgresTemplateSupport,
     get_xdist_worker_id,
     get_xdist_worker_num,
+    is_fixture_registered,
     make_connection_string,
     read_init_scripts,
     split_template_setup,
@@ -532,14 +533,9 @@ def embedded_postgres_service(
                 admin.drop_database_force(db_name)
 
 
-def _is_fixture_registered(request: pytest.FixtureRequest, name: str) -> bool:
-    """Return whether pytest has registered a fixture named ``name`` for the current node."""
-    return bool(request.session._fixturemanager.getfixturedefs(name, request.node))
-
-
 def _fixture_or_default(request: pytest.FixtureRequest, name: str, default: Any) -> Any:
     """Return registered fixture value for ``name`` or ``default`` when absent."""
-    if _is_fixture_registered(request, name):
+    if is_fixture_registered(request, name):
         return request.getfixturevalue(name)
     return default
 
@@ -554,7 +550,7 @@ def provide_default_embedded_postgres_session(
     Yields:
         Active :class:`EmbeddedPostgresService` pointed at the worker database.
     """
-    if _is_fixture_registered(request, "embedded_postgres_service"):
+    if is_fixture_registered(request, "embedded_postgres_service"):
         yield request.getfixturevalue("embedded_postgres_service")
         return
 

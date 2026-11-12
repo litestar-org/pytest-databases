@@ -61,6 +61,7 @@ __all__ = (
     "http_get_json",
     "http_get_ok",
     "http_request",
+    "is_fixture_registered",
     "make_connection_string",
     "read_init_scripts",
     "resolve_legacy_platform",
@@ -215,6 +216,11 @@ def exec_output_to_bytes(output: bytes | str | Iterator[bytes]) -> bytes:
     if isinstance(output, str):
         return output.encode()
     return b"".join(output)
+
+
+def is_fixture_registered(request: pytest.FixtureRequest, name: str) -> bool:
+    """Return whether pytest has registered a fixture named ``name`` for the current node."""
+    return bool(request.session._fixturemanager.getfixturedefs(name, request.node))
 
 
 def simple_string_hash(string_to_hash: str) -> str:
