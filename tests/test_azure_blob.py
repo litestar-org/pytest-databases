@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import urllib.error
+import http.server
+import socket
+import threading
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -13,6 +15,7 @@ import pytest
 
 from pytest_databases.docker import azure_blob as azure_blob_mod
 from pytest_databases.docker.azure_blob import (
+    AZURE_API_VERSION,
     DEFAULT_ACCOUNT_KEY,
     DEFAULT_ACCOUNT_NAME,
     AzureBlobService,
@@ -64,76 +67,137 @@ def test_build_shared_key_authorization() -> None:
     assert len(signature) > 20
 
 
+def _start_azurite_loopback(
+    responses: list[tuple[int, dict[str, str], bytes]],
+) -> tuple[http.server.ThreadingHTTPServer, list[tuple[str, str, dict[str, str]]]]:
+    recorded: list[tuple[str, str, dict[str, str]]] = []
+    remaining = list(responses)
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def _handle(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length:
+                self.rfile.read(length)
+            recorded.append((self.command, self.path, dict(self.headers.items())))
+            status, headers, body = remaining.pop(0) if remaining else (200, {}, b"")
+            self.send_response(status)
+            for key, value in headers.items():
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            self._handle()
+
+        def do_PUT(self) -> None:
+            self._handle()
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, recorded
+
+
 def test_ensure_and_exists_azurite_container_unit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify ``ensure_azurite_container`` and ``azurite_container_exists`` handle HTTP status codes."""
-    resp_201 = MagicMock()
-    resp_201.__enter__.return_value = SimpleNamespace(status=201)
-    resp_201.__exit__.return_value = False
-    resp_200 = MagicMock()
-    resp_200.__enter__.return_value = SimpleNamespace(status=200)
-    resp_200.__exit__.return_value = False
-    responses: list[Any] = [
-        resp_201,
-        urllib.error.HTTPError(
-            url="http://127.0.0.1:10000/devstoreaccount1/pytest-databases?restype=container",
-            code=409,
-            msg="Conflict",
-            hdrs=MagicMock(),
-            fp=None,
-        ),
-        resp_200,
-    ]
+    """Verify ``ensure_azurite_container`` and ``azurite_container_exists`` handle status codes and proxy bypass."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    server, recorded = _start_azurite_loopback([
+        (201, {}, b""),
+        (200, {}, b""),
+        (404, {}, b""),
+    ])
+    account_url = f"http://127.0.0.1:{server.server_address[1]}/{DEFAULT_ACCOUNT_NAME}"
+    try:
+        assert ensure_azurite_container(
+            account_url=account_url,
+            account_name=DEFAULT_ACCOUNT_NAME,
+            account_key=DEFAULT_ACCOUNT_KEY,
+            container_name="pytest-databases",
+        )
+        assert azurite_container_exists(
+            account_url=account_url,
+            account_name=DEFAULT_ACCOUNT_NAME,
+            account_key=DEFAULT_ACCOUNT_KEY,
+            container_name="pytest-databases",
+        )
+        assert not azurite_container_exists(
+            account_url=account_url,
+            account_name=DEFAULT_ACCOUNT_NAME,
+            account_key=DEFAULT_ACCOUNT_KEY,
+            container_name="pytest-databases",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
 
-    def fake_urlopen(_request: Any, timeout: float = 5.0) -> Any:
-        assert timeout > 0
-        assert _request.data is None
-        assert "Content-type" not in _request.headers
-        item = responses.pop(0)
-        if isinstance(item, Exception):
-            raise item
-        return item
+    method, path, wire_headers = recorded[0]
+    lower_headers = {k.lower(): v for k, v in wire_headers.items()}
+    assert (method, path) == ("PUT", f"/{DEFAULT_ACCOUNT_NAME}/pytest-databases?restype=container")
+    assert lower_headers.get("content-length") == "0"
+    assert "content-type" not in lower_headers
+    assert lower_headers.get("x-ms-version") == AZURE_API_VERSION
+    assert str(lower_headers.get("authorization")).startswith(f"SharedKey {DEFAULT_ACCOUNT_NAME}:")
 
-    monkeypatch.setattr(azure_blob_mod.urllib.request, "urlopen", fake_urlopen)
 
-    assert ensure_azurite_container(
-        account_url="http://127.0.0.1:10000/devstoreaccount1",
-        account_name=DEFAULT_ACCOUNT_NAME,
-        account_key=DEFAULT_ACCOUNT_KEY,
-        container_name="pytest-databases",
-    )
-    assert ensure_azurite_container(
-        account_url="http://127.0.0.1:10000/devstoreaccount1",
-        account_name=DEFAULT_ACCOUNT_NAME,
-        account_key=DEFAULT_ACCOUNT_KEY,
-        container_name="pytest-databases",
-    )
-    assert azurite_container_exists(
-        account_url="http://127.0.0.1:10000/devstoreaccount1",
-        account_name=DEFAULT_ACCOUNT_NAME,
-        account_key=DEFAULT_ACCOUNT_KEY,
-        container_name="pytest-databases",
-    )
+@pytest.mark.parametrize(
+    ("resp_headers", "expected"),
+    [
+        ({"X-Ms-Error-Code": "ContainerAlreadyExists"}, True),
+        ({"x-ms-error-code": "ContainerAlreadyExists"}, True),
+        ({"x-ms-error-code": "ContainerBeingDeleted"}, False),
+        ({}, False),
+    ],
+)
+def test_ensure_azurite_container_409_error_code_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+    resp_headers: dict[str, str],
+    expected: bool,
+) -> None:
+    """Verify HTTP 409 succeeds only when case-insensitive x-ms-error-code is ContainerAlreadyExists."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    server, _recorded = _start_azurite_loopback([(409, resp_headers, b"<Error/>")])
+    account_url = f"http://127.0.0.1:{server.server_address[1]}/{DEFAULT_ACCOUNT_NAME}"
+    try:
+        assert (
+            ensure_azurite_container(
+                account_url=account_url,
+                account_name=DEFAULT_ACCOUNT_NAME,
+                account_key=DEFAULT_ACCOUNT_KEY,
+                container_name="c1",
+            )
+            is expected
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_ensure_azurite_container_network_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify network errors return ``False`` during readiness checks."""
-
-    def raise_url_error(_request: Any, timeout: float = 5.0) -> Any:
-        msg = f"connection refused (timeout={timeout})"
-        raise urllib.error.URLError(msg)
-
-    monkeypatch.setattr(azure_blob_mod.urllib.request, "urlopen", raise_url_error)
+    """Verify unreachable loopback ports return ``False`` during readiness checks."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        closed_port = int(sock.getsockname()[1])
+    account_url = f"http://127.0.0.1:{closed_port}/{DEFAULT_ACCOUNT_NAME}"
     assert not ensure_azurite_container(
-        account_url="http://127.0.0.1:10000/devstoreaccount1",
+        account_url=account_url,
         account_name=DEFAULT_ACCOUNT_NAME,
         account_key=DEFAULT_ACCOUNT_KEY,
         container_name="pytest-databases",
+        timeout=1.0,
     )
     assert not azurite_container_exists(
-        account_url="http://127.0.0.1:10000/devstoreaccount1",
+        account_url=account_url,
         account_name=DEFAULT_ACCOUNT_NAME,
         account_key=DEFAULT_ACCOUNT_KEY,
         container_name="pytest-databases",
+        timeout=1.0,
     )
 
 

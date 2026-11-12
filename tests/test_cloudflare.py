@@ -21,7 +21,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from pytest_databases import helpers
-from pytest_databases._s3 import EMPTY_PAYLOAD_SHA256, build_bucket_request, derive_signing_key
 from pytest_databases.docker import cloudflare
 from pytest_databases.docker.cloudflare import (
     CLOUDFLARE_PORT,
@@ -32,6 +31,7 @@ from pytest_databases.docker.cloudflare import (
     CloudflareService,
     provide_cloudflare_service,
 )
+from pytest_databases.helpers import EMPTY_PAYLOAD_SHA256, build_bucket_request, derive_signing_key
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:

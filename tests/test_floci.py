@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 FLOCI_LIVE_CASES = {
     "aws": """
-    from pytest_databases._s3 import build_bucket_request, create_s3_bucket
+    from pytest_databases.helpers import build_bucket_request, create_s3_bucket
 
     def test_cloud(floci_aws_service) -> None:
         service = floci_aws_service

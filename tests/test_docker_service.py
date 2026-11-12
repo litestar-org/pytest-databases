@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import http.server
 import io
+import shutil
+import socket
+import ssl
+import subprocess
+import sys
 import tarfile
-from typing import TYPE_CHECKING, Any, Self
+import threading
+import urllib.error
+import urllib.request
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -14,11 +23,13 @@ from pytest_databases import (
     ContainerService,
     copy_from_container,
     copy_to_container,
+    create_s3_bucket,
     exec_container_command,
+    send_http_request,
     should_keep_containers,
     wait_for_container_health,
 )
-from pytest_databases._s3 import create_s3_bucket
+from pytest_databases import helpers as helpers_mod
 from pytest_databases._service import (
     _COMPLETED_SESSION_RUNS,
     _REGISTERED_ATEXIT_RUNS,
@@ -44,6 +55,7 @@ from pytest_databases._service import (
     stop_owned_containers,
 )
 from pytest_databases.docker import DockerServiceRegistry, wait_until_responsive
+from pytest_databases.helpers import http_request
 from pytest_databases.runtime import ContainerRuntimeConfig, RuntimeResolutionError, RuntimeType
 from pytest_databases.types import ServiceContainer
 from tests.conftest import unwrap_fixture
@@ -928,34 +940,210 @@ def test_copy_from_container_rejects_unsafe_members(
         copy_from_container(mock_container, "/opt/out", tmp_path / "extract")
 
 
-def test_s3_ensure_bucket_status_retry_and_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify ensure_bucket retries HTTP 503 response status and raises RuntimeError on unexpected status."""
-    monkeypatch.setattr("pytest_databases._s3.time.sleep", lambda _s: None)
-    statuses = iter([503, 200])
+def _start_loopback_http_server(
+    responses: list[tuple[int, dict[str, str], bytes]],
+    *,
+    ssl_context: ssl.SSLContext | None = None,
+) -> tuple[http.server.ThreadingHTTPServer, list[tuple[str, str, dict[str, str]]]]:
+    recorded: list[tuple[str, str, dict[str, str]]] = []
+    remaining = list(responses)
 
-    class _FakeResp:
-        def __init__(self, status: int) -> None:
-            self.status = status
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def _handle(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length:
+                self.rfile.read(length)
+            recorded.append((self.command, self.path, dict(self.headers.items())))
+            status, headers, body = remaining.pop(0) if remaining else (200, {}, b"")
+            self.send_response(status)
+            for key, value in headers.items():
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
 
-        def __enter__(self) -> Self:
-            return self
+        def do_GET(self) -> None:
+            self._handle()
 
-        def __exit__(self, *_a: object) -> None:
-            pass
+        def do_PUT(self) -> None:
+            self._handle()
 
-    monkeypatch.setattr("pytest_databases._s3.urlopen", lambda *_a, **_kw: _FakeResp(next(statuses)))
-    create_s3_bucket(
-        "http://127.0.0.1:9000",
-        "mybucket",
-        access_key="ak",
-        secret_key="sk",
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    if ssl_context is not None:
+        server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, recorded
+
+
+def _create_self_signed_tls_context(tmp_path: Path) -> ssl.SSLContext:
+    cert_path = tmp_path / "cert.pem"
+    key_path = tmp_path / "key.pem"
+    openssl_bin = shutil.which("openssl")
+    assert openssl_bin is not None
+    subprocess.run(
+        [
+            openssl_bin,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(key_path),
+            "-out",
+            str(cert_path),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=127.0.0.1",
+        ],
+        check=True,
+        capture_output=True,
     )
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    return server_ctx
 
-    monkeypatch.setattr("pytest_databases._s3.urlopen", lambda *_a, **_kw: _FakeResp(500))
-    with pytest.raises(RuntimeError, match="HTTP 500"):
-        create_s3_bucket(
-            "http://127.0.0.1:9000",
-            "mybucket",
-            access_key="ak",
-            secret_key="sk",
+
+def _unused_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def test_s3_ensure_bucket_status_retry_and_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify create_s3_bucket retries HTTP 503 responses and raises RuntimeError on unexpected status."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setattr("pytest_databases.helpers.time.sleep", lambda _s: None)
+    server, recorded = _start_loopback_http_server([
+        (503, {}, b""),
+        (200, {}, b""),
+        (500, {}, b""),
+    ])
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        assert (
+            create_s3_bucket(
+                endpoint,
+                "mybucket",
+                access_key="ak",
+                secret_key="sk",
+            )
+            is True
         )
+        assert len(recorded) == 2
+
+        with pytest.raises(RuntimeError, match="HTTP 500"):
+            create_s3_bucket(
+                endpoint,
+                "mybucket",
+                access_key="ak",
+                secret_key="sk",
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_send_http_request_bypasses_proxies_and_preserves_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify send_http_request ignores ambient proxies, captures error headers, and preserves Request instances."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("ALL_PROXY", "http://127.0.0.1:1")
+    server, recorded = _start_loopback_http_server([
+        (200, {"X-Probe": "ok"}, b"ready"),
+        (409, {"x-ms-error-code": "ContainerAlreadyExists"}, b"<Error/>"),
+    ])
+    try:
+        port = server.server_address[1]
+        status, headers, body = send_http_request(f"http://127.0.0.1:{port}/ping")
+        assert status == 200
+        assert {k.lower(): v for k, v in headers.items()}["x-probe"] == "ok"
+        assert body == b"ready"
+
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/c1?restype=container",
+            method="PUT",
+            headers={"Content-Length": "0"},
+        )
+        err_status, err_headers, err_body = send_http_request(req)
+        assert err_status == 409
+        assert {k.lower(): v for k, v in err_headers.items()}["x-ms-error-code"] == "ContainerAlreadyExists"
+        assert err_body == b"<Error/>"
+        lower_headers = {k.lower(): v for k, v in recorded[1][2].items()}
+        assert lower_headers.get("content-length") == "0"
+        assert "content-type" not in lower_headers
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_request_custom_ssl_context_bypasses_https_proxy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify http_request honors ssl_context over HTTPS while ignoring HTTPS_PROXY."""
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    server_ctx = _create_self_signed_tls_context(tmp_path)
+    server, _recorded = _start_loopback_http_server([(200, {}, b"tls-ok")], ssl_context=server_ctx)
+    client_ctx = ssl.create_default_context()
+    client_ctx.check_hostname = False
+    client_ctx.verify_mode = ssl.CERT_NONE
+    try:
+        port = server.server_address[1]
+        status, body = http_request(f"https://127.0.0.1:{port}/health", ssl_context=client_ctx)
+        assert (status, body) == (200, b"tls-ok")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize(
+    ("raw_url", "wrap_request", "override_ftp", "kwargs"),
+    [
+        ("ftp://example.com/resource", False, False, {}),
+        ("http://127.0.0.1:9/p", True, False, {"headers": {"X": "1"}}),
+        ("http://127.0.0.1:9/p", True, False, {"data": b"payload"}),
+        ("http://127.0.0.1:9/p", True, True, {}),
+    ],
+)
+def test_send_http_request_validation_errors(
+    raw_url: str, wrap_request: bool, override_ftp: bool, kwargs: dict[str, Any]
+) -> None:
+    """Verify send_http_request rejects non-HTTP schemes and Request + override kwargs."""
+    if wrap_request:
+        req = urllib.request.Request("http://127.0.0.1:9/p")
+        if override_ftp:
+            req.full_url = "ftp://example.com/resource"
+        target: str | urllib.request.Request = req
+    else:
+        target = raw_url
+    with pytest.raises(ValueError):
+        send_http_request(target, **kwargs)
+
+
+def test_send_http_request_propagates_transport_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify connection failures propagate from send_http_request without being swallowed."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    closed_port = _unused_loopback_port()
+    with pytest.raises((urllib.error.URLError, OSError)):
+        send_http_request(f"http://127.0.0.1:{closed_port}/ping", timeout=1.0)
+
+
+@pytest.mark.parametrize("first_module", ["pytest_databases", "pytest_databases.helpers"])
+def test_public_http_and_s3_exports_acyclic(first_module: str) -> None:
+    """Verify send_http_request and create_s3_bucket export identically without circular imports."""
+    assert create_s3_bucket is helpers_mod.create_s3_bucket
+    assert send_http_request is helpers_mod.send_http_request
+    assert "create_s3_bucket" in helpers_mod.__all__
+    assert "send_http_request" in helpers_mod.__all__
+
+    script = (
+        f"import {first_module}, pytest_databases, pytest_databases.helpers; "
+        "assert pytest_databases.create_s3_bucket is pytest_databases.helpers.create_s3_bucket; "
+        "assert pytest_databases.send_http_request is pytest_databases.helpers.send_http_request"
+    )
+    proc = subprocess.run([sys.executable, "-c", script], check=False, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr

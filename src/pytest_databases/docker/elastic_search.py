@@ -5,14 +5,12 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import importlib
-import json
-import urllib.error
-import urllib.request
 import warnings
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from pytest_databases.helpers import http_get_json
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
@@ -220,18 +218,8 @@ def elasticsearch_service(elasticsearch_8_service: ElasticsearchService) -> Elas
 
 
 def _check_cluster_health(host: str, port: int, *, timeout: float = 2.0) -> bool:
-    request = urllib.request.Request(
-        f"http://{host}:{port}/_cluster/health",
-        headers={"Accept": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            if response.status != 200:
-                return False
-            payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError):
-        return False
-    return payload.get("status") in {"yellow", "green"}
+    payload = http_get_json(f"http://{host}:{port}/_cluster/health", timeout=timeout)
+    return isinstance(payload, dict) and payload.get("status") in {"yellow", "green"}
 
 
 def _ping_elasticsearch(

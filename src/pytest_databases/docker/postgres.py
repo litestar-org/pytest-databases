@@ -16,23 +16,21 @@ from typing import TYPE_CHECKING, Any
 import filelock
 import pytest
 
-from pytest_databases._postgres_templates import (
+from pytest_databases.embedded._pgwire import run_simple_query
+from pytest_databases.helpers import (
     DEFAULT_TEMPLATE_NAME,
     PostgresTemplateSupport,
     compute_fingerprint,
-    make_connection_string,
-    split_template_setup,
-    validate_identifier,
-)
-from pytest_databases.embedded._pgwire import run_simple_query
-from pytest_databases.helpers import (
     env_port,
     exec_output_to_bytes,
     get_xdist_worker_num,
+    make_connection_string,
     read_init_scripts,
     run_container_init_once,
     simple_string_hash,
+    split_template_setup,
     tcp_port_open,
+    validate_identifier,
 )
 from pytest_databases.types import PostgresXdistIsolationLevel, ServiceContainer
 

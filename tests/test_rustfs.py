@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-import io
+import http.server
+import shutil
+import socket
 import ssl
+import subprocess
+import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 
 import pytest
 
-from pytest_databases._s3 import build_bucket_request, create_s3_bucket, derive_signing_key
 from pytest_databases.docker.rustfs import (
     RUSTFS_IMAGE,
     RustfsService,
@@ -22,12 +25,13 @@ from pytest_databases.docker.rustfs import (
     rustfs_image,
     rustfs_secret_key,
 )
+from pytest_databases.helpers import build_bucket_request, create_s3_bucket, derive_signing_key
 from pytest_databases.types import ServiceContainer
 from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from urllib.request import Request
+    from pathlib import Path
 
 
 def test_default_credentials_and_image_are_configured() -> None:
@@ -142,93 +146,156 @@ def test_build_bucket_request_rejects_non_http_endpoints(endpoint_url: str) -> N
         build_bucket_request("PUT", endpoint_url, "bucket", access_key="a", secret_key="s")
 
 
-@pytest.mark.parametrize(
-    ("endpoint_url", "verifies_tls"), [("http://127.0.0.1:9000", None), ("https://127.0.0.1:9000", False)]
-)
+def _start_rustfs_loopback(
+    responses: dict[tuple[str, str], list[tuple[int, bytes]]],
+    *,
+    ssl_context: ssl.SSLContext | None = None,
+) -> tuple[http.server.ThreadingHTTPServer, list[tuple[str, str, str | None]]]:
+    recorded: list[tuple[str, str, str | None]] = []
+    remaining = {key: list(values) for key, values in responses.items()}
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def _handle(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length:
+                self.rfile.read(length)
+            recorded.append((self.command, self.path, self.headers.get("Authorization")))
+            queue = remaining.get((self.command, self.path))
+            status, body = queue.pop(0) if queue else (200, b"")
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            self._handle()
+
+        def do_PUT(self) -> None:
+            self._handle()
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    if ssl_context is not None:
+        server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, recorded
+
+
+def _create_rustfs_self_signed_context(tmp_path: Path) -> ssl.SSLContext:
+    cert_path = tmp_path / "rustfs-cert.pem"
+    key_path = tmp_path / "rustfs-key.pem"
+    openssl_bin = shutil.which("openssl")
+    assert openssl_bin is not None
+    subprocess.run(
+        [
+            openssl_bin,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(key_path),
+            "-out",
+            str(cert_path),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=127.0.0.1",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    return ctx
+
+
+@pytest.mark.parametrize(("secure", "status_code"), [(False, 200), (True, 204)])
 def test_create_s3_bucket_sends_signed_put(
-    monkeypatch: pytest.MonkeyPatch, endpoint_url: str, verifies_tls: bool | None
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, secure: bool, status_code: int
 ) -> None:
-    """Verify create_s3_bucket sends one signed PUT and skips certificate checks only for https."""
-    calls: list[tuple[Request, ssl.SSLContext | None]] = []
+    """Verify create_s3_bucket sends one signed PUT bypassing proxies and skips TLS verification for https."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    ssl_ctx = _create_rustfs_self_signed_context(tmp_path) if secure else None
+    server, recorded = _start_rustfs_loopback({("PUT", "/test-bucket"): [(status_code, b"")]}, ssl_context=ssl_ctx)
+    scheme = "https" if secure else "http"
+    endpoint_url = f"{scheme}://127.0.0.1:{server.server_address[1]}"
+    try:
+        assert create_s3_bucket(endpoint_url, "test-bucket", access_key="test-key", secret_key="test-secret") is True
+    finally:
+        server.shutdown()
+        server.server_close()
 
-    def fake_urlopen(request: Request, *, timeout: float, context: ssl.SSLContext | None) -> MagicMock:
-        calls.append((request, context))
-        response = MagicMock(status=200)
-        response.__enter__.return_value = response
-        return response
-
-    monkeypatch.setattr("pytest_databases._s3.urlopen", fake_urlopen)
-    create_s3_bucket(endpoint_url, "test-bucket", access_key="test-key", secret_key="test-secret")
-
-    assert len(calls) == 1
-    request, context = calls[0]
-    assert (request.method, request.full_url) == ("PUT", f"{endpoint_url}/test-bucket")
-    assert str(request.get_header("Authorization")).startswith("AWS4-HMAC-SHA256 Credential=test-key/")
-    if verifies_tls is None:
-        assert context is None
-    else:
-        assert context is not None
-        assert context.verify_mode == ssl.CERT_NONE
-        assert context.check_hostname is False
+    assert len(recorded) == 1
+    method, path, auth = recorded[0]
+    assert (method, path) == ("PUT", "/test-bucket")
+    assert str(auth).startswith("AWS4-HMAC-SHA256 Credential=test-key/")
 
 
 @pytest.mark.parametrize("code", ["BucketAlreadyOwnedByYou", "BucketAlreadyExists"])
 def test_create_s3_bucket_accepts_existing_bucket(monkeypatch: pytest.MonkeyPatch, code: str) -> None:
-    """Verify an HTTP 409 for an existing bucket is not an error."""
+    """Verify an HTTP 409 for an existing bucket returns False instead of raising."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
     body = f"<Error><Code>{code}</Code></Error>".encode()
-    error = HTTPError("http://127.0.0.1:9000/b", 409, "Conflict", MagicMock(), io.BytesIO(body))
-    monkeypatch.setattr("pytest_databases._s3.urlopen", MagicMock(side_effect=error))
-    create_s3_bucket("http://127.0.0.1:9000", "b", access_key="a", secret_key="s")
+    server, _recorded = _start_rustfs_loopback({("PUT", "/b"): [(409, body)]})
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        assert create_s3_bucket(endpoint, "b", access_key="a", secret_key="s") is False
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
-@pytest.mark.parametrize(
-    ("error", "match"),
-    [
-        (
-            HTTPError(
-                "http://127.0.0.1:9000/b",
-                403,
-                "Forbidden",
-                MagicMock(),
-                io.BytesIO(b"<Error><Code>AccessDenied</Code></Error>"),
-            ),
-            "HTTP 403 - <Error><Code>AccessDenied",
-        ),
-        (URLError("connection refused"), "connection refused"),
-    ],
-)
-def test_create_s3_bucket_raises_on_failure(monkeypatch: pytest.MonkeyPatch, error: Exception, match: str) -> None:
-    """Verify rejected or unreachable bucket creation raises RuntimeError."""
-    monkeypatch.setattr("pytest_databases._s3.urlopen", MagicMock(side_effect=error))
-    with pytest.raises(RuntimeError, match=match):
-        create_s3_bucket("http://127.0.0.1:9000", "b", access_key="a", secret_key="s")
+def test_create_s3_bucket_raises_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify rejected HTTP 403 or unreachable ports raise RuntimeError."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    server, _recorded = _start_rustfs_loopback({("PUT", "/b"): [(403, b"<Error><Code>AccessDenied</Code></Error>")]})
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        with pytest.raises(RuntimeError, match="HTTP 403 - <Error><Code>AccessDenied"):
+            create_s3_bucket(endpoint, "b", access_key="a", secret_key="s")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as closed_sock:
+        closed_sock.bind(("127.0.0.1", 0))
+        closed_port = int(closed_sock.getsockname()[1])
+    with pytest.raises(RuntimeError, match=f"Failed to create bucket 'b' on http://127.0.0.1:{closed_port}"):
+        create_s3_bucket(f"http://127.0.0.1:{closed_port}", "b", access_key="a", secret_key="s", timeout=1.0)
 
 
 def test_create_s3_bucket_retries_transient_503(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify HTTP 503 waiting-for-quorum responses retry until success or timeout."""
-    ok_response = MagicMock(status=200)
-    ok_response.__enter__.return_value = ok_response
-    unavailable = HTTPError(
-        "http://127.0.0.1:9000/b",
-        503,
-        "Service Unavailable",
-        MagicMock(),
-        io.BytesIO(b"Service not ready: waiting for storage_quorum"),
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setattr("pytest_databases.helpers.time.sleep", lambda _seconds: None)
+    server, recorded = _start_rustfs_loopback({
+        ("PUT", "/b"): [
+            (503, b"Service not ready: waiting for storage_quorum"),
+            (503, b"Service not ready: waiting for storage_quorum"),
+            (200, b""),
+        ]
+    })
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        assert create_s3_bucket(endpoint, "b", access_key="a", secret_key="s", timeout=5) is True
+        assert len(recorded) == 3
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    monkeypatch.setattr(
+        "pytest_databases.helpers.send_http_request",
+        MagicMock(return_value=(503, {}, b"Service not ready: waiting for storage_quorum")),
     )
-    urlopen_mock = MagicMock(side_effect=[unavailable, ok_response])
-    monkeypatch.setattr("pytest_databases._s3.urlopen", urlopen_mock)
-    monkeypatch.setattr("pytest_databases._s3.time.sleep", lambda _seconds: None)
-    create_s3_bucket("http://127.0.0.1:9000", "b", access_key="a", secret_key="s", timeout=5)
-    assert urlopen_mock.call_count == 2
-
-    def _raise_503(*_args: object, **_kwargs: object) -> object:
-        url = "http://127.0.0.1:9000/b"
-        reason = "Service Unavailable"
-        raise HTTPError(url, 503, reason, MagicMock(), io.BytesIO(b"Service not ready: waiting for storage_quorum"))
-
-    monkeypatch.setattr("pytest_databases._s3.urlopen", MagicMock(side_effect=_raise_503))
     times = iter([0.0, 0.1, 6.0])
-    monkeypatch.setattr("pytest_databases._s3.time.monotonic", lambda: next(times))
+    monkeypatch.setattr("pytest_databases.helpers.time.monotonic", lambda: next(times))
     with pytest.raises(RuntimeError, match="HTTP 503 - Service not ready: waiting for storage_quorum"):
         create_s3_bucket("http://127.0.0.1:9000", "b", access_key="a", secret_key="s", timeout=5)
 
@@ -243,7 +310,7 @@ def test_rustfs_service_provisions_default_bucket_and_propagates_failure(monkeyp
         yield ServiceContainer(host="127.0.0.1", port=39001, container=MagicMock())
 
     docker_service.run.side_effect = fake_run
-    monkeypatch.setattr("pytest_databases._s3.urlopen", MagicMock(side_effect=URLError("refused")))
+    monkeypatch.setattr("pytest_databases.helpers.send_http_request", MagicMock(side_effect=URLError("refused")))
 
     with (
         pytest.raises(RuntimeError, match="Failed to create bucket 'pytest-databases'"),
@@ -313,8 +380,8 @@ def test_default_no_xdist(pytester: pytest.Pytester) -> None:
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import pytest
-from pytest_databases._s3 import build_bucket_request
 from pytest_databases.docker.rustfs import RustfsService
+from pytest_databases.helpers import build_bucket_request
 
 pytest_plugins = [
     "pytest_databases.docker.rustfs",
@@ -325,20 +392,19 @@ def test_rustfs_service_fixture(rustfs_service: RustfsService, rustfs_default_bu
     assert rustfs_service.port > 0
     assert rustfs_default_bucket_name == "pytest-databases"
 
+    from pytest_databases.helpers import http_request
     scheme = "https" if rustfs_service.secure else "http"
     url = f"{scheme}://{rustfs_service.host}:{rustfs_service.port}/health"
-    with urlopen(Request(url, method="GET")) as response:
-        assert response.status == 200
+    status, _body = http_request(url, method="GET")
+    assert status == 200
 
 def _head_bucket(service: RustfsService, bucket: str) -> int:
+    from pytest_databases.helpers import send_http_request
     request = build_bucket_request(
         "HEAD", service.endpoint_url, bucket, access_key=service.access_key, secret_key=service.secret_key
     )
-    try:
-        with urlopen(request) as response:
-            return response.status
-    except HTTPError as exc:
-        return exc.code
+    status, _headers, _body = send_http_request(request)
+    return status
 
 def test_rustfs_default_bucket_exists(rustfs_service: RustfsService, rustfs_default_bucket_name: str) -> None:
     assert _head_bucket(rustfs_service, rustfs_default_bucket_name) == 200
@@ -368,22 +434,24 @@ def xdist_rustfs_isolation_level():
     return "server"
 
 def test_isolation_one(rustfs_service: RustfsService, rustfs_default_bucket_name: str) -> None:
+    from pytest_databases.helpers import http_request
     worker_num = get_xdist_worker_num()
     assert rustfs_default_bucket_name == f"pytest-databases-{worker_num}"
 
     scheme = "https" if rustfs_service.secure else "http"
     url = f"{scheme}://{rustfs_service.host}:{rustfs_service.port}/health"
-    with urlopen(Request(url, method="GET")) as response:
-        assert response.status == 200
+    status, _body = http_request(url, method="GET")
+    assert status == 200
 
 def test_isolation_two(rustfs_service: RustfsService, rustfs_default_bucket_name: str) -> None:
+    from pytest_databases.helpers import http_request
     worker_num = get_xdist_worker_num()
     assert rustfs_default_bucket_name == f"pytest-databases-{worker_num}"
 
     scheme = "https" if rustfs_service.secure else "http"
     url = f"{scheme}://{rustfs_service.host}:{rustfs_service.port}/health"
-    with urlopen(Request(url, method="GET")) as response:
-        assert response.status == 200
+    status, _body = http_request(url, method="GET")
+    assert status == 200
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
@@ -398,54 +466,68 @@ def test_isolation_two(rustfs_service: RustfsService, rustfs_default_bucket_name
 )
 def test_provide_rustfs_service_readiness_and_xdist(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     worker_num: int | None,
     isolation_level: str,
     secure: bool,
     expected_name: str,
     expected_scheme: str,
 ) -> None:
-    """Verify provide_rustfs_service readiness check, endpoint_url, and xdist server mode."""
+    """Verify provide_rustfs_service readiness check, endpoint_url, TLS, and proxy bypass."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
     monkeypatch.setattr("pytest_databases.docker.rustfs.get_xdist_worker_num", lambda: worker_num)
-    monkeypatch.setattr("pytest_databases.docker.rustfs.create_s3_bucket", lambda *_a, **_kw: None)
 
-    calls = 0
+    ssl_context = _create_rustfs_self_signed_context(tmp_path) if secure else None
+    server, recorded = _start_rustfs_loopback(
+        {
+            ("GET", "/health"): [(503, b""), (200, b"")],
+            ("PUT", "/pytest-databases"): [(200, b"")],
+        },
+        ssl_context=ssl_context,
+    )
+    port = server.server_address[1]
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as closed_sock:
+        closed_sock.bind(("127.0.0.1", 0))
+        closed_port = int(closed_sock.getsockname()[1])
 
-    def fake_urlopen(url: object, timeout: float = 10.0) -> object:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            msg = "not ready"
-            raise URLError(msg)
-        cm = MagicMock()
-        cm.__enter__.return_value = MagicMock(status=200)
-        return cm
-
-    monkeypatch.setattr("pytest_databases.docker.rustfs.urlopen", fake_urlopen)
     docker_service = MagicMock()
     captured_name: list[str] = []
 
     @contextmanager
     def fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
         captured_name.append(str(kwargs["name"]))
-        svc = ServiceContainer(host="127.0.0.1", port=9000, container=MagicMock())
+        svc = ServiceContainer(host="127.0.0.1", port=port, container=MagicMock())
+        unreachable_svc = ServiceContainer(host="127.0.0.1", port=closed_port, container=MagicMock())
         check = kwargs["check"]
         assert callable(check)
+        assert check(unreachable_svc) is False
         assert check(svc) is False
         assert check(svc) is True
         yield svc
 
     docker_service.run.side_effect = fake_run
 
-    with provide_rustfs_service(
-        docker_service,
-        access_key="rustfs",
-        secret_key="rustfs123",
-        secure=secure,
-        default_bucket_name="pytest-databases",
-        isolation_level=isolation_level,  # type: ignore[arg-type]
-    ) as service:
-        assert service.endpoint_url == f"{expected_scheme}://127.0.0.1:9000"
-        assert captured_name == [expected_name]
+    try:
+        with provide_rustfs_service(
+            docker_service,
+            access_key="rustfs",
+            secret_key="rustfs123",
+            secure=secure,
+            default_bucket_name="pytest-databases",
+            isolation_level=isolation_level,  # type: ignore[arg-type]
+        ) as service:
+            assert service.endpoint_url == f"{expected_scheme}://127.0.0.1:{port}"
+            assert captured_name == [expected_name]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert [(m, p) for m, p, _auth in recorded] == [
+        ("GET", "/health"),
+        ("GET", "/health"),
+        ("PUT", "/pytest-databases"),
+    ]
 
 
 def test_rustfs_all_fixtures_inprocess(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:

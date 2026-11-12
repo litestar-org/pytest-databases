@@ -15,6 +15,7 @@ from pytest_databases._service import (
     stop_owned_containers,
     wait_for_container_health,
 )
+from pytest_databases.helpers import create_s3_bucket, send_http_request
 from pytest_databases.runtime import (
     ContainerRuntimeConfig,
     RuntimeCandidate,
@@ -41,9 +42,11 @@ __all__ = (
     "ServiceContainer",
     "copy_from_container",
     "copy_to_container",
+    "create_s3_bucket",
     "derive_session_owner_id",
     "exec_container_command",
     "has_active_owner_sessions",
+    "send_http_request",
     "should_keep_containers",
     "stop_all_containers",
     "stop_owned_containers",

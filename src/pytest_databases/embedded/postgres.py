@@ -29,15 +29,17 @@ from typing import TYPE_CHECKING, Any, Literal
 import filelock
 import pytest
 
-from pytest_databases._postgres_templates import (
+from pytest_databases.embedded._pgwire import run_simple_query
+from pytest_databases.helpers import (
     DEFAULT_TEMPLATE_NAME,
     PostgresTemplateSupport,
+    get_xdist_worker_id,
+    get_xdist_worker_num,
     make_connection_string,
     split_template_setup,
+    tcp_port_open,
     validate_identifier,
 )
-from pytest_databases.embedded._pgwire import run_simple_query
-from pytest_databases.helpers import get_xdist_worker_id, get_xdist_worker_num, tcp_port_open
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
