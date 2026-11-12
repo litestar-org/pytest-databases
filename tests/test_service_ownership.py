@@ -22,8 +22,10 @@ from pytest_databases import (
 )
 from pytest_databases._service import (
     _RUNTIME_STASH_KEY,
+    POSTGRES_BACKEND_ENV,
     SESSION_LOCK_DIR_ENV,
     _cleanup_session_containers,
+    resolve_postgres_backend,
     should_keep_containers,
 )
 from pytest_databases.runtime import ContainerRuntimeConfig, RuntimeResolutionError, RuntimeType
@@ -94,6 +96,13 @@ def test_derive_session_owner_id_is_deterministic(tmp_path: Path) -> None:
     assert first == second
     assert len(first) == 12
     assert all(c in "0123456789abcdef" for c in first)
+
+
+def test_container_service_temp_dir_exposes_session_tmp_path(tmp_path: Path) -> None:
+    """Ensure ContainerService.temp_dir returns the shared session temporary directory."""
+    service = make_service(tmp_path)
+    assert service.temp_dir == tmp_path
+    assert service.temp_dir.is_dir()
 
 
 def test_derive_session_owner_id_distinguishes_different_paths(tmp_path: Path) -> None:
@@ -361,3 +370,39 @@ def test_true_values_compatibility_and_keep_containers(
     else:
         monkeypatch.setenv("PYTEST_DATABASES_KEEP_CONTAINERS", env_value)
     assert should_keep_containers(None) is expected
+
+
+@pytest.mark.parametrize(
+    ("cli_args", "ini_value", "env_value", "expected", "raises_usage_error"),
+    [
+        ([], None, None, "docker", False),
+        ([], None, "embedded", "embedded", False),
+        ([], "docker", "embedded", "docker", False),
+        (["--postgres-backend=embedded"], "docker", "docker", "embedded", False),
+        ([], None, " EMBEDDED ", "embedded", False),
+        ([], "sqlite", None, None, True),
+        ([], None, "podman", None, True),
+    ],
+)
+def test_resolve_postgres_backend_precedence(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    cli_args: list[str],
+    ini_value: str | None,
+    env_value: str | None,
+    expected: str | None,
+    raises_usage_error: bool,
+) -> None:
+    """Verify --postgres-backend resolves CLI > ini > PYTEST_DATABASES_POSTGRES_BACKEND > docker."""
+    if env_value is None:
+        monkeypatch.delenv(POSTGRES_BACKEND_ENV, raising=False)
+    else:
+        monkeypatch.setenv(POSTGRES_BACKEND_ENV, env_value)
+    if ini_value is not None:
+        pytester.makeini(f"[pytest]\npostgres_backend = {ini_value}\n")
+    config = pytester.parseconfig(*cli_args)
+    if raises_usage_error:
+        with pytest.raises(pytest.UsageError, match=r"docker.*embedded"):
+            resolve_postgres_backend(config)
+        return
+    assert resolve_postgres_backend(config) == expected

@@ -25,19 +25,24 @@ Usage Example
     pytest_plugins = ["pytest_databases.docker.spanner"]
 
 
-    def test_spanner_service(spanner_service: SpannerService) -> None:
+    def test_spanner_service(spanner_service: SpannerService, monkeypatch) -> None:
+        monkeypatch.setenv("SPANNER_EMULATOR_HOST", spanner_service.emulator_host)
         client = spanner.Client(
             project=spanner_service.project,
             credentials=AnonymousCredentials(),
-            client_options=ClientOptions(
-                api_endpoint=f"{spanner_service.host}:{spanner_service.port}"
-            ),
+            client_options=ClientOptions(api_endpoint=spanner_service.endpoint),
         )
         instance = client.instance(spanner_service.instance_name)
         database = instance.database(spanner_service.database_name)
         with database.snapshot() as snapshot:
             row = next(iter(snapshot.execute_sql("SELECT 1")))
         assert row[0] == 1
+
+``SpannerService.emulator_host`` formats ``f"{host}:{port}"`` for ``SPANNER_EMULATOR_HOST``. Session startup calls
+:func:`~pytest_databases.docker.spanner.configure_spanner_emulator_client_guards`, setting
+``SPANNER_DISABLE_BUILTIN_METRICS="true"``, shortening ``google.cloud.spanner_v1`` sync and async
+``DatabaseSessionsManager._MAINTENANCE_THREAD_POLLING_INTERVAL`` to ``0.1`` seconds (restored on teardown), raising
+``database_sessions_manager`` loggers to ``WARNING``, and suppressing closed-stream ``ValueError`` shutdown noise.
 
 Available Fixtures
 ------------------

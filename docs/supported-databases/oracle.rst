@@ -89,13 +89,27 @@ The wallet and endpoints are available on the service:
 
    def test_adb_wallet_and_endpoints(oracle_adb_service: OracleADBService, tmp_path: Path) -> None:
        assert oracle_adb_service.wallet_dir is not None
+       assert oracle_adb_service.mtls_alias is not None
        assert oracle_adb_service.ca_cert_path is not None
        assert oracle_adb_service.ords_url.startswith("https://")
        assert oracle_adb_service.apex_url.endswith("/ords/apex")
        assert oracle_adb_service.sql_developer_url.endswith("/ords/sql-developer")
        assert "authMechanism=PLAIN" in oracle_adb_service.mongo_uri
        entries = parse_tnsnames((oracle_adb_service.wallet_dir / "tnsnames.ora").read_text(encoding="utf-8"))
-       assert "myatp_high" in entries
+       assert oracle_adb_service.mtls_alias in entries
+       wallet_zip = oracle_adb_service.build_wallet_zip(
+           tmp_path / "wallet.zip",
+           wallet_password=oracle_adb_service.password,
+       )
+       assert wallet_zip.is_file()
+
+:attr:`~pytest_databases.docker.oracle.OracleADBService.mtls_alias` selects the
+first ``*_high`` ``TCPS`` alias (or falls back to the first rewritten ``TCPS``
+alias), and :meth:`~pytest_databases.docker.oracle.OracleADBService.build_wallet_zip`
+archives host-mapped wallet artifacts (including ``cwallet.sso`` when
+``include_sso=True`` and lazily synthesized PKCS#12 ``ewallet.p12`` from
+``ewallet.pem`` when optional ``cryptography`` is installed, omitting
+``ewallet.p12`` cleanly otherwise).
 
 Parallel Execution
 ------------------
@@ -110,8 +124,9 @@ under a cross-worker file lock with identical ``CONNECT``, ``RESOURCE``, and
 ``DBA`` roles plus ``QUOTA UNLIMITED ON USERS``, idempotently tolerating
 ``ORA-01920`` and retrying transient ``ORA-*`` startup or lock errors.
 
-:meth:`~pytest_databases.docker.oracle.OracleService.exec_sql` and
-:func:`~pytest_databases.docker.oracle.exec_oracle_sql` run SQL or PL/SQL
+:meth:`~pytest_databases.docker.oracle.OracleService.exec_sql`,
+:func:`~pytest_databases.docker.oracle.exec_oracle_sql`, and public
+:func:`~pytest_databases.docker.oracle.exec_sqlplus` run SQL or PL/SQL
 through in-container ``sqlplus`` against either a pluggable database service
 or ``CDB$ROOT`` (``cdb_root=True`` / ``sqlplus -L -S / as sysdba``). Custom
 fixtures calling :func:`~pytest_databases.docker.oracle.provide_oracle_service`

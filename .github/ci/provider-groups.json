@@ -3,8 +3,6 @@
   "supported_python_versions": ["3.11", "3.12", "3.13", "3.14", "3.15"],
   "shared_all_provider_paths": [
     "src/pytest_databases/__init__.py",
-    "src/pytest_databases/_postgres_templates.py",
-    "src/pytest_databases/_s3.py",
     "src/pytest_databases/_service.py",
     "src/pytest_databases/docker/__init__.py",
     "src/pytest_databases/embedded/__init__.py",
@@ -83,7 +81,7 @@
     "bigquery": {
       "source_globs": ["src/pytest_databases/docker/bigquery.py"],
       "test_paths": ["tests/test_bigquery.py"],
-      "images": ["ghcr.io/goccy/bigquery-emulator:latest"],
+      "images": ["ghcr.io/goccy/bigquery-emulator:0.8.1"],
       "docs_globs": ["docs/supported-databases/bigquery.rst"]
     },
     "cloudflare": {

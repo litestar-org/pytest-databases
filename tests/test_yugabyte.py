@@ -27,10 +27,12 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 
-def test_provide_yugabyte_service_validates_without_sidecar_containers() -> None:
+def test_provide_yugabyte_service_validates_without_sidecar_containers(tmp_path: Any) -> None:
     """Verify provide_yugabyte_service uses service.container directly without spawning sidecar containers."""
     docker_service = MagicMock()
+    docker_service.temp_dir = tmp_path
     dummy_container = MagicMock()
+    dummy_container.id = "yb-cid-1"
     dummy_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
 
     @contextmanager
@@ -202,6 +204,7 @@ def test_xdist_isolate_server(pytester: pytest.Pytester) -> None:
     ],
 )
 def test_provide_yugabyte_service_xdist_and_endpoint_retry(
+    tmp_path: Any,
     monkeypatch: pytest.MonkeyPatch,
     worker_num: int,
     isolation_level: str,
@@ -224,12 +227,15 @@ def test_provide_yugabyte_service_xdist_and_endpoint_retry(
 
     monkeypatch.setattr("pytest_databases.docker.yugabyte._validate_mapped_endpoint", fake_validate)
     docker_service = MagicMock()
+    docker_service.temp_dir = tmp_path
     captured_name: list[str] = []
 
     @contextmanager
     def fake_run(**kwargs: Any) -> Generator[ServiceContainer, None, None]:
         captured_name.append(kwargs["name"])
-        yield ServiceContainer(host="127.0.0.1", port=5433, container=MagicMock())
+        container = MagicMock()
+        container.id = "yb-cid-2"
+        yield ServiceContainer(host="127.0.0.1", port=5433, container=container)
 
     docker_service.run.side_effect = fake_run
 
@@ -267,6 +273,13 @@ def test_yugabyte_helpers_and_error_branches(monkeypatch: pytest.MonkeyPatch) ->
     assert "-p 5433" in _make_ysqlsh_command("SELECT 1", port=5433)
     assert is_transient_yugabyte_error(b"ERROR: Restart read required") is True
     assert is_transient_yugabyte_error("ERROR: Catalog Version Mismatch") is True
+    assert (
+        is_transient_yugabyte_error(
+            "ERROR:  The catalog snapshot used for this transaction has been invalidated. "
+            "Received from PG: 4, expected to be >= breaking catalog version: 5: MISMATCHED_SCHEMA"
+        )
+        is True
+    )
     assert is_transient_yugabyte_error("ERROR: syntax error") is False
 
     container = MagicMock()
@@ -324,11 +337,14 @@ def test_yugabyte_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
         yb_mod._validate_mapped_endpoint = orig_val
 
     @pytest.fixture(scope="session")
-    def docker_service():
+    def docker_service(tmp_path_factory):
         mock_ds = MagicMock()
+        mock_ds.temp_dir = tmp_path_factory.mktemp("yb-locks")
         @contextmanager
         def _run(image, **kwargs):
-            yield ServiceContainer(host="127.0.0.1", port=5433, container=MagicMock())
+            c = MagicMock()
+            c.id = "yb-cid-3"
+            yield ServiceContainer(host="127.0.0.1", port=5433, container=c)
         mock_ds.run.side_effect = _run
         return mock_ds
 

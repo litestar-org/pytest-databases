@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
+import email.message
+import http.client
 import importlib
+import io
 import json
+import logging
+import os
 import time
 import urllib.error
 import urllib.request
 import warnings
 from dataclasses import dataclass
+from functools import wraps
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.helpers import get_xdist_worker_num, send_http_request
 from pytest_databases.types import ServiceContainer
 
 if TYPE_CHECKING:
@@ -28,6 +35,7 @@ if TYPE_CHECKING:
 __all__ = [
     "SpannerService",
     "bootstrap_spanner_emulator",
+    "configure_spanner_emulator_client_guards",
     "provide_spanner_service",
     "spanner_connection",
     "spanner_database_name",
@@ -37,6 +45,18 @@ __all__ = [
     "spanner_service",
     "xdist_spanner_isolation_level",
 ]
+
+_SPANNER_SESSION_MODULES = (
+    "google.cloud.spanner_v1.database_sessions_manager",
+    "google.cloud.spanner_v1._async.database_sessions_manager",
+)
+_SPANNER_LOGGER_NAMES = (
+    "google.cloud.spanner_v1.database_sessions_manager",
+    "database_sessions_manager",
+)
+_POLLING_ATTR = "_MAINTENANCE_THREAD_POLLING_INTERVAL"
+_FAST_POLLING_INTERVAL = dt.timedelta(milliseconds=100)
+_STREAM_GUARD_MARKER = "_pytest_databases_stream_guard"
 
 
 @dataclass(init=False)
@@ -87,6 +107,11 @@ class SpannerService(ServiceContainer):
     @property
     def endpoint(self) -> str:
         """GRPC endpoint for Cloud Spanner client connections."""
+        return f"{self.host}:{self.port}"
+
+    @property
+    def emulator_host(self) -> str:
+        """Host:port endpoint value formatted for ``SPANNER_EMULATOR_HOST``."""
         return f"{self.host}:{self.port}"
 
     @property
@@ -154,6 +179,46 @@ def bootstrap_spanner_emulator(
 
 
 @contextlib.contextmanager
+def configure_spanner_emulator_client_guards() -> Generator[None, None, None]:
+    """Configure optional Google Cloud Spanner Python SDK defaults for local emulator sessions.
+
+    Defaults ``SPANNER_DISABLE_BUILTIN_METRICS="true"`` while active when unset, lowers installed sync and async
+    ``DatabaseSessionsManager._MAINTENANCE_THREAD_POLLING_INTERVAL`` to 100ms with ``finally`` restoration, clamps
+    session-manager loggers to at least ``logging.WARNING``, and guards closed pytest capture streams against
+    ``ValueError`` during background teardown.
+    """
+    had_metrics_env = "SPANNER_DISABLE_BUILTIN_METRICS" in os.environ
+    if not had_metrics_env:
+        os.environ["SPANNER_DISABLE_BUILTIN_METRICS"] = "true"
+    saved_polling: list[tuple[Any, Any]] = []
+    for mod_name in _SPANNER_SESSION_MODULES:
+        with contextlib.suppress(ImportError):
+            mod = importlib.import_module(mod_name)
+            manager_cls = getattr(mod, "DatabaseSessionsManager", None)
+            if manager_cls is not None and hasattr(manager_cls, _POLLING_ATTR):
+                saved_polling.append((manager_cls, getattr(manager_cls, _POLLING_ATTR)))
+                setattr(manager_cls, _POLLING_ATTR, _FAST_POLLING_INTERVAL)
+    saved_levels: list[tuple[logging.Logger, int, Any]] = []
+    for logger_name in _SPANNER_LOGGER_NAMES:
+        logger = logging.getLogger(logger_name)
+        orig_call_handlers = _install_closed_stream_guard(logger)
+        saved_levels.append((logger, logger.level, orig_call_handlers))
+        if logger.getEffectiveLevel() < logging.WARNING:
+            logger.setLevel(logging.WARNING)
+    try:
+        yield
+    finally:
+        for logger, prev_level, orig_call_handlers in reversed(saved_levels):
+            logger.setLevel(prev_level)
+            if orig_call_handlers is not None:
+                setattr(logger, "callHandlers", orig_call_handlers)
+        for manager_cls, prev_interval in reversed(saved_polling):
+            setattr(manager_cls, _POLLING_ATTR, prev_interval)
+        if not had_metrics_env:
+            os.environ.pop("SPANNER_DISABLE_BUILTIN_METRICS", None)
+
+
+@contextlib.contextmanager
 def provide_spanner_service(
     docker_service: DockerService,
     spanner_image: str,
@@ -184,14 +249,17 @@ def provide_spanner_service(
         else:
             effective_db = f"{spanner_database_name}_{worker_num}"
 
-    with docker_service.run(
-        image=spanner_image,
-        name=name,
-        container_port=9010,
-        extra_ports={9020: None},
-        wait_for_log="gRPC server listening at",
-        transient=worker_num is not None and isolation_level == "server",
-    ) as service:
+    with (
+        configure_spanner_emulator_client_guards(),
+        docker_service.run(
+            image=spanner_image,
+            name=name,
+            container_port=9010,
+            extra_ports={9020: None},
+            wait_for_log="gRPC server listening at",
+            transient=worker_num is not None and isolation_level == "server",
+        ) as service,
+    ):
         rest_port = docker_service.resolve_port(service.container, 9020)
         bootstrap_spanner_emulator(
             service.host,
@@ -320,15 +388,62 @@ def _send_spanner_request_with_retry(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                resp.read()
-                return
-        except urllib.error.HTTPError as exc:
-            if exc.code == 409:
-                return
+            status, resp_headers, body = send_http_request(req, timeout=5.0)
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError, http.client.HTTPException):
             if attempt == max_attempts - 1:
                 raise
-        except (urllib.error.URLError, ConnectionError, OSError):
-            if attempt == max_attempts - 1:
+            time.sleep(0.5)
+            continue
+        if 200 <= status < 300 or status == 409:
+            return
+        if status >= 500 and attempt < max_attempts - 1:
+            time.sleep(0.5)
+            continue
+        msg_headers = email.message.Message()
+        for key, value in resp_headers.items():
+            msg_headers[key] = value
+        raise urllib.error.HTTPError(url, status, f"HTTP {status}", msg_headers, io.BytesIO(body))
+
+
+def _is_handler_stream_closed(handler: logging.Handler) -> bool:
+    stream = getattr(handler, "stream", None)
+    return bool(stream is not None and getattr(stream, "closed", False))
+
+
+def _dispatch_skipping_closed_streams(logger: logging.Logger, record: logging.LogRecord) -> None:
+    current: logging.Logger | None = logger
+    found = 0
+    while current is not None:
+        for handler in current.handlers:
+            found += 1
+            if record.levelno < handler.level or _is_handler_stream_closed(handler):
+                continue
+            try:
+                handler.handle(record)
+            except ValueError as exc:
+                if "closed file" in str(exc).lower() or _is_handler_stream_closed(handler):
+                    continue
                 raise
-        time.sleep(0.5)
+        current = None if not current.propagate else current.parent
+    if (
+        found == 0
+        and logging.lastResort
+        and record.levelno >= logging.lastResort.level
+        and not _is_handler_stream_closed(logging.lastResort)
+    ):
+        with contextlib.suppress(ValueError):
+            logging.lastResort.handle(record)
+
+
+def _install_closed_stream_guard(logger: logging.Logger) -> Any:
+    orig_call_handlers: Any = logger.callHandlers
+    if getattr(orig_call_handlers, _STREAM_GUARD_MARKER, False):
+        return None
+
+    @wraps(orig_call_handlers)
+    def guarded_call_handlers(record: logging.LogRecord) -> None:
+        _dispatch_skipping_closed_streams(logger, record)
+
+    setattr(guarded_call_handlers, _STREAM_GUARD_MARKER, True)
+    setattr(logger, "callHandlers", guarded_call_handlers)
+    return orig_call_handlers

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import email.message
+import http.client
 import importlib
+import io
 import json
+import os
 import urllib.error
-import urllib.request
 import warnings
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
@@ -13,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from pytest_databases.helpers import get_xdist_worker_num, resolve_legacy_platform
+from pytest_databases.helpers import get_xdist_worker_num, http_request, resolve_legacy_platform
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
@@ -24,6 +27,7 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 __all__ = (
+    "DEFAULT_BIGQUERY_IMAGE",
     "BigQueryService",
     "bigquery_client",
     "bigquery_image",
@@ -35,6 +39,8 @@ __all__ = (
     "query_bigquery_emulator",
     "xdist_bigquery_isolation_level",
 )
+
+DEFAULT_BIGQUERY_IMAGE = "ghcr.io/goccy/bigquery-emulator:0.8.1"
 
 
 @dataclass(init=False)
@@ -108,6 +114,19 @@ class BigQueryService(ServiceContainer):
         options_mod: Any = importlib.import_module("google.api_core.client_options")
         return options_mod.ClientOptions(api_endpoint=self.endpoint)
 
+    def is_healthy(self, *, timeout: float = 5.0) -> bool:
+        """Return ``True`` when ``SELECT 1`` completes successfully against the emulator."""
+        try:
+            payload = query_bigquery_emulator(self.host, self.port, self.project, "SELECT 1", timeout=timeout)
+        except (RuntimeError, urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException):
+            return False
+        if payload.get("jobComplete") is not True:
+            return False
+        try:
+            return bool(payload["rows"][0]["f"][0]["v"] == "1")
+        except (KeyError, IndexError, TypeError):
+            return False
+
 
 def query_bigquery_emulator(
     host: str,
@@ -117,17 +136,23 @@ def query_bigquery_emulator(
     *,
     timeout: float = 2.0,
 ) -> dict[str, Any]:
-    """Execute a SQL query against the BigQuery emulator REST API using stdlib ``urllib.request``."""
+    """Execute a SQL query against the BigQuery emulator REST API bypassing ambient proxies."""
     body = json.dumps({"query": sql, "useLegacySql": False}).encode("utf-8")
-    request = urllib.request.Request(
-        f"http://{host}:{port}/bigquery/v2/projects/{project}/queries",
+    url = f"http://{host}:{port}/bigquery/v2/projects/{project}/queries"
+    status, resp_body = http_request(
+        url,
+        method="POST",
         data=body,
         headers={"Content-Type": "application/json"},
-        method="POST",
+        timeout=timeout,
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload: dict[str, Any] = json.loads(response.read().decode("utf-8"))
-        return payload
+    if status >= 400:
+        raise urllib.error.HTTPError(url, status, f"HTTP {status}", email.message.Message(), io.BytesIO(resp_body))
+    parsed = json.loads(resp_body.decode("utf-8"))
+    if not isinstance(parsed, dict):
+        msg = f"Expected JSON object from BigQuery emulator query endpoint, got {type(parsed).__name__}"
+        raise TypeError(msg)
+    return parsed
 
 
 @contextmanager
@@ -168,7 +193,14 @@ def provide_bigquery_service(
                 project,
                 "SELECT 1 as one",
             )
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        except (
+            urllib.error.URLError,
+            json.JSONDecodeError,
+            RuntimeError,
+            TimeoutError,
+            OSError,
+            http.client.HTTPException,
+        ):
             return False
         if payload.get("jobComplete") is not True:
             return False
@@ -188,7 +220,7 @@ def provide_bigquery_service(
         },
         container_port=9050,
         timeout=60,
-        transient=isolation_level == "server",
+        transient=worker_num is not None and isolation_level == "server",
         platform=platform_arch,
     ) as service:
         if dataset != default_dataset:
@@ -229,14 +261,14 @@ def provide_bigquery_client(bigquery_service: BigQueryService) -> Generator[Any,
 
 @pytest.fixture(scope="session")
 def xdist_bigquery_isolation_level() -> XdistIsolationLevel:
-    """Return the default pytest-xdist isolation level for BigQuery."""
-    return "database"
+    """Return the default pytest-xdist isolation level for BigQuery (``server``)."""
+    return "server"
 
 
 @pytest.fixture(scope="session")
 def bigquery_image() -> str:
-    """Return the default BigQuery emulator container image tag."""
-    return "ghcr.io/goccy/bigquery-emulator:latest"
+    """Return the BigQuery emulator container image tag, honoring ``BIGQUERY_IMAGE``."""
+    return os.getenv("BIGQUERY_IMAGE", DEFAULT_BIGQUERY_IMAGE)
 
 
 @pytest.fixture(scope="session")
@@ -295,16 +327,14 @@ def bigquery_client(bigquery_service: BigQueryService) -> Generator[Any, None, N
 
 def _ensure_bigquery_dataset(host: str, port: int, project: str, dataset: str, *, timeout: float = 5.0) -> None:
     body = json.dumps({"datasetReference": {"projectId": project, "datasetId": dataset}}).encode("utf-8")
-    request = urllib.request.Request(
-        f"http://{host}:{port}/bigquery/v2/projects/{project}/datasets",
+    url = f"http://{host}:{port}/bigquery/v2/projects/{project}/datasets"
+    status, resp_body = http_request(
+        url,
+        method="POST",
         data=body,
         headers={"Content-Type": "application/json"},
-        method="POST",
+        timeout=timeout,
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout):
-            return
-    except urllib.error.HTTPError as exc:
-        if exc.code == 409:
-            return
-        raise
+    if 200 <= status < 300 or status == 409:
+        return
+    raise urllib.error.HTTPError(url, status, f"HTTP {status}", email.message.Message(), io.BytesIO(resp_body))

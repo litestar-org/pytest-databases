@@ -27,7 +27,7 @@ Usage Example
         with psycopg.connect(postgres_service.dsn) as conn:
             db_open = conn.execute("SELECT 1").fetchone()
             assert db_open is not None and db_open[0] == 1
-        exit_code, output = postgres_service.exec_sql("SELECT current_database()", tuples_only=True)
+        exit_code, output = postgres_service.exec_sql("SELECT current_database()", tuples_only=True, timeout=30.0)
         assert exit_code == 0
         assert output.strip().decode() == postgres_service.database
 
@@ -38,6 +38,28 @@ Usage Example
             assert cloned_db == "test_clone_db"
         finally:
             postgres_service.drop_database_force(cloned_db)
+
+Portable Suites Across Docker and Embedded Backends
+---------------------------------------------------
+
+Use ``postgres_any_service`` typed as :class:`~pytest_databases.PostgresServiceProtocol` (with :data:`~pytest_databases.PostgresBackend`)
+to share tests seamlessly between containerized PostgreSQL and :doc:`embedded_postgres`:
+
+.. code-block:: python
+
+    from pytest_databases import PostgresServiceProtocol
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+
+    def test_portable_postgres(postgres_any_service: PostgresServiceProtocol) -> None:
+        exit_code, output = postgres_any_service.exec_sql("SELECT 1", tuples_only=True, timeout=30.0)
+        assert exit_code == 0
+        assert output.strip() == b"1"
+
+Pass ``--postgres-backend=embedded``, configure ``postgres_backend = "embedded"`` in ``[tool.pytest.ini_options]``,
+or set ``PYTEST_DATABASES_POSTGRES_BACKEND=embedded`` (precedence ``CLI -> ini -> env -> "docker"``) to run
+against local binaries without requesting ``docker_service`` or probing Docker or Podman.
 
 Template Database Acceleration
 ------------------------------
@@ -78,9 +100,13 @@ AlloyDB Omni) honors these fixtures.
         assert postgres_service.database.startswith("pytest_databases")
 
 ``postgres_template_setup`` accepts SQL statements, ``pathlib.Path`` objects pointing at ``.sql`` files, or a callable
-that receives a :class:`~pytest_databases.docker.postgres.PostgresService` pointed at the staging database. The SQL
-text and file contents are hashed into the template name (``pytest_databases_template_<digest>``), so a changed
-schema builds a new template even when the container is reused with ``--keep-containers``. A callable cannot be
+that receives a :class:`~pytest_databases.docker.postgres.PostgresService` pointed at the staging database. Provider
+``init_sql`` statements (for example ``CREATE EXTENSION IF NOT EXISTS vector`` on ``pgvector_*_service`` or AlloyDB
+Omni extension DDL) run on the staging template database via ``ensure_template(..., init_sql=...)`` prior to user
+``postgres_template_setup`` across both containerized and external PostgreSQL endpoints, so clones inherit enabled
+extensions without re-running ``init_sql`` per worker. The SQL
+text, provider ``init_sql``, and file contents are hashed into the template name (``pytest_databases_template_<digest>``),
+so a changed schema builds a new template even when the container is reused with ``--keep-containers``. A callable cannot be
 hashed; return its inputs (migration directories, files, or a version string) from
 ``postgres_template_fingerprint_sources`` so they become part of the name.
 
@@ -119,7 +145,7 @@ Set ``POSTGRES_EXTERNAL_HOST`` (and optionally ``POSTGRES_EXTERNAL_PORT``, ``POS
 ``POSTGRES_DATABASE``) or call :func:`~pytest_databases.docker.postgres.provide_external_postgres_service` directly in
 a custom fixture. Custom container fixtures calling :func:`~pytest_databases.docker.postgres.provide_postgres_service`
 can also forward server ``command`` arguments (for example preloading ``pg_stat_statements``), extra ``env``
-variables, ``shm_size``, ``mem_limit``, ``volumes``, ``database``, and ``init_sql``.
+variables, ``shm_size``, ``mem_limit``, ``volumes``, ``database``, ``timeout``, and ``init_sql``.
 
 Available Fixtures
 ------------------
@@ -130,6 +156,8 @@ Available Fixtures
 * ``postgres_database``: Base database name created for family services (defaults to ``"pytest_databases"``, env ``POSTGRES_DATABASE``; ``<postgres_database>_<worker>`` under ``pytest-xdist`` ``"database"`` or ``"template"`` isolation).
 * ``postgres_image``: The Docker image to use for PostgreSQL (defaults to ``"postgres:18"``).
 * ``postgres_port``: Optional host-side port pin (default ``None``, override via ``POSTGRES_PORT`` env).
+* ``postgres_startup_timeout``: Startup readiness timeout in seconds for containerized PostgreSQL services (default ``60``, env ``POSTGRES_STARTUP_TIMEOUT``).
+* ``postgres_any_service``: Cross-backend session fixture returning a :class:`~pytest_databases.PostgresServiceProtocol` (``PostgresService``, ``ExternalPostgresService``, or lazily imported ``EmbeddedPostgresService`` controlled by ``--postgres-backend`` / ``postgres_backend`` / ``PYTEST_DATABASES_POSTGRES_BACKEND``).
 * ``postgres_external_host``: Optional hostname or IP of a pre-started PostgreSQL endpoint (default ``None``, env ``POSTGRES_EXTERNAL_HOST``).
 * ``postgres_external_port``: Optional TCP port for ``postgres_external_service`` (default ``None``, falling back to ``5432``; env ``POSTGRES_EXTERNAL_PORT``).
 * ``postgres_external_service``: Yields an :class:`~pytest_databases.docker.postgres.ExternalPostgresService` connected to ``postgres_external_host`` (skips when unset).
@@ -157,6 +185,10 @@ the same session without colliding:
 pgvector
 ^^^^^^^^
 
+All ``pgvector_service`` and ``pgvector_13_service`` through ``pgvector_18_service`` fixtures automatically execute
+``CREATE EXTENSION IF NOT EXISTS vector;`` during database (or staging template) provisioning so vector types and
+operators are ready immediately.
+
 * ``pgvector_image``, ``pgvector_service``, ``pgvector_connection``, ``pgvector_port`` (env: ``PGVECTOR_PORT``) — default image ``pgvector/pgvector:pg18``
 * ``pgvector_13_service``, ``pgvector_13_connection``, ``pgvector_13_port`` (env: ``PGVECTOR_13_PORT``)
 * ``pgvector_14_service``, ``pgvector_14_connection``, ``pgvector_14_port`` (env: ``PGVECTOR_14_PORT``)
@@ -179,6 +211,33 @@ ParadeDB extends PostgreSQL with BM25 full-text search and analytics extensions.
 AlloyDB Omni
 ^^^^^^^^^^^^
 
+``alloydb_omni_service`` and ``alloydb_omni_15_service`` through ``alloydb_omni_18_service`` configure shared memory
+(``alloydb_omni_shm_size = "512m"``, env ``ALLOYDB_OMNI_SHM_SIZE``), a ``90``-second readiness timeout
+(``alloydb_omni_startup_timeout``, env ``ALLOYDB_OMNI_STARTUP_TIMEOUT``), postmaster startup GUCs
+(``alloydb_omni_command`` via :func:`~pytest_databases.docker.postgres.build_alloydb_omni_command` for versions ``17``
+and ``18``, automatically adapting when ``alloydb_omni_image`` resolves to a ``:15`` or ``:16`` tag, and
+``alloydb_omni_legacy_command`` for ``15`` and ``16``; override via ``ALLOYDB_OMNI_COMMAND`` or
+``ALLOYDB_OMNI_LEGACY_COMMAND``), and default extension DDL so ``google_columnar_engine``, ``pg_stat_statements``,
+``vector``, ``alloydb_scann``, ``google_ml_integration``, and ``alloydb_ai_nl`` are enabled out of the box across
+versions ``15``–``18``, with ``pg_textsearch`` BM25 indexes enabled additionally on versions ``17`` and ``18``. Local
+extension DDL and GUC inspection require no cloud credentials, while remote Vertex AI or Gemini model invocations stay
+in user SQL.
+
+.. code-block:: python
+
+    from pytest_databases.docker.postgres import PostgresService
+
+
+    def test_alloydb_omni_stack(alloydb_omni_service: PostgresService) -> None:
+        exit_code, output = alloydb_omni_service.exec_sql(
+            "SHOW google_columnar_engine.enabled;",
+            tuples_only=True,
+        )
+        assert exit_code == 0
+        assert output.strip() == b"on"
+
+* ``alloydb_omni_shm_size``, ``alloydb_omni_startup_timeout``, ``alloydb_omni_command``, ``alloydb_omni_legacy_command``
+
 * ``alloydb_omni_image``, ``alloydb_omni_service``, ``alloydb_omni_connection``, ``alloydb_omni_port`` (env: ``ALLOYDB_OMNI_PORT``) — default image ``gcr.io/alloydb-omni/alloydbomni:18``
 * ``alloydb_omni_15_service``, ``alloydb_omni_15_connection``, ``alloydb_omni_15_port`` (env: ``ALLOYDB_OMNI_15_PORT``)
 * ``alloydb_omni_16_service``, ``alloydb_omni_16_connection``, ``alloydb_omni_16_port`` (env: ``ALLOYDB_OMNI_16_PORT``)
@@ -194,6 +253,9 @@ PostgreSQL services can be configured using environment variables:
 * ``POSTGRES_USER``: Superuser name configured in PostgreSQL containers and ``postgres_external_service`` (default: ``"postgres"``)
 * ``POSTGRES_DATABASE``: Base database name created for PostgreSQL family services and ``postgres_external_service`` (default: ``"pytest_databases"``)
 * ``POSTGRES_EXTERNAL_HOST`` and ``POSTGRES_EXTERNAL_PORT``: Hostname/IP and optional TCP port (default ``5432``) used by ``postgres_external_service`` to attach to an existing server
+* ``POSTGRES_STARTUP_TIMEOUT`` / ``ALLOYDB_OMNI_STARTUP_TIMEOUT``: Readiness timeouts in seconds for PostgreSQL (``60``) and AlloyDB Omni (``90``)
+* ``ALLOYDB_OMNI_SHM_SIZE`` / ``ALLOYDB_OMNI_COMMAND`` / ``ALLOYDB_OMNI_LEGACY_COMMAND``: Shared memory size (``"512m"``) and postmaster command overrides for AlloyDB Omni
+* ``PYTEST_DATABASES_POSTGRES_BACKEND``: Default backend selector for ``postgres_any_service`` (``"docker"`` or ``"embedded"``)
 * ``POSTGRES_PORT`` / ``POSTGRES_NN_PORT`` / ``PGVECTOR_PORT`` / ``PGVECTOR_NN_PORT`` / ``PARADEDB_PORT`` / ``PARADEDB_NN_PORT`` / ``ALLOYDB_OMNI_PORT`` / ``ALLOYDB_OMNI_NN_PORT``: Pin a specific host-side port for the matching service fixture. When unset, Docker picks a random free port (the default). See GitHub issue #131.
 
 Service API

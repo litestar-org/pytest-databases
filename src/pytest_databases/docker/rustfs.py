@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import contextlib
+import http.client
 import os
+import ssl
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 import pytest
 
-from pytest_databases._s3 import create_s3_bucket
 from pytest_databases.docker import TRUE_VALUES
-from pytest_databases.helpers import get_xdist_worker_num
+from pytest_databases.helpers import create_s3_bucket, get_xdist_worker_num, http_request
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
@@ -78,17 +78,20 @@ def provide_rustfs_service(
         RustfsService: Started RustFS container service metadata.
     """
 
+    ssl_ctx: ssl.SSLContext | None = None
+    if secure:
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
     def check(_service: ServiceContainer) -> bool:
         scheme = "https" if secure else "http"
         url = f"{scheme}://{_service.host}:{_service.port}/health"
-        if not url.startswith(("http:", "https:")):
-            msg = "URL must start with 'http:' or 'https:'"
-            raise ValueError(msg)
         try:
-            with urlopen(url=Request(url, method="GET"), timeout=10) as response:
-                return response.status == 200
-        except (URLError, ConnectionError):
+            status, _ = http_request(url, timeout=2.0, ssl_context=ssl_ctx)
+        except (URLError, TimeoutError, OSError, http.client.HTTPException):
             return False
+        return status == 200
 
     worker_num = get_xdist_worker_num()
     name = "rustfs"

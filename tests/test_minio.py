@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import http.server
+import shutil
+import socket
+import ssl
+import subprocess
+import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
-from urllib.error import URLError
 
 import pytest
 
@@ -25,7 +30,7 @@ from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from urllib.request import Request
+    from pathlib import Path
 
 
 def test_minio_chainguard_image_default() -> None:
@@ -61,45 +66,109 @@ def test_minio_service_endpoint_url(secure: bool, expected: str) -> None:
     assert service.endpoint_url == expected
 
 
+def _start_minio_loopback(
+    responses: dict[tuple[str, str], list[int]],
+    *,
+    ssl_context: ssl.SSLContext | None = None,
+) -> tuple[http.server.ThreadingHTTPServer, list[tuple[str, str, str | None]]]:
+    recorded: list[tuple[str, str, str | None]] = []
+    remaining = {key: list(values) for key, values in responses.items()}
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def _handle(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length:
+                self.rfile.read(length)
+            recorded.append((self.command, self.path, self.headers.get("Authorization")))
+            queue = remaining.get((self.command, self.path))
+            status = queue.pop(0) if queue else 200
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_GET(self) -> None:
+            self._handle()
+
+        def do_PUT(self) -> None:
+            self._handle()
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    if ssl_context is not None:
+        server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, recorded
+
+
+def _create_minio_self_signed_context(tmp_path: Path) -> ssl.SSLContext:
+    cert_path = tmp_path / "minio-cert.pem"
+    key_path = tmp_path / "minio-key.pem"
+    openssl_bin = shutil.which("openssl")
+    assert openssl_bin is not None
+    subprocess.run(
+        [
+            openssl_bin,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(key_path),
+            "-out",
+            str(cert_path),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=127.0.0.1",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    return ctx
+
+
 def test_minio_service_provisions_default_bucket_via_sigv4(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify provide_minio_service boots MinIO and creates the default bucket with a signed PUT."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
     docker_service = MagicMock()
-    sent: list[Request] = []
+    server, recorded = _start_minio_loopback({("PUT", "/pytest-databases"): [200]})
+    port = server.server_address[1]
 
     @contextmanager
     def fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
         assert kwargs["image"] == MINIO_IMAGE
         assert kwargs["command"] == "server /data"
         assert kwargs["container_port"] == 9000
-        yield ServiceContainer(host="127.0.0.1", port=39000, container=MagicMock())
-
-    def fake_urlopen(request: Request, **_: object) -> MagicMock:
-        sent.append(request)
-        response = MagicMock(status=200)
-        response.__enter__.return_value = response
-        return response
+        yield ServiceContainer(host="127.0.0.1", port=port, container=MagicMock())
 
     docker_service.run.side_effect = fake_run
-    monkeypatch.setattr("pytest_databases._s3.urlopen", fake_urlopen)
 
-    with provide_minio_service(
-        docker_service,
-        access_key=unwrap_fixture(minio_access_key)(),
-        secret_key=unwrap_fixture(minio_secret_key)(),
-        secure=unwrap_fixture(minio_secure)(),
-        default_bucket_name="pytest-databases",
-        isolation_level=unwrap_fixture(xdist_minio_isolation_level)(),
-    ) as service:
-        assert service.endpoint == "127.0.0.1:39000"
-        assert service.endpoint_url == "http://127.0.0.1:39000"
-        assert service.access_key == "minio"
-        assert service.secret_key == "minio123"
-        assert service.secure is False
+    try:
+        with provide_minio_service(
+            docker_service,
+            access_key=unwrap_fixture(minio_access_key)(),
+            secret_key=unwrap_fixture(minio_secret_key)(),
+            secure=unwrap_fixture(minio_secure)(),
+            default_bucket_name="pytest-databases",
+            isolation_level=unwrap_fixture(xdist_minio_isolation_level)(),
+        ) as service:
+            assert service.endpoint == f"127.0.0.1:{port}"
+            assert service.endpoint_url == f"http://127.0.0.1:{port}"
+            assert service.access_key == "minio"
+            assert service.secret_key == "minio123"
+            assert service.secure is False
+    finally:
+        server.shutdown()
+        server.server_close()
 
-    assert [(request.method, request.full_url) for request in sent] == [
-        ("PUT", "http://127.0.0.1:39000/pytest-databases")
-    ]
-    assert str(sent[0].get_header("Authorization")).startswith("AWS4-HMAC-SHA256 Credential=minio/")
+    assert [(method, path) for method, path, _auth in recorded] == [("PUT", "/pytest-databases")]
+    assert str(recorded[0][2]).startswith("AWS4-HMAC-SHA256 Credential=minio/")
     docker_service._client.containers.run.assert_not_called()
 
 
@@ -156,8 +225,8 @@ def test_default_no_xdist(pytester: pytest.Pytester) -> None:
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import pytest
-from pytest_databases._s3 import build_bucket_request
 from pytest_databases.docker.minio import MinioService
+from pytest_databases.helpers import build_bucket_request
 
 pytest_plugins = [
     "pytest_databases.docker.minio",
@@ -168,20 +237,19 @@ def test_minio_service_fixture(minio_service: MinioService, minio_default_bucket
     assert minio_service.port > 0
     assert minio_default_bucket_name == "pytest-databases"
 
+    from pytest_databases.helpers import http_request
     scheme = "https" if minio_service.secure else "http"
     url = f"{scheme}://{minio_service.host}:{minio_service.port}/minio/health/ready"
-    with urlopen(Request(url, method="GET")) as response:
-        assert response.status == 200
+    status, _body = http_request(url, method="GET")
+    assert status == 200
 
 def _head_bucket(service: MinioService, bucket: str) -> int:
+    from pytest_databases.helpers import send_http_request
     request = build_bucket_request(
         "HEAD", service.endpoint_url, bucket, access_key=service.access_key, secret_key=service.secret_key
     )
-    try:
-        with urlopen(request) as response:
-            return response.status
-    except HTTPError as exc:
-        return exc.code
+    status, _headers, _body = send_http_request(request)
+    return status
 
 def test_minio_default_bucket_exists(minio_service: MinioService, minio_default_bucket_name: str) -> None:
     assert _head_bucket(minio_service, minio_default_bucket_name) == 200
@@ -211,22 +279,24 @@ def xdist_minio_isolation_level():
     return "server"
 
 def test_isolation_one(minio_service: MinioService, minio_default_bucket_name: str) -> None:
+    from pytest_databases.helpers import http_request
     worker_num = get_xdist_worker_num()
     assert minio_default_bucket_name == f"pytest-databases-{worker_num}"
 
     scheme = "https" if minio_service.secure else "http"
     url = f"{scheme}://{minio_service.host}:{minio_service.port}/minio/health/ready"
-    with urlopen(Request(url, method="GET")) as response:
-        assert response.status == 200
+    status, _body = http_request(url, method="GET")
+    assert status == 200
 
 def test_isolation_two(minio_service: MinioService, minio_default_bucket_name: str) -> None:
+    from pytest_databases.helpers import http_request
     worker_num = get_xdist_worker_num()
     assert minio_default_bucket_name == f"pytest-databases-{worker_num}"
 
     scheme = "https" if minio_service.secure else "http"
     url = f"{scheme}://{minio_service.host}:{minio_service.port}/minio/health/ready"
-    with urlopen(Request(url, method="GET")) as response:
-        assert response.status == 200
+    status, _body = http_request(url, method="GET")
+    assert status == 200
 """)
     result = pytester.runpytest_subprocess("-p", "pytest_databases", "-n", "2")
     result.assert_outcomes(passed=2)
@@ -241,54 +311,68 @@ def test_isolation_two(minio_service: MinioService, minio_default_bucket_name: s
 )
 def test_provide_minio_service_readiness_and_xdist(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     worker_num: int | None,
     isolation_level: str,
     secure: bool,
     expected_name: str,
     expected_scheme: str,
 ) -> None:
-    """Verify provide_minio_service readiness check, endpoint_url, and xdist server mode."""
+    """Verify provide_minio_service readiness check, endpoint_url, TLS, and proxy bypass."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
     monkeypatch.setattr("pytest_databases.docker.minio.get_xdist_worker_num", lambda: worker_num)
-    monkeypatch.setattr("pytest_databases.docker.minio.create_s3_bucket", lambda *_a, **_kw: None)
 
-    calls = 0
+    ssl_context = _create_minio_self_signed_context(tmp_path) if secure else None
+    server, recorded = _start_minio_loopback(
+        {
+            ("GET", "/minio/health/ready"): [503, 200],
+            ("PUT", "/pytest-databases"): [200],
+        },
+        ssl_context=ssl_context,
+    )
+    port = server.server_address[1]
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as closed_sock:
+        closed_sock.bind(("127.0.0.1", 0))
+        closed_port = int(closed_sock.getsockname()[1])
 
-    def fake_urlopen(url: object, timeout: float = 10.0) -> object:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            msg = "not ready"
-            raise URLError(msg)
-        cm = MagicMock()
-        cm.__enter__.return_value = MagicMock(status=200)
-        return cm
-
-    monkeypatch.setattr("pytest_databases.docker.minio.urlopen", fake_urlopen)
     docker_service = MagicMock()
     captured_name: list[str] = []
 
     @contextmanager
     def fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
         captured_name.append(str(kwargs["name"]))
-        svc = ServiceContainer(host="127.0.0.1", port=9000, container=MagicMock())
+        svc = ServiceContainer(host="127.0.0.1", port=port, container=MagicMock())
+        unreachable_svc = ServiceContainer(host="127.0.0.1", port=closed_port, container=MagicMock())
         check = kwargs["check"]
         assert callable(check)
+        assert check(unreachable_svc) is False
         assert check(svc) is False
         assert check(svc) is True
         yield svc
 
     docker_service.run.side_effect = fake_run
 
-    with provide_minio_service(
-        docker_service,
-        access_key="minio",
-        secret_key="minio123",
-        secure=secure,
-        default_bucket_name="pytest-databases",
-        isolation_level=isolation_level,  # type: ignore[arg-type]
-    ) as service:
-        assert service.endpoint_url == f"{expected_scheme}://127.0.0.1:9000"
-        assert captured_name == [expected_name]
+    try:
+        with provide_minio_service(
+            docker_service,
+            access_key="minio",
+            secret_key="minio123",
+            secure=secure,
+            default_bucket_name="pytest-databases",
+            isolation_level=isolation_level,  # type: ignore[arg-type]
+        ) as service:
+            assert service.endpoint_url == f"{expected_scheme}://127.0.0.1:{port}"
+            assert captured_name == [expected_name]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert [(m, p) for m, p, _auth in recorded] == [
+        ("GET", "/minio/health/ready"),
+        ("GET", "/minio/health/ready"),
+        ("PUT", "/pytest-databases"),
+    ]
 
 
 def test_minio_all_fixtures_inprocess(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:

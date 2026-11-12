@@ -6,6 +6,7 @@ import base64
 import email.utils
 import hashlib
 import hmac
+import http.client
 import importlib
 import urllib.error
 import urllib.request
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from pytest_databases.helpers import get_xdist_worker_count, get_xdist_worker_num
+from pytest_databases.helpers import get_xdist_worker_count, get_xdist_worker_num, send_http_request
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
@@ -104,7 +105,7 @@ def ensure_azurite_container(
 ) -> bool:
     """Ensure ``container_name`` exists in Azurite using a signed ``PUT ?restype=container`` request."""
     try:
-        status = _send_azurite_container_request(
+        status, headers = _send_azurite_container_request(
             method="PUT",
             account_url=account_url,
             account_name=account_name,
@@ -112,9 +113,14 @@ def ensure_azurite_container(
             container_name=container_name,
             timeout=timeout,
         )
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
         return False
-    return status in {201, 409}
+    if status == 201:
+        return True
+    if status == 409:
+        error_code = next((val for key, val in headers.items() if key.lower() == "x-ms-error-code"), "")
+        return error_code == "ContainerAlreadyExists"
+    return False
 
 
 def azurite_container_exists(
@@ -127,7 +133,7 @@ def azurite_container_exists(
 ) -> bool:
     """Return ``True`` if ``container_name`` exists in Azurite using a signed ``GET ?restype=container`` request."""
     try:
-        status = _send_azurite_container_request(
+        status, _headers = _send_azurite_container_request(
             method="GET",
             account_url=account_url,
             account_name=account_name,
@@ -135,7 +141,7 @@ def azurite_container_exists(
             container_name=container_name,
             timeout=timeout,
         )
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
         return False
     return status == 200
 
@@ -345,8 +351,8 @@ def _send_azurite_container_request(
     account_key: str,
     container_name: str,
     timeout: float = 5.0,
-) -> int:
-    """Issue a signed HTTP request against an Azurite blob container endpoint and return the status code."""
+) -> tuple[int, dict[str, str]]:
+    """Issue a signed HTTP request against an Azurite blob container endpoint bypassing proxies."""
     ms_date = email.utils.formatdate(usegmt=True)
     auth_header = build_shared_key_authorization(
         method=method,
@@ -369,11 +375,8 @@ def _send_azurite_container_request(
         headers=headers,
         method=method.upper(),
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return int(response.status)
-    except urllib.error.HTTPError as exc:
-        return int(exc.code)
+    status, resp_headers, _body = send_http_request(request, timeout=timeout)
+    return status, resp_headers
 
 
 def _create_account_options(number: int) -> list[tuple[str, str]]:

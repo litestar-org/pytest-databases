@@ -11,10 +11,10 @@ from docker.errors import APIError
 from pytest_databases.docker import cockroachdb
 from pytest_databases.docker.cockroachdb import (
     CockroachDBService,
-    _exec_cockroach_sql,
     _prepare_database,
     cockroachdb_connection,
     cockroachdb_driver_opts,
+    exec_cockroach_sql,
     provide_cockroachdb_service,
 )
 from pytest_databases.types import ServiceContainer
@@ -193,26 +193,36 @@ def test_provide_cockroachdb_service_and_helpers(
     """Verify provide_cockroachdb_service xdist modes, readiness check, and retry exhaustion."""
     monkeypatch.setattr("pytest_databases.docker.cockroachdb.time.sleep", lambda _s: None)
     monkeypatch.setattr("pytest_databases.docker.cockroachdb.get_xdist_worker_num", lambda: worker_num)
+    port_states = iter([False, True])
+    monkeypatch.setattr(
+        "pytest_databases.docker.cockroachdb.tcp_port_open",
+        lambda *_a, **_kw: next(port_states, True),
+    )
     mock_docker = MagicMock()
     mock_container = MagicMock()
     mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
     svc_container = ServiceContainer(host="127.0.0.1", port=26257, container=mock_container)
     mock_docker.run.return_value.__enter__.return_value = svc_container
 
+    caller_opts = {"sslmode": "disable", "connect_timeout": "5"}
     with provide_cockroachdb_service(
         docker_service=mock_docker,
         isolation_level=isolation_level,  # type: ignore[arg-type]
-        driver_opts={"sslmode": "disable"},
+        driver_opts=caller_opts,
         image="cockroachdb/cockroach:latest",
     ) as service:
         assert service.database == expected_db
+        assert service.user == "root"
+        assert service.driver_opts == caller_opts
+        assert service.driver_opts is not caller_opts
 
     check = mock_docker.run.call_args.kwargs["check"]
     assert mock_docker.run.call_args.kwargs["name"] == expected_name
+    assert check(svc_container) is False
     assert check(svc_container) is True
 
     mock_container.exec_run.side_effect = APIError("boom")
-    code, out = _exec_cockroach_sql(mock_container, "SELECT 1", database="defaultdb")
+    code, out = exec_cockroach_sql(mock_container, "SELECT 1", database="defaultdb")
     assert code == -1
     assert b"boom" in out
 
@@ -220,6 +230,121 @@ def test_provide_cockroachdb_service_and_helpers(
     mock_container.exec_run.return_value = MagicMock(exit_code=1, output=b"not ready")
     with pytest.raises(RuntimeError, match="could not be prepared"):
         _prepare_database(mock_container, "test_db")
+
+
+@pytest.mark.parametrize(
+    ("host", "user", "database", "driver_opts", "expected_dsn", "expected_config"),
+    [
+        pytest.param(
+            "127.0.0.1",
+            "root",
+            "pytest",
+            {"sslmode": "disable"},
+            "postgresql://root@127.0.0.1:26257/pytest?sslmode=disable",
+            {"host": "127.0.0.1", "port": 26257, "user": "root", "database": "pytest", "sslmode": "disable"},
+            id="default",
+        ),
+        pytest.param(
+            "127.0.0.1",
+            "root",
+            "pytest",
+            {},
+            "postgresql://root@127.0.0.1:26257/pytest",
+            {"host": "127.0.0.1", "port": 26257, "user": "root", "database": "pytest"},
+            id="empty-driver-opts",
+        ),
+        pytest.param(
+            "127.0.0.1",
+            "root",
+            "pytest",
+            {"sslmode": "disable", "application_name": "pt test"},
+            "postgresql://root@127.0.0.1:26257/pytest?sslmode=disable&application_name=pt+test",
+            {
+                "host": "127.0.0.1",
+                "port": 26257,
+                "user": "root",
+                "database": "pytest",
+                "sslmode": "disable",
+                "application_name": "pt test",
+            },
+            id="multi-driver-opts",
+        ),
+        pytest.param(
+            "::1",
+            "root",
+            "pytest",
+            {"sslmode": "disable"},
+            "postgresql://root@[::1]:26257/pytest?sslmode=disable",
+            {"host": "::1", "port": 26257, "user": "root", "database": "pytest", "sslmode": "disable"},
+            id="ipv6",
+        ),
+        pytest.param(
+            "127.0.0.1",
+            "ro user",
+            "db/1",
+            {"sslmode": "disable"},
+            "postgresql://ro%20user@127.0.0.1:26257/db%2F1?sslmode=disable",
+            {"host": "127.0.0.1", "port": 26257, "user": "ro user", "database": "db/1", "sslmode": "disable"},
+            id="url-encoded-user-db",
+        ),
+    ],
+)
+def test_cockroachdb_service_dsn_and_connection_config(
+    host: str,
+    user: str,
+    database: str,
+    driver_opts: dict[str, str],
+    expected_dsn: str,
+    expected_config: dict[str, object],
+) -> None:
+    """Verify CockroachDBService exposes PostgreSQL-wire dsn and connection_config safely."""
+    service = CockroachDBService(
+        host=host,
+        port=26257,
+        container=MagicMock(),
+        database=database,
+        driver_opts=driver_opts,
+        user=user,
+    )
+    assert service.dsn == expected_dsn
+    assert service.connection_config == expected_config
+
+
+@pytest.mark.parametrize(
+    ("sql", "database_override", "expected_db_flag"),
+    [
+        pytest.param("SELECT 42", None, "--database=pytest_gw1", id="default-database"),
+        pytest.param("SHOW DATABASES", "defaultdb", "--database=defaultdb", id="explicit-database"),
+    ],
+)
+def test_cockroachdb_service_exec_sql_and_public_helper(
+    sql: str,
+    database_override: str | None,
+    expected_db_flag: str,
+) -> None:
+    """Verify CockroachDBService.exec_sql delegates to public exec_cockroach_sql without private aliases."""
+    assert "exec_cockroach_sql" in cockroachdb.__all__
+    assert not hasattr(cockroachdb, "_exec_cockroach_sql")
+
+    container = MagicMock()
+    container.exec_run.return_value = MagicMock(exit_code=0, output=b"42\n")
+    service = CockroachDBService(
+        host="127.0.0.1",
+        port=26257,
+        container=container,
+        database="pytest_gw1",
+    )
+
+    code, output = service.exec_sql(sql, database=database_override)
+    assert (code, output) == (0, b"42\n")
+    cmd = container.exec_run.call_args.args[0]
+    assert expected_db_flag in cmd
+    assert cmd[-1] == sql
+
+    container.exec_run.side_effect = APIError("boom")
+    err_code, err_out = service.exec_sql("SELECT 1")
+    assert err_code == -1
+    assert b"boom" in err_out
 
 
 def test_cockroachdb_all_fixtures_inprocess(pytester: Pytester) -> None:

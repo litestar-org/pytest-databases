@@ -6,19 +6,37 @@ Each Floci image serves one cloud on its own gateway port and health path, liste
 
 from __future__ import annotations
 
+import email.message
+import email.utils
+import hashlib
+import html
+import http.client
+import http.server
+import io
 import json
 import os
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.parsers.expat
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 import pytest
 
-from pytest_databases.helpers import get_xdist_worker_num, http_get_json
+from pytest_databases.helpers import (
+    TRUE_VALUES,
+    create_s3_bucket,
+    get_xdist_worker_num,
+    http_get_json,
+    http_request,
+    read_http_handler_body,
+    send_http_request,
+)
 from pytest_databases.types import ServiceContainer, XdistIsolationLevel
 
 if TYPE_CHECKING:
@@ -53,6 +71,7 @@ __all__ = (
     "floci_az_account_name",
     "floci_az_image",
     "floci_az_service",
+    "floci_gcp_compat_proxy",
     "floci_gcp_image",
     "floci_gcp_project",
     "floci_gcp_service",
@@ -63,6 +82,7 @@ __all__ = (
     "floci_oci_service",
     "floci_resource_prefix",
     "provide_floci_container",
+    "provide_floci_gcp_service",
     "xdist_floci_isolation_level",
 )
 
@@ -83,6 +103,14 @@ DEFAULT_FLOCI_OCI_NAMESPACE = "floci-local"
 DEFAULT_FLOCI_OCI_COMPARTMENT_ID = "ocid1.tenancy.oc1..flocilocaltenancy0000000000000000000000000000000000000000"
 _AZURITE_DEFAULT_ACCOUNT = "devstoreaccount1"
 _AZURITE_DEFAULT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+_HOP_BY_HOP_REQUEST_HEADERS = frozenset({
+    "accept-encoding",
+    "connection",
+    "content-length",
+    "host",
+    "transfer-encoding",
+})
+_HOP_BY_HOP_RESPONSE_HEADERS = frozenset({"connection", "content-encoding", "content-length", "transfer-encoding"})
 
 
 @dataclass
@@ -135,11 +163,21 @@ class FlociOCIService(FlociService):
 
 @dataclass
 class FlociAWSService(FlociService):
-    """Connection metadata for a Floci AWS emulator (S3, SQS, SNS, DynamoDB, Secrets Manager, KMS, Lambda)."""
+    """Connection metadata and S3 bucket helper for a Floci AWS emulator (S3, SQS, SNS, DynamoDB, Secrets Manager)."""
 
     region: str
     access_key: str
     secret_key: str
+
+    def ensure_bucket(self, bucket_name: str) -> None:
+        """Create ``bucket_name`` idempotently on the running Floci AWS emulator via stdlib SigV4 ``PUT``."""
+        create_s3_bucket(
+            self.endpoint_url,
+            bucket_name,
+            access_key=self.access_key,
+            secret_key=self.secret_key,
+            region=self.region,
+        )
 
 
 @dataclass
@@ -318,6 +356,59 @@ def floci_gcp_project() -> str:
     return f"pytest-databases-{worker_num}"
 
 
+@contextmanager
+def provide_floci_gcp_service(
+    container_service: ContainerService,
+    *,
+    image: str = DEFAULT_FLOCI_GCP_IMAGE,
+    project: str = "pytest-databases",
+    resource_prefix: str = "pytest-databases-",
+    isolation_level: XdistIsolationLevel = "database",
+    compat_proxy: bool = True,
+) -> Generator[FlociGCPService, None, None]:
+    """Start Floci GCP and optionally front it with the GCS XML/JSON compatibility proxy.
+
+    Yields:
+        A configured FlociGCPService instance.
+    """
+    with provide_floci_container(
+        container_service,
+        image=image,
+        name="floci_gcp",
+        container_port=FLOCI_CONTAINER_PORTS["gcp"],
+        health_path=FLOCI_HEALTH_PATHS["gcp"],
+        isolation_level=isolation_level,
+    ) as service:
+        if compat_proxy:
+            with _start_floci_gcp_compat_proxy(service.host, service.port) as (proxy_host, proxy_port):
+                yield FlociGCPService(
+                    container=service.container,
+                    host=proxy_host,
+                    port=proxy_port,
+                    endpoint_url=f"http://{proxy_host}:{proxy_port}",
+                    resource_prefix=resource_prefix,
+                    project=project,
+                )
+        else:
+            yield FlociGCPService(
+                container=service.container,
+                host=service.host,
+                port=service.port,
+                endpoint_url=f"http://{service.host}:{service.port}",
+                resource_prefix=resource_prefix,
+                project=project,
+            )
+
+
+@pytest.fixture(scope="session")
+def floci_gcp_compat_proxy() -> bool:
+    """Return whether ``floci_gcp_service`` starts the GCS compatibility proxy."""
+    raw = os.getenv("FLOCI_GCP_COMPAT_PROXY")
+    if raw is None:
+        return True
+    return raw.strip().lower() in TRUE_VALUES
+
+
 @pytest.fixture(scope="session")
 def floci_gcp_service(
     container_service: ContainerService,
@@ -325,28 +416,22 @@ def floci_gcp_service(
     floci_gcp_project: str,
     floci_resource_prefix: str,
     xdist_floci_isolation_level: XdistIsolationLevel,
+    floci_gcp_compat_proxy: bool,
 ) -> Generator[FlociGCPService, None, None]:
     """Start and yield a ready Floci GCP emulator service container.
 
     Yields:
         A configured FlociGCPService instance.
     """
-    with provide_floci_container(
+    with provide_floci_gcp_service(
         container_service,
         image=floci_gcp_image,
-        name="floci_gcp",
-        container_port=FLOCI_CONTAINER_PORTS["gcp"],
-        health_path=FLOCI_HEALTH_PATHS["gcp"],
+        project=floci_gcp_project,
+        resource_prefix=floci_resource_prefix,
         isolation_level=xdist_floci_isolation_level,
+        compat_proxy=floci_gcp_compat_proxy,
     ) as service:
-        yield FlociGCPService(
-            container=service.container,
-            host=service.host,
-            port=service.port,
-            endpoint_url=f"http://{service.host}:{service.port}",
-            resource_prefix=floci_resource_prefix,
-            project=floci_gcp_project,
-        )
+        yield service
 
 
 @pytest.fixture(scope="session")
@@ -520,20 +605,17 @@ def floci_az_service(
 
 def _post_json(url: str, payload: dict[str, Any], *, existing: dict[str, Any], timeout: float) -> dict[str, Any]:
     """POST a JSON document and return the JSON object response, or ``existing`` on HTTP 409."""
-    request = urllib.request.Request(
+    status, body = http_request(
         url,
+        method="POST",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
-        method="POST",
+        timeout=timeout,
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read()
-    except urllib.error.HTTPError as exc:
-        if exc.code != 409:
-            raise
-        exc.close()
+    if status == 409:
         return existing
+    if status >= 400:
+        raise urllib.error.HTTPError(url, status, f"HTTP {status}", email.message.Message(), io.BytesIO(body))
     parsed = json.loads(body) if body.strip() else None
     return parsed if isinstance(parsed, dict) else existing
 
@@ -541,3 +623,321 @@ def _post_json(url: str, payload: dict[str, Any], *, existing: dict[str, Any], t
 def _is_floci_ready(service: ServiceContainer, *, health_path: str) -> bool:
     """Return ``True`` when the Floci health endpoint answers with a JSON object."""
     return check_floci_health(service.host, service.port, health_path) is not None
+
+
+def _augment_list_bucket_xml(body: bytes) -> bytes:
+    """Inject missing ``<ETag>`` and ``<LastModified>`` elements into S3 ``ListBucketResult`` XML ``<Contents>``."""
+    if b"ListBucketResult" not in body:
+        return body
+
+    state: dict[str, Any] = {
+        "in_contents": False,
+        "prefix": "",
+        "has_etag": False,
+        "has_last_modified": False,
+        "capture_key": False,
+        "key_parts": [],
+    }
+    insertions: list[tuple[int, bytes]] = []
+    parser = xml.parsers.expat.ParserCreate()
+
+    def start_element(name: str, _attrs: dict[str, str]) -> None:
+        prefix, sep, local = name.rpartition(":")
+        elem_prefix = f"{prefix}{sep}"
+        if local == "Contents":
+            state["in_contents"] = True
+            state["prefix"] = elem_prefix
+            state["has_etag"] = False
+            state["has_last_modified"] = False
+            state["capture_key"] = False
+            state["key_parts"] = []
+            return
+        if not state["in_contents"]:
+            return
+        if local == "ETag":
+            state["has_etag"] = True
+        elif local == "LastModified":
+            state["has_last_modified"] = True
+        elif local == "Key":
+            state["capture_key"] = True
+
+    def char_data(data: str) -> None:
+        if state["in_contents"] and state["capture_key"]:
+            state["key_parts"].append(data)
+
+    def end_element(name: str) -> None:
+        _, _, local = name.rpartition(":")
+        if not state["in_contents"]:
+            return
+        if local == "Key":
+            state["capture_key"] = False
+            return
+        if local == "Contents":
+            chunks: list[bytes] = []
+            elem_prefix = str(state["prefix"])
+            if not state["has_etag"]:
+                key_bytes = "".join(state["key_parts"]).encode("utf-8")
+                etag_hex = hashlib.md5(key_bytes, usedforsecurity=False).hexdigest()
+                chunks.append(f"<{elem_prefix}ETag>&quot;{etag_hex}&quot;</{elem_prefix}ETag>".encode())
+            if not state["has_last_modified"]:
+                iso_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                chunks.append(f"<{elem_prefix}LastModified>{iso_ts}</{elem_prefix}LastModified>".encode())
+            if chunks:
+                insertions.append((parser.CurrentByteIndex, b"".join(chunks)))
+            state["in_contents"] = False
+            state["capture_key"] = False
+
+    parser.StartElementHandler = start_element
+    parser.CharacterDataHandler = char_data
+    parser.EndElementHandler = end_element
+    try:
+        parser.Parse(body, True)
+    except xml.parsers.expat.ExpatError:
+        return body
+    if not insertions:
+        return body
+    mutable = bytearray(body)
+    for offset, insertion in reversed(insertions):
+        mutable[offset:offset] = insertion
+    return bytes(mutable)
+
+
+def _format_etag_from_body(body: bytes) -> str:
+    return f'"{hashlib.md5(body, usedforsecurity=False).hexdigest()}"'
+
+
+def _normalize_copy_etag(payload: Any, fallback_body: bytes) -> str:
+    if isinstance(payload, dict):
+        raw_etag = payload.get("etag") or payload.get("md5Hash")
+        if isinstance(raw_etag, str) and raw_etag:
+            stripped = raw_etag.strip('"')
+            return f'"{stripped}"'
+    return _format_etag_from_body(fallback_body)
+
+
+class _FlociGCPCompatHTTPServer(http.server.ThreadingHTTPServer):
+    """Daemon loopback server fronting a Floci GCP container."""
+
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, upstream_host: str, upstream_port: int) -> None:
+        self.upstream_host = upstream_host
+        self.upstream_port = upstream_port
+        super().__init__(("127.0.0.1", 0), _FlociGCPCompatHandler)
+
+
+class _FlociGCPCompatHandler(http.server.BaseHTTPRequestHandler):
+    """HTTP compatibility handler translating GCS XML HEAD, copy, and listing metadata."""
+
+    def do_GET(self) -> None:
+        """Forward a GET request and normalize 2xx headers/XML metadata."""
+        self._handle_standard_request()
+
+    def do_POST(self) -> None:
+        """Forward a POST request."""
+        self._handle_standard_request()
+
+    def do_PUT(self) -> None:
+        """Translate ``x-goog-copy-source`` PUTs to JSON ``copyTo``, or forward regular PUTs."""
+        copy_source = next(
+            (value for key, value in self.headers.items() if key.lower() == "x-goog-copy-source"),
+            None,
+        )
+        if copy_source is not None:
+            self._handle_xml_copy(copy_source)
+            return
+        self._handle_standard_request()
+
+    def do_DELETE(self) -> None:
+        """Forward a DELETE request."""
+        self._handle_standard_request()
+
+    def do_PATCH(self) -> None:
+        """Forward a PATCH request."""
+        self._handle_standard_request()
+
+    def do_HEAD(self) -> None:
+        """Serve XML/REST HEAD requests via upstream GET with exact Content-Length and empty body."""
+        self._handle_head_via_get()
+
+    def do_OPTIONS(self) -> None:
+        """Forward an OPTIONS request."""
+        self._handle_standard_request()
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        """Suppress HTTP access logging during test runs."""
+        _ = (self.command, code, size)
+
+    def _get_server(self) -> _FlociGCPCompatHTTPServer:
+        server = self.server
+        if not isinstance(server, _FlociGCPCompatHTTPServer):
+            msg = f"Unexpected server type: {type(server).__name__}"
+            raise TypeError(msg)
+        return server
+
+    def _forward_headers(self) -> dict[str, str]:
+        return {key: value for key, value in self.headers.items() if key.lower() not in _HOP_BY_HOP_REQUEST_HEADERS}
+
+    def _read_request_body(self) -> bytes:
+        return read_http_handler_body(self.headers, self.rfile)
+
+    def _is_xml_bucket_listing_request(self, body: bytes) -> bool:
+        if self.command != "GET":
+            return False
+        path = urllib.parse.urlsplit(self.path).path.strip("/")
+        if not path or "/" in path:
+            return False
+        trimmed = body.lstrip()
+        return trimmed.startswith((b"<?xml", b"<ListBucketResult"))
+
+    def _send_upstream_failure(self, status: int, message: str) -> None:
+        body = message.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _write_normalized_response(
+        self,
+        status: int,
+        upstream_headers: dict[str, str],
+        body: bytes,
+        *,
+        is_head: bool = False,
+    ) -> None:
+        final_body = body
+        if not is_head and 200 <= status < 300 and self._is_xml_bucket_listing_request(final_body):
+            final_body = _augment_list_bucket_xml(final_body)
+        headers_out: list[tuple[str, str]] = [
+            (key, value) for key, value in upstream_headers.items() if key.lower() not in _HOP_BY_HOP_RESPONSE_HEADERS
+        ]
+        if 200 <= status < 300:
+            lower_keys = {key.lower() for key, _ in headers_out}
+            if "etag" not in lower_keys:
+                headers_out.append(("ETag", _format_etag_from_body(final_body)))
+            if "last-modified" not in lower_keys:
+                headers_out.append(("Last-Modified", email.utils.formatdate(usegmt=True)))
+        self.send_response(status)
+        for key, value in headers_out:
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(final_body)))
+        self.end_headers()
+        if not is_head and final_body:
+            self.wfile.write(final_body)
+
+    def _handle_head_via_get(self) -> None:
+        server = self._get_server()
+        upstream_url = f"http://{server.upstream_host}:{server.upstream_port}{self.path}"
+        req = urllib.request.Request(upstream_url, headers=self._forward_headers(), method="GET")
+        try:
+            status, resp_headers, resp_body = send_http_request(req, timeout=30.0)
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+            self._send_upstream_failure(502, str(exc))
+            return
+        self._write_normalized_response(status, resp_headers, resp_body, is_head=True)
+
+    def _parse_copy_coordinates(self, copy_source: str) -> tuple[str, str, str, str] | None:
+        src_clean = copy_source.split("?", 1)[0].lstrip("/")
+        if "/" not in src_clean:
+            self._send_upstream_failure(400, f"Invalid x-goog-copy-source header: {copy_source!r}")
+            return None
+        dst_clean = urllib.parse.urlsplit(self.path).path.lstrip("/")
+        if "/" not in dst_clean:
+            self._send_upstream_failure(400, f"Invalid copy destination path: {self.path!r}")
+            return None
+        raw_src_b, raw_src_k = src_clean.split("/", 1)
+        raw_dst_b, raw_dst_k = dst_clean.split("/", 1)
+        coords = (
+            urllib.parse.unquote(raw_src_b),
+            urllib.parse.unquote(raw_src_k),
+            urllib.parse.unquote(raw_dst_b),
+            urllib.parse.unquote(raw_dst_k),
+        )
+        if not all(coords):
+            self._send_upstream_failure(400, "Copy source and destination buckets and object keys must be non-empty")
+            return None
+        return coords
+
+    def _handle_xml_copy(self, copy_source: str) -> None:
+        coords = self._parse_copy_coordinates(copy_source)
+        if coords is None:
+            return
+        src_b, src_k, dst_b, dst_k = coords
+        server = self._get_server()
+        copy_url = (
+            f"http://{server.upstream_host}:{server.upstream_port}/storage/v1/b/"
+            f"{urllib.parse.quote(src_b, safe='')}/o/{urllib.parse.quote(src_k, safe='')}/copyTo/"
+            f"b/{urllib.parse.quote(dst_b, safe='')}/o/{urllib.parse.quote(dst_k, safe='')}"
+        )
+        req = urllib.request.Request(
+            copy_url,
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            status, resp_headers, resp_body = send_http_request(req, timeout=30.0)
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+            self._send_upstream_failure(502, str(exc))
+            return
+        if status >= 400:
+            self._write_normalized_response(status, resp_headers, resp_body)
+            return
+        try:
+            parsed = json.loads(resp_body.decode("utf-8")) if resp_body else {}
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            parsed = {}
+        etag = _normalize_copy_etag(parsed, resp_body)
+        iso_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        xml_body = (
+            f"<CopyObjectResult><LastModified>{iso_ts}</LastModified>"
+            f"<ETag>{html.escape(etag, quote=True)}</ETag></CopyObjectResult>"
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/xml")
+        self.send_header("ETag", etag)
+        self.send_header("Last-Modified", email.utils.formatdate(usegmt=True))
+        self.send_header("Content-Length", str(len(xml_body)))
+        self.end_headers()
+        self.wfile.write(xml_body)
+
+    def _handle_standard_request(self) -> None:
+        server = self._get_server()
+        try:
+            raw_body = self._read_request_body()
+        except ValueError as exc:
+            self._send_upstream_failure(400, f"Invalid HTTP request body: {exc}")
+            return
+        upstream_url = f"http://{server.upstream_host}:{server.upstream_port}{self.path}"
+        outgoing_headers = self._forward_headers()
+        if raw_body or self.command in {"POST", "PUT", "PATCH"}:
+            outgoing_headers["Content-Length"] = str(len(raw_body))
+        request_data = raw_body if raw_body or self.command in {"POST", "PUT", "PATCH"} else None
+        req = urllib.request.Request(upstream_url, data=request_data, headers=outgoing_headers, method=self.command)
+        try:
+            status, resp_headers, resp_body = send_http_request(req, timeout=30.0)
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+            self._send_upstream_failure(502, str(exc))
+            return
+        self._write_normalized_response(status, resp_headers, resp_body)
+
+
+@contextmanager
+def _start_floci_gcp_compat_proxy(upstream_host: str, upstream_port: int) -> Generator[tuple[str, int], None, None]:
+    """Start the ephemeral loopback compatibility proxy fronting a Floci GCP container.
+
+    Yields:
+        Tuple of ``(host, port)`` for the bound loopback proxy socket.
+    """
+    server = _FlociGCPCompatHTTPServer(upstream_host, upstream_port)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield "127.0.0.1", int(server.server_address[1])
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5.0)

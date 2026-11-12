@@ -67,6 +67,8 @@ for ``owner_id``. ``pytest_databases.stop_owned_containers(client, owner_id)`` a
 Custom Container Options and File Transfers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+``container_service`` (aliased as ``docker_service``) exposes ``temp_dir`` (:attr:`~pytest_databases._service.ContainerService.temp_dir`), a session-scoped temporary :class:`pathlib.Path` for cross-worker ``filelock.FileLock`` coordination and session state files.
+
 Custom fixtures calling ``container_service.run(...)`` can pass ``user``, ``tmpfs``, ``extra_hosts``, ``volumes``,
 ``shm_size``, ``mem_limit``, ``entrypoint``, ``command``, ``privileged``, ``ipc_mode``, ``cap_add``, ``devices`` and
 ``hostname`` directly to the container runtime. When ``exec_after_start`` is set on a shared container, it runs once
@@ -85,6 +87,28 @@ tar-archive transfer and command helpers without requiring ``docker cp`` or host
   (:func:`~pytest_databases.types.exec_container_command`): execute a command inside the container and return
   ``(exit_code, output_bytes)``.
 
+PostgreSQL Backend Selection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Suites targeting ``postgres_any_service`` (:class:`~pytest_databases.PostgresServiceProtocol`) can switch seamlessly
+between containerized PostgreSQL (``"docker"``) and local embedded binaries (``"embedded"``):
+
+* ``--postgres-backend`` (``docker`` or ``embedded``): CLI option with highest precedence.
+* ``postgres_backend`` (ini): ``[tool.pytest.ini_options]`` setting used when ``--postgres-backend`` is omitted.
+* ``PYTEST_DATABASES_POSTGRES_BACKEND``: environment variable fallback before defaulting to ``"docker"``.
+
+``resolve_postgres_backend(config)`` resolves the active :data:`~pytest_databases.PostgresBackend` and raises
+``pytest.UsageError`` for unsupported values. Selecting ``"embedded"`` resolves ``postgres_any_service`` directly via
+embedded PostgreSQL without probing Docker or Podman.
+
+Proxy-Free Readiness Helpers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``pytest_databases.send_http_request``, ``pytest_databases.helpers.http_request(..., ssl_context=...)``, and
+``pytest_databases.create_s3_bucket(..., timeout=10.0, ssl_context=None)`` (also exported from
+``pytest_databases.helpers``) use Python's standard library with ambient ``HTTP_PROXY``, ``HTTPS_PROXY``, and
+``ALL_PROXY`` variables bypassed so local container and emulator probes never route through corporate proxies.
+
 Parallel Execution (``pytest-xdist``) Isolation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -98,7 +122,8 @@ Services expose a session-scoped ``xdist_<backend>_isolation_level`` fixture tha
   template database is built once and each worker database is cloned from it with file-level template cloning
   (``CREATE DATABASE ... TEMPLATE``). See :doc:`../supported-databases/postgres`.
 
-SAP SQL Anywhere is the exception: it supports only ``"server"``, which is also its default.
+BigQuery defaults to ``"server"`` (creating transient per-worker containers under ``pytest-xdist``, with opt-in
+``"database"`` isolation), while SAP SQL Anywhere supports only ``"server"``, which is also its default.
 
 Override the fixture in ``conftest.py`` to change the level:
 

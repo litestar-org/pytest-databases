@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import email.message
-import io
+import gzip
+import http.client
+import http.server
 import json
-import urllib.error
+import os
+import socket
+import threading
 import urllib.parse
-import urllib.request
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,41 +24,102 @@ from pytest_databases.docker.snowflake import (
     login_snowflake_emulator,
     provide_snowflake_service,
     query_snowflake_emulator,
+    snowflake_wire_compat,
 )
+from pytest_databases.helpers import http_request, send_http_request
+from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pytest import MonkeyPatch
 
 
 class FakeEmbucket:
-    """Record ``urlopen`` requests and answer them like the Embucket REST endpoints."""
+    """Loopback HTTP server emulating the Embucket Snowflake REST endpoints."""
 
     def __init__(self, *, valid_tokens: set[str] | None = None, query_success: bool = True) -> None:
-        self.requests: list[urllib.request.Request] = []
+        self.requests: list[tuple[str, dict[str, str], dict[str, Any]]] = []
         self.valid_tokens = valid_tokens
         self.query_success = query_success
         self.logins = 0
+        self.rowset_factory: Callable[[dict[str, Any]], list[list[Any]]] = lambda _body: [[1]]
+        self.responder: Callable[[str, dict[str, Any]], tuple[int, dict[str, Any]]] | None = None
+        parent = self
 
-    def __call__(self, request: urllib.request.Request, **_kwargs: Any) -> Any:
-        self.requests.append(request)
-        path = urllib.parse.urlsplit(request.full_url).path
-        if path == "/session/v1/login-request":
-            self.logins += 1
-            return _response({"success": True, "data": {"token": f"token-{self.logins}"}})
-        auth = request.get_header("Authorization") or ""
-        if self.valid_tokens is not None and not any(f'"{token}"' in auth for token in self.valid_tokens):
-            raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", email.message.Message(), io.BytesIO())
-        if not self.query_success:
-            return _response({"success": False, "code": "002003", "message": "table 'missing' not found"})
-        return _response({"success": True, "data": {"rowset": [[1]]}})
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                if self.path == "/health":
+                    body = b'{"status":"ok"}'
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
 
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length > 0 else b""
+                payload = json.loads(raw.decode("utf-8")) if raw.strip() else {}
+                headers_lower = {k.lower(): v for k, v in self.headers.items()}
+                parent.requests.append((self.path, headers_lower, payload))
+                split = urllib.parse.urlsplit(self.path)
+                if split.path == "/session/v1/login-request":
+                    parent.logins += 1
+                    resp_payload: dict[str, Any] = {"success": True, "data": {"token": f"token-{parent.logins}"}}
+                    self._send_json(200, resp_payload)
+                    return
+                auth = headers_lower.get("authorization", "")
+                if parent.valid_tokens is not None and not any(f'"{token}"' in auth for token in parent.valid_tokens):
+                    self._send_json(401, {"success": False, "code": "390104", "message": "Unauthorized"})
+                    return
+                if parent.responder is not None:
+                    status, custom = parent.responder(split.path, payload)
+                    self._send_json(status, custom)
+                    return
+                if not parent.query_success:
+                    self._send_json(200, {"success": False, "code": "002003", "message": "table 'missing' not found"})
+                    return
+                self._send_json(200, {"success": True, "data": {"rowset": parent.rowset_factory(payload)}})
 
-def _response(payload: dict[str, Any]) -> Any:
-    response = MagicMock()
-    response.read.return_value = json.dumps(payload).encode()
-    response.__enter__.return_value = response
-    response.__exit__.return_value = False
-    return response
+            def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+                _ = (self.command, code, size)
+
+            def _send_json(self, status: int, body_obj: dict[str, Any]) -> None:
+                body = json.dumps(body_obj).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.port = int(self.server.server_address[1])
+        self._saved_proxy_env: dict[str, str | None] = {}
+
+    def __enter__(self) -> Self:
+        for var in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+            self._saved_proxy_env[var] = os.environ.get(var)
+            os.environ[var] = "http://127.0.0.1:1"
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        try:
+            self.server.shutdown()
+            self.server.server_close()
+            self.thread.join(timeout=5.0)
+        finally:
+            for var, prev in self._saved_proxy_env.items():
+                if prev is None:
+                    os.environ.pop(var, None)
+                else:
+                    os.environ[var] = prev
 
 
 def _service(**overrides: Any) -> SnowflakeService:
@@ -116,84 +179,93 @@ def test_check_snowflake_health_probes_health_endpoint(monkeypatch: MonkeyPatch,
     assert probed == ["http://127.0.0.1:3000/health"]
 
 
-def test_login_sends_credentials_and_session_context(monkeypatch: MonkeyPatch) -> None:
-    """Login posts the credentials and passes database, schema, and warehouse as query parameters."""
-    fake = FakeEmbucket()
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
-
-    token = login_snowflake_emulator(
-        "127.0.0.1", 3000, user="u", password="p", account="a", database="db", schema="s", warehouse="wh"
-    )
+def test_login_sends_credentials_and_session_context() -> None:
+    """Login posts credentials, passes query context, and bypasses ambient proxy environment variables."""
+    with FakeEmbucket() as fake:
+        token = login_snowflake_emulator(
+            "127.0.0.1", fake.port, user="u", password="p", account="a", database="db", schema="s", warehouse="wh"
+        )
 
     assert token == "token-1"
-    request = fake.requests[0]
-    url = urllib.parse.urlsplit(request.full_url)
+    raw_path, _headers, payload = fake.requests[0]
+    url = urllib.parse.urlsplit(raw_path)
     assert url.path == "/session/v1/login-request"
     assert urllib.parse.parse_qs(url.query) == {"databaseName": ["db"], "schemaName": ["s"], "warehouse": ["wh"]}
-    data = json.loads(request.data)["data"]  # type: ignore[arg-type]
+    data = payload["data"]
     assert (data["LOGIN_NAME"], data["PASSWORD"], data["ACCOUNT_NAME"]) == ("u", "p", "a")
 
 
-def test_login_reports_rejected_credentials(monkeypatch: MonkeyPatch) -> None:
+def test_login_reports_rejected_credentials() -> None:
     """A 401 login response raises RuntimeError with the emulator message."""
-    body = b'{"success":false,"message":"Invalid auth data","code":"010001"}'
 
-    def rejecting_urlopen(request: urllib.request.Request, **_kwargs: Any) -> Any:
-        raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", email.message.Message(), io.BytesIO(body))
+    class _RejectHandler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            body = b'{"success":false,"message":"Invalid auth data","code":"010001"}'
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
-    monkeypatch.setattr(urllib.request, "urlopen", rejecting_urlopen)
-    with pytest.raises(RuntimeError, match="Invalid auth data"):
-        login_snowflake_emulator("127.0.0.1", 3000, user="u", password="wrong", account="a")
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            _ = (self.command, code, size)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _RejectHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(RuntimeError, match="Invalid auth data"):
+            login_snowflake_emulator(
+                "127.0.0.1", int(server.server_address[1]), user="u", password="wrong", account="a"
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5.0)
 
 
-def test_query_sends_token_and_request_id(monkeypatch: MonkeyPatch) -> None:
+def test_query_sends_token_and_request_id() -> None:
     """Queries carry the session token and the ``requestId`` query parameter Embucket requires."""
-    fake = FakeEmbucket()
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
-
-    result = query_snowflake_emulator("127.0.0.1", 3000, "SELECT 1", token="abc")
+    with FakeEmbucket() as fake:
+        result = query_snowflake_emulator("127.0.0.1", fake.port, "SELECT 1", token="abc")
 
     assert result["data"]["rowset"] == [[1]]
-    request = fake.requests[0]
-    url = urllib.parse.urlsplit(request.full_url)
+    raw_path, headers, payload = fake.requests[0]
+    url = urllib.parse.urlsplit(raw_path)
     assert url.path == "/queries/v1/query-request"
     assert list(urllib.parse.parse_qs(url.query)) == ["requestId"]
-    assert request.get_header("Authorization") == 'Snowflake Token="abc"'
-    assert json.loads(request.data) == {"sqlText": "SELECT 1"}  # type: ignore[arg-type]
+    assert headers.get("authorization") == 'Snowflake Token="abc"'
+    assert payload == {"sqlText": "SELECT 1"}
 
 
-def test_query_raises_on_failed_statement(monkeypatch: MonkeyPatch) -> None:
+def test_query_raises_on_failed_statement() -> None:
     """A ``success: false`` response raises RuntimeError with the emulator message."""
-    monkeypatch.setattr(urllib.request, "urlopen", FakeEmbucket(query_success=False))
-    with pytest.raises(RuntimeError, match="table 'missing' not found"):
-        query_snowflake_emulator("127.0.0.1", 3000, "SELECT * FROM missing", token="abc")
+    with FakeEmbucket(query_success=False) as fake, pytest.raises(RuntimeError, match="table 'missing' not found"):
+        query_snowflake_emulator("127.0.0.1", fake.port, "SELECT * FROM missing", token="abc")
 
 
-def test_service_query_logs_in_once_and_caches_token(monkeypatch: MonkeyPatch) -> None:
+def test_service_query_logs_in_once_and_caches_token() -> None:
     """``SnowflakeService.query`` logs in with its database and schema and reuses the token."""
-    fake = FakeEmbucket()
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
-    service = _service()
-
-    service.query("SELECT 1")
-    service.query("SELECT 2")
+    with FakeEmbucket() as fake:
+        service = _service(port=fake.port)
+        service.query("SELECT 1")
+        service.query("SELECT 2")
 
     assert fake.logins == 1
-    login_query = urllib.parse.parse_qs(urllib.parse.urlsplit(fake.requests[0].full_url).query)
+    login_query = urllib.parse.parse_qs(urllib.parse.urlsplit(fake.requests[0][0]).query)
     assert login_query["databaseName"] == ["embucket"]
     assert login_query["schemaName"] == ["public_1"]
-    assert all(request.get_header("Authorization") == 'Snowflake Token="token-1"' for request in fake.requests[1:])
+    assert all(req[1].get("authorization") == 'Snowflake Token="token-1"' for req in fake.requests[1:])
 
 
-def test_service_query_logs_in_again_after_rejected_token(monkeypatch: MonkeyPatch) -> None:
+def test_service_query_logs_in_again_after_rejected_token() -> None:
     """A 401 for the cached token triggers one new login and a retry."""
-    fake = FakeEmbucket(valid_tokens={"token-2"})
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
-    service = _service()
+    with FakeEmbucket(valid_tokens={"token-2"}) as fake:
+        service = _service(port=fake.port)
+        assert service.query("SELECT 1")["data"]["rowset"] == [[1]]
 
-    assert service.query("SELECT 1")["data"]["rowset"] == [[1]]
     assert fake.logins == 2
-    assert fake.requests[-1].get_header("Authorization") == 'Snowflake Token="token-2"'
+    assert fake.requests[-1][1].get("authorization") == 'Snowflake Token="token-2"'
 
 
 def test_snowflake_service_metadata() -> None:
@@ -246,6 +318,7 @@ def test_provide_snowflake_service_configures_container_and_schema(
         xdist_snowflake_isolation_level="database",
     ) as service:
         assert service.schema == schema
+        assert service.port != 40000
 
     kwargs = container_service.run.call_args.kwargs
     assert kwargs["container_port"] == SNOWFLAKE_HTTP_PORT
@@ -257,6 +330,177 @@ def test_provide_snowflake_service_configures_container_and_schema(
         "VOLUME_DATABASE": "embucket",
     }
     assert executed == expected_queries
+
+
+def test_snowflake_wire_proxy_gzip_and_rowset_normalization(monkeypatch: MonkeyPatch) -> None:
+    """Loopback proxy decompresses gzip payloads, stringifies rowset cells, and closes socket on teardown."""
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    with FakeEmbucket() as fake:
+        fake.rowset_factory = lambda _body: [[1, 2.5, True, False, None, {"a": 1}, [9]]]
+        container_service = MagicMock()
+        container_service.run.return_value.__enter__.return_value = MagicMock(host="127.0.0.1", port=fake.port)
+
+        with provide_snowflake_service(
+            container_service=container_service,
+            snowflake_image=DEFAULT_SNOWFLAKE_IMAGE,
+            snowflake_user="embucket",
+            snowflake_password="embucket",
+            snowflake_account="embucket",
+            snowflake_database="embucket",
+            snowflake_schema="public",
+            snowflake_warehouse="embucket",
+            snowflake_role="sysadmin",
+            xdist_snowflake_isolation_level="database",
+            wire_compat=True,
+        ) as service:
+            proxy_port = service.port
+            assert proxy_port != fake.port
+            compressed = gzip.compress(json.dumps({"sqlText": "SELECT 42"}).encode("utf-8"))
+            status, _headers, body = send_http_request(
+                f"{service.endpoint}/queries/v1/query-request?requestId=1",
+                method="POST",
+                data=compressed,
+                headers={"Content-Type": "application/json", "Content-Encoding": "gzip"},
+                timeout=5.0,
+            )
+            assert status == 200
+            parsed = json.loads(body.decode("utf-8"))
+            assert parsed["data"]["rowset"] == [["1", "2.5", "true", "false", None, '{"a": 1}', "[9]"]]
+            assert fake.requests[-1][1].get("content-encoding") is None
+
+        with pytest.raises(OSError), socket.create_connection(("127.0.0.1", proxy_port), timeout=1.0):
+            pass
+
+
+def test_snowflake_wire_proxy_disabled_preserves_raw_rowset(monkeypatch: MonkeyPatch) -> None:
+    """``wire_compat=False`` forwards requests straight to the container without stringifying rowset cells."""
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    with FakeEmbucket() as fake:
+        fake.rowset_factory = lambda _body: [[1, 2.5, True, False, None, {"a": 1}, [9]]]
+        container_service = MagicMock()
+        container_service.run.return_value.__enter__.return_value = MagicMock(host="127.0.0.1", port=fake.port)
+
+        with provide_snowflake_service(
+            container_service=container_service,
+            snowflake_image=DEFAULT_SNOWFLAKE_IMAGE,
+            snowflake_user="embucket",
+            snowflake_password="embucket",
+            snowflake_account="embucket",
+            snowflake_database="embucket",
+            snowflake_schema="public",
+            snowflake_warehouse="embucket",
+            snowflake_role="sysadmin",
+            xdist_snowflake_isolation_level="database",
+            wire_compat=False,
+        ) as service:
+            assert service.port == fake.port
+            raw = service.query("SELECT 1")
+            assert raw["data"]["rowset"] == [[1, 2.5, True, False, None, {"a": 1}, [9]]]
+
+
+def test_snowflake_wire_proxy_lexical_bindings_and_types(monkeypatch: MonkeyPatch) -> None:
+    """Proxy expands only unquoted ``?`` placeholders across lexical boundaries and all Snowflake binding types."""
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    with FakeEmbucket() as fake:
+        container_service = MagicMock()
+        container_service.run.return_value.__enter__.return_value = MagicMock(host="127.0.0.1", port=fake.port)
+        with provide_snowflake_service(
+            container_service=container_service,
+            snowflake_image=DEFAULT_SNOWFLAKE_IMAGE,
+            snowflake_user="embucket",
+            snowflake_password="embucket",
+            snowflake_account="embucket",
+            snowflake_database="embucket",
+            snowflake_schema="public",
+            snowflake_warehouse="embucket",
+            snowflake_role="sysadmin",
+            xdist_snowflake_isolation_level="database",
+            wire_compat=True,
+        ) as service:
+            sql_text = "SELECT '?' AS s, 'a\\'?' AS e, \"c?1\", $$?$$, ? -- ?\n, /* ? */ ?, ?, ?, ?, ?, ?, ?"
+            bindings = {
+                "1": {"type": "TEXT", "value": "O'Reilly"},
+                "2": {"type": "FIXED", "value": "-19"},
+                "3": {"type": "REAL", "value": "3.25"},
+                "4": {"type": "BOOLEAN", "value": True},
+                "5": {"type": "BOOLEAN", "value": "false"},
+                "6": {"type": "NULL", "value": None},
+                "7": {"type": "BINARY", "value": "deadbeef"},
+                "8": {"type": "TEXT", "value": "hi"},
+            }
+            payload = json.dumps({"sqlText": sql_text, "bindings": bindings}).encode("utf-8")
+            status, _body = http_request(
+                f"{service.endpoint}/queries/v1/query-request?requestId=2",
+                method="POST",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=5.0,
+            )
+            assert status == 200
+            _, _hdrs, upstream_payload = fake.requests[-1]
+            assert "bindings" not in upstream_payload
+            assert upstream_payload["sqlText"] == (
+                "SELECT '?' AS s, 'a\\'?' AS e, \"c?1\", $$?$$, 'O''Reilly' -- ?\n"
+                ", /* ? */ -19, 3.25, TRUE, FALSE, NULL, X'DEADBEEF', 'hi'"
+            )
+
+
+@pytest.mark.parametrize(
+    ("raw_body", "content_encoding"),
+    [
+        (b"not-gzip", "gzip"),
+        (json.dumps({"sqlText": "SELECT ?", "bindings": {"2": {"type": "FIXED", "value": "1"}}}).encode(), None),
+        (json.dumps({"sqlText": "SELECT ?", "bindings": {"1": {"type": "FIXED", "value": "1 OR 1=1"}}}).encode(), None),
+        (json.dumps({"sqlText": "SELECT ?", "bindings": {"1": {"type": "REAL", "value": "NaN"}}}).encode(), None),
+        (json.dumps({"sqlText": "SELECT ?", "bindings": {"1": {"type": "REAL", "value": "Infinity"}}}).encode(), None),
+        (json.dumps({"sqlText": "SELECT ?", "bindings": {"1": {"type": "BINARY", "value": "xyz"}}}).encode(), None),
+        (json.dumps({"sqlText": "SELECT ?", "bindings": {"1": {"type": "BOOLEAN", "value": "maybe"}}}).encode(), None),
+    ],
+)
+def test_snowflake_wire_proxy_rejects_malformed_requests(
+    monkeypatch: MonkeyPatch, raw_body: bytes, content_encoding: str | None
+) -> None:
+    """Malformed gzip bodies and invalid/injection-like parameter bindings return HTTP 400 without upstream dispatch."""
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    with FakeEmbucket() as fake:
+        container_service = MagicMock()
+        container_service.run.return_value.__enter__.return_value = MagicMock(host="127.0.0.1", port=fake.port)
+        with provide_snowflake_service(
+            container_service=container_service,
+            snowflake_image=DEFAULT_SNOWFLAKE_IMAGE,
+            snowflake_user="embucket",
+            snowflake_password="embucket",
+            snowflake_account="embucket",
+            snowflake_database="embucket",
+            snowflake_schema="public",
+            snowflake_warehouse="embucket",
+            snowflake_role="sysadmin",
+            xdist_snowflake_isolation_level="database",
+            wire_compat=True,
+        ) as service:
+            headers: dict[str, str] = {"Content-Type": "application/json"}
+            if content_encoding is not None:
+                headers["Content-Encoding"] = content_encoding
+            status, _headers, body = send_http_request(
+                f"{service.endpoint}/queries/v1/query-request?requestId=3",
+                method="POST",
+                data=raw_body,
+                headers=headers,
+                timeout=5.0,
+            )
+            assert status == 400
+            assert json.loads(body.decode("utf-8"))["success"] is False
+            assert fake.requests == []
+
+
+@pytest.mark.parametrize(("env_val", "expected"), [(None, True), ("0", False), ("false", False), ("true", True)])
+def test_snowflake_wire_compat_fixture(monkeypatch: MonkeyPatch, env_val: str | None, expected: bool) -> None:
+    """Verify ``snowflake_wire_compat`` reads ``SNOWFLAKE_WIRE_COMPAT`` with default True."""
+    if env_val is None:
+        monkeypatch.delenv("SNOWFLAKE_WIRE_COMPAT", raising=False)
+    else:
+        monkeypatch.setenv("SNOWFLAKE_WIRE_COMPAT", env_val)
+    assert unwrap_fixture(snowflake_wire_compat)() is expected
 
 
 def test_provide_snowflake_service_rejects_invalid_identifiers() -> None:
@@ -282,7 +526,7 @@ def test_provide_snowflake_service_rejects_invalid_identifiers() -> None:
 
 
 def test_snowflake_contract_fixtures(pytester: pytest.Pytester, monkeypatch: MonkeyPatch) -> None:
-    """Verify default values of Snowflake image, credentials, schema, and isolation fixtures."""
+    """Verify default values of Snowflake image, credentials, schema, wire_compat, and isolation fixtures."""
     for var in (
         "PYTEST_XDIST_WORKER",
         "SNOWFLAKE_IMAGE",
@@ -293,6 +537,7 @@ def test_snowflake_contract_fixtures(pytester: pytest.Pytester, monkeypatch: Mon
         "SNOWFLAKE_SCHEMA",
         "SNOWFLAKE_WAREHOUSE",
         "SNOWFLAKE_ROLE",
+        "SNOWFLAKE_WIRE_COMPAT",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -308,6 +553,7 @@ def test_snowflake_contract_fixtures(pytester: pytest.Pytester, monkeypatch: Mon
         snowflake_schema,
         snowflake_warehouse,
         snowflake_role,
+        snowflake_wire_compat,
         xdist_snowflake_isolation_level,
     ) -> None:
         assert snowflake_image == {DEFAULT_SNOWFLAKE_IMAGE!r}
@@ -318,6 +564,7 @@ def test_snowflake_contract_fixtures(pytester: pytest.Pytester, monkeypatch: Mon
         assert snowflake_schema == "public"
         assert snowflake_warehouse == "embucket"
         assert snowflake_role == "sysadmin"
+        assert snowflake_wire_compat is True
         assert xdist_snowflake_isolation_level == "database"
     """)
 
@@ -339,7 +586,7 @@ def test_snowflake_service_live(pytester: pytest.Pytester, monkeypatch: MonkeyPa
     pytest_plugins = ["pytest_databases.docker.snowflake"]
 
     def test_service(snowflake_service) -> None:
-        assert snowflake_service.query("SELECT 1")["data"]["rowset"] == [[1]]
+        assert snowflake_service.query("SELECT 1")["data"]["rowset"] == [["1"]]
         context = snowflake_service.query("SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()")
         assert context["data"]["rowset"] == [["embucket", "public"]]
     """)
@@ -418,6 +665,7 @@ def test_snowflake_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
             assert request.getfixturevalue("snowflake_schema") == "public"
             assert request.getfixturevalue("snowflake_warehouse") == "embucket"
             assert request.getfixturevalue("snowflake_role") == "sysadmin"
+            assert request.getfixturevalue("snowflake_wire_compat") is True
             assert request.getfixturevalue("snowflake_service") is mock_svc
 
         with patch("pytest_databases.docker.snowflake.get_xdist_worker_num", return_value=2):
@@ -426,3 +674,45 @@ def test_snowflake_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+def test_snowflake_wire_proxy_patch_and_chunked_request() -> None:
+    """Verify _SnowflakeWireHandler forwards PATCH requests and decodes chunked request bodies."""
+    seen: list[tuple[str, bytes]] = []
+
+    class _UpstreamHandler(http.server.BaseHTTPRequestHandler):
+        def do_PATCH(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            seen.append(("PATCH", self.rfile.read(length)))
+            out = b'{"success":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            _ = (code, size)
+
+    upstream = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _UpstreamHandler)
+    up_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+    up_thread.start()
+    try:
+        with snowflake._start_snowflake_wire_proxy("127.0.0.1", int(upstream.server_address[1])) as (host, port):
+            conn = http.client.HTTPConnection(host, port, timeout=5.0)
+            try:
+                conn.putrequest("PATCH", "/session")
+                conn.putheader("Transfer-Encoding", "chunked")
+                conn.endheaders()
+                conn.send(b'b\r\n{"ok":true}\r\n0\r\n\r\n')
+                resp = conn.getresponse()
+                body = resp.read()
+                assert resp.status == 200
+                assert json.loads(body) == {"success": True}
+            finally:
+                conn.close()
+            assert seen == [("PATCH", b'{"ok":true}')]
+    finally:
+        upstream.shutdown()
+        upstream.server_close()
+        up_thread.join(timeout=5.0)

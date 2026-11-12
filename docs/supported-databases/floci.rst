@@ -47,7 +47,13 @@ Installation
 Google Cloud Platform (``floci_gcp_service``)
 ---------------------------------------------
 
-Emulates Cloud Storage, Pub/Sub, Firestore, Bigtable, Cloud KMS, Secret Manager, and more:
+Emulates Cloud Storage, Pub/Sub, Firestore, Bigtable, Cloud KMS, Secret Manager, and more. By default,
+``floci_gcp_compat_proxy`` (``FLOCI_GCP_COMPAT_PROXY``, default ``True``) places a stdlib loopback compatibility proxy
+in front of Floci GCP that injects missing ``ETag`` and RFC-2822 ``Last-Modified`` headers and
+``<ListBucketResult><Contents>`` XML fields, translates XML ``PUT`` with ``x-goog-copy-source`` into JSON ``copyTo``
+responses (``<CopyObjectResult>``), and serves XML ``HEAD`` requests via upstream ``GET`` with accurate
+``Content-Length`` and an empty body so ``obstore`` (``GCSStore``), ``gcsfs``, and ``google-cloud-storage`` work out of
+the box. Set ``FLOCI_GCP_COMPAT_PROXY=0`` to target the raw container port directly:
 
 .. code-block:: python
 
@@ -83,7 +89,28 @@ Amazon Web Services (``floci_aws_service``)
 -------------------------------------------
 
 Tokenless AWS emulator (S3, SQS, SNS, DynamoDB, Secrets Manager, KMS, Lambda, and more). Point an SDK at
-``floci_aws_service.endpoint_url`` with ``region``, ``access_key``, and ``secret_key``.
+``floci_aws_service.endpoint_url`` with ``region``, ``access_key``, and ``secret_key``. Use
+:meth:`~pytest_databases.docker.floci.FlociAWSService.ensure_bucket` (returns ``None``, raising ``RuntimeError`` on
+failure) or top-level :func:`pytest_databases.create_s3_bucket` (returning ``bool``):
+
+.. code-block:: python
+
+   from pytest_databases import create_s3_bucket
+   from pytest_databases.docker.floci import FlociAWSService
+
+   pytest_plugins = ["pytest_databases.docker.floci"]
+
+
+   def test_aws_buckets(floci_aws_service: FlociAWSService) -> None:
+       floci_aws_service.ensure_bucket(f"{floci_aws_service.resource_prefix}app-uploads")
+       created = create_s3_bucket(
+           floci_aws_service.endpoint_url,
+           f"{floci_aws_service.resource_prefix}secondary",
+           access_key=floci_aws_service.access_key,
+           secret_key=floci_aws_service.secret_key,
+           region=floci_aws_service.region,
+       )
+       assert created is True
 
 Microsoft Azure (``floci_az_service``)
 --------------------------------------
@@ -101,7 +128,7 @@ cloud; prefix resource names with ``resource_prefix`` (``pytest-databases-<worke
 Available Fixtures
 ------------------
 
-* ``floci_gcp_image``, ``floci_gcp_project``, ``floci_gcp_service``
+* ``floci_gcp_image``, ``floci_gcp_project``, ``floci_gcp_compat_proxy`` (default ``True``, env ``FLOCI_GCP_COMPAT_PROXY``), ``floci_gcp_service``
 * ``floci_oci_image``, ``floci_oci_namespace``, ``floci_oci_region``, ``floci_oci_compartment_id``,
   ``floci_oci_service``
 * ``floci_aws_image``, ``floci_aws_region``, ``floci_aws_access_key``, ``floci_aws_secret_key``,

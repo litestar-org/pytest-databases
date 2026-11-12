@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import http.server
+import socket
 import sys
-import urllib.error
+import threading
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -125,9 +127,8 @@ def test_elasticsearch_7(pytester: pytest.Pytester) -> None:
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
     def get_es(service, path):
-        url = f"{service.scheme}://{service.host}:{service.port}{path}"
-        with urllib.request.urlopen(url, timeout=5) as response:
-            return json.loads(response.read().decode("utf-8"))
+        from pytest_databases.helpers import http_get_json
+        return http_get_json(f"{service.scheme}://{service.host}:{service.port}{path}", timeout=5)
 
     def test(elasticsearch_7_service) -> None:
         info = get_es(elasticsearch_7_service, "/")
@@ -141,15 +142,11 @@ def test_elasticsearch_7(pytester: pytest.Pytester) -> None:
 def test_elasticsearch_8(pytester: pytest.Pytester) -> None:
     """Verify elasticsearch_8_service launches Elasticsearch 8."""
     pytester.makepyfile("""
-    import json
-    import urllib.request
-
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
     def get_es(service, path):
-        url = f"{service.scheme}://{service.host}:{service.port}{path}"
-        with urllib.request.urlopen(url, timeout=5) as response:
-            return json.loads(response.read().decode("utf-8"))
+        from pytest_databases.helpers import http_get_json
+        return http_get_json(f"{service.scheme}://{service.host}:{service.port}{path}", timeout=5)
 
     def test(elasticsearch_8_service) -> None:
         info = get_es(elasticsearch_8_service, "/")
@@ -163,15 +160,11 @@ def test_elasticsearch_8(pytester: pytest.Pytester) -> None:
 def test_elasticsearch_9(pytester: pytest.Pytester) -> None:
     """Verify elasticsearch_9_service launches Elasticsearch 9."""
     pytester.makepyfile("""
-    import json
-    import urllib.request
-
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
     def get_es(service, path):
-        url = f"{service.scheme}://{service.host}:{service.port}{path}"
-        with urllib.request.urlopen(url, timeout=5) as response:
-            return json.loads(response.read().decode("utf-8"))
+        from pytest_databases.helpers import http_get_json
+        return http_get_json(f"{service.scheme}://{service.host}:{service.port}{path}", timeout=5)
 
     def test(elasticsearch_9_service) -> None:
         info = get_es(elasticsearch_9_service, "/")
@@ -186,7 +179,8 @@ def test_elasticsearch_index_round_trip(pytester: pytest.Pytester) -> None:
     """Verify indexing and retrieving a document in Elasticsearch."""
     pytester.makepyfile("""
     import json
-    import urllib.request
+
+    from pytest_databases.helpers import http_request
 
     pytest_plugins = ["pytest_databases.docker.elastic_search"]
 
@@ -194,9 +188,8 @@ def test_elasticsearch_index_round_trip(pytester: pytest.Pytester) -> None:
         url = f"{service.scheme}://{service.host}:{service.port}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
         headers = {"Content-Type": "application/json"} if data is not None else {}
-        request = urllib.request.Request(url, data=data, method=method, headers=headers)
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
+        _status, raw = http_request(url, method=method, data=data, headers=headers, timeout=30)
+        return json.loads(raw.decode("utf-8"))
 
     def test(elasticsearch_service) -> None:
         document = {"title": "pytest-databases", "kind": "smoke"}
@@ -210,22 +203,56 @@ def test_elasticsearch_index_round_trip(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
+def _start_es_loopback(status_code: int, body: bytes) -> http.server.ThreadingHTTPServer:
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
+@pytest.mark.parametrize(
+    ("status_code", "payload", "expected"),
+    [
+        (200, b'{"status":"green"}', True),
+        (200, b'{"status":"yellow"}', True),
+        (200, b'{"status":"red"}', False),
+        (200, b'["yellow"]', False),
+        (200, b"not-json", False),
+        (503, b'{"status":"green"}', False),
+    ],
+)
+def test_elasticsearch_cluster_health_matrix(
+    monkeypatch: pytest.MonkeyPatch, status_code: int, payload: bytes, expected: bool
+) -> None:
+    """Verify _check_cluster_health evaluates JSON status bypassing proxies."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    server = _start_es_loopback(status_code, payload)
+    try:
+        assert _check_cluster_health("127.0.0.1", server.server_address[1]) is expected
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_elasticsearch_health_and_ping_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _check_cluster_health and _ping_elasticsearch error branches."""
-
-    def fake_urlopen_non_200(req: object, timeout: float = 2.0) -> object:
-        cm = MagicMock()
-        cm.__enter__.return_value = MagicMock(status=503)
-        return cm
-
-    monkeypatch.setattr("pytest_databases.docker.elastic_search.urllib.request.urlopen", fake_urlopen_non_200)
-    assert _check_cluster_health("127.0.0.1", 9200) is False
-
-    monkeypatch.setattr(
-        "pytest_databases.docker.elastic_search.urllib.request.urlopen",
-        MagicMock(side_effect=urllib.error.URLError("down")),
-    )
-    assert _check_cluster_health("127.0.0.1", 9200) is False
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        closed_port = int(sock.getsockname()[1])
+    assert _check_cluster_health("127.0.0.1", closed_port, timeout=1.0) is False
 
     fake_mod = MagicMock()
     fake_mod.Elasticsearch.side_effect = OSError("failed")

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
+import importlib
 import io
 import tarfile
+import zipfile
 from functools import partial
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -26,6 +29,7 @@ from pytest_databases.docker.oracle import (
     ensure_oracle_adb_user,
     ensure_oracle_user,
     exec_oracle_sql,
+    exec_sqlplus,
     oracle_18c_connection,
     oracle_18c_service,
     oracle_23ai_connection,
@@ -84,7 +88,7 @@ def test_plugin_imports_without_oracledb(pytester: pytest.Pytester) -> None:
         original_import = builtins.__import__
 
         def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name.partition(".")[0] in {"oracledb", "cx_Oracle"}:
+            if name.partition(".")[0] in {"oracledb", "cx_Oracle", "cryptography"}:
                 raise ModuleNotFoundError(name)
             return original_import(name, globals, locals, fromlist, level)
 
@@ -1608,3 +1612,353 @@ def test_oracle_23ai_override_compatibility(
     for actual, expected_fragment in zip(recorded, expected_warnings, strict=True):
         assert expected_fragment in actual
         assert "v1.0.0" in actual
+
+
+@pytest.mark.parametrize(
+    ("sql", "connect_as", "whenever_sqlerror", "raw_result", "expected_code", "expected_fragments"),
+    [
+        (
+            "SELECT 1 FROM DUAL",
+            "/ as sysdba",
+            "EXIT SQL.SQLCODE",
+            (0, b"1\n"),
+            0,
+            ("sqlplus -L -S / as sysdba", "SELECT 1 FROM DUAL;"),
+        ),
+        (
+            "BEGIN NULL; END;",
+            "/ as sysdba",
+            "EXIT SQL.SQLCODE",
+            (0, b""),
+            0,
+            ("sqlplus -L -S / as sysdba", "BEGIN NULL; END;\n/"),
+        ),
+        (
+            "DECLARE v_num NUMBER := 1; BEGIN NULL; END;",
+            "/ as sysdba",
+            "EXIT SQL.SQLCODE",
+            (0, b""),
+            0,
+            ("DECLARE v_num NUMBER := 1; BEGIN NULL; END;\n/",),
+        ),
+        (
+            "SELECT 1 FROM DUAL",
+            "u/p@//127.0.0.1:1521/FREEPDB1",
+            "EXIT SQL.SQLCODE",
+            (0, b"SP2-0306: Invalid option.\n"),
+            1,
+            ("sqlplus -L -S u/p@//127.0.0.1:1521/FREEPDB1",),
+        ),
+        (
+            "SELECT 1 FROM missing_table",
+            "u/p@//127.0.0.1:1521/FREEPDB1",
+            "CONTINUE",
+            (0, b"ORA-00942: table or view does not exist\n"),
+            0,
+            ("WHENEVER SQLERROR CONTINUE",),
+        ),
+    ],
+)
+def test_exec_sqlplus_normalizes_plsql_and_error_exit_codes(
+    sql: str,
+    connect_as: str,
+    whenever_sqlerror: str,
+    raw_result: tuple[int, bytes],
+    expected_code: int,
+    expected_fragments: tuple[str, ...],
+) -> None:
+    """Verify public exec_sqlplus normalizes PL/SQL slashes, connect_as forms, and SQL*Plus error exit codes."""
+    assert "exec_sqlplus" in oracle.__all__
+    container = MagicMock()
+    container.exec_run.return_value = MagicMock(exit_code=raw_result[0], output=raw_result[1])
+
+    code, output = exec_sqlplus(container, sql, connect_as=connect_as, whenever_sqlerror=whenever_sqlerror)
+
+    assert code == expected_code
+    assert output == raw_result[1].decode("utf-8", errors="replace")
+    command = container.exec_run.call_args.args[0][2]
+    assert all(fragment in command for fragment in expected_fragments)
+
+
+def test_exec_sqlplus_rejects_empty_connect_as() -> None:
+    """Verify exec_sqlplus raises ValueError when connect_as is empty or whitespace-only."""
+    with pytest.raises(ValueError, match="connect_as must be non-empty"):
+        exec_sqlplus(MagicMock(), "SELECT 1 FROM DUAL", connect_as="   ")
+
+
+@pytest.mark.parametrize(
+    ("tns_content", "service_name", "expected_alias"),
+    [
+        (None, "myatp_high.adb.oraclecloud.com", None),
+        (
+            "myatp_tcp = (DESCRIPTION = (ADDRESS = (PROTOCOL = TCP)(PORT = 1521)(HOST = adb-free.local))(CONNECT_DATA = (SERVICE_NAME = myatp_tcp.adb.oraclecloud.com)))\n",
+            "myatp_high.adb.oraclecloud.com",
+            None,
+        ),
+        (
+            (
+                "myatp_high = (DESCRIPTION = (ADDRESS = (PROTOCOL = TCP)(PORT = 1521)(HOST = adb-free.local))(CONNECT_DATA = (SERVICE_NAME = myatp_high.adb.oraclecloud.com)))\n"
+                "myatp_low_tls = (DESCRIPTION = (ADDRESS = (PROTOCOL = TCPS)(PORT = 1522)(HOST = adb-free.local))(CONNECT_DATA = (SERVICE_NAME = myatp_low.adb.oraclecloud.com)))\n"
+                "myatp_tp = (DESCRIPTION = (ADDRESS = (PROTOCOL = TCPS)(PORT = 1522)(HOST = adb-free.local))(CONNECT_DATA = (SERVICE_NAME = myatp_tp.adb.oraclecloud.com)))\n"
+            ),
+            "myatp_custom.adb.oraclecloud.com",
+            "myatp_tp",
+        ),
+        (
+            (
+                "myatp_tp = (DESCRIPTION = (ADDRESS = (PROTOCOL = TCPS)(PORT = 1522)(HOST = adb-free.local))(CONNECT_DATA = (SERVICE_NAME = myatp_tp.adb.oraclecloud.com)))\n"
+                "myatp_tls = (DESCRIPTION = (ADDRESS = (PROTOCOL = TCPS)(PORT = 1522)(HOST = adb-free.local))(CONNECT_DATA = (SERVICE_NAME = myatp_high.adb.oraclecloud.com)))\n"
+            ),
+            "myatp_high.adb.oraclecloud.com",
+            "myatp_tls",
+        ),
+        (
+            "custom_wallet = (DESCRIPTION = (ADDRESS = (PROTOCOL = TCPS)(PORT = 1522)(HOST = adb-free.local))(CONNECT_DATA = (SERVICE_NAME = other.adb.oraclecloud.com)))\n",
+            "myatp_high.adb.oraclecloud.com",
+            "custom_wallet",
+        ),
+    ],
+)
+def test_oracle_adb_mtls_alias_resolution(
+    tmp_path: Path,
+    tns_content: str | None,
+    service_name: str,
+    expected_alias: str | None,
+) -> None:
+    """Verify OracleADBService.mtls_alias filters out TCP entries and ranks TCPS aliases deterministically."""
+    wallet_dir = tmp_path / "wallet" if tns_content is not None else None
+    if wallet_dir is not None and tns_content is not None:
+        wallet_dir.mkdir(parents=True, exist_ok=True)
+        (wallet_dir / "tnsnames.ora").write_text(tns_content, encoding="utf-8")
+
+    service = OracleADBService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=41521,
+        tls_port=41522,
+        ords_port=48443,
+        mongo_port=47017,
+        wallet_dir=wallet_dir,
+        user="app",
+        password=DEFAULT_ORACLE_ADB_PASSWORD,
+        system_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        service_name=service_name,
+        wallet_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        workload_type="ATP",
+        service_names=ORACLE_ADB_ATP_SERVICES,
+    )
+    assert service.mtls_alias == expected_alias
+
+
+@pytest.mark.parametrize("include_sso", [True, False])
+def test_oracle_adb_build_wallet_zip_preserves_existing_p12_and_sso_option(
+    tmp_path: Path,
+    include_sso: bool,
+) -> None:
+    """Verify build_wallet_zip creates parent dirs, respects include_sso, and keeps pre-existing ewallet.p12."""
+    wallet_dir = tmp_path / "wallet"
+    wallet_dir.mkdir()
+    (wallet_dir / "tnsnames.ora").write_text(SAMPLE_TNSNAMES, encoding="utf-8")
+    (wallet_dir / "sqlnet.ora").write_text(SAMPLE_SQLNET, encoding="utf-8")
+    (wallet_dir / "cwallet.sso").write_bytes(b"sso-data")
+    (wallet_dir / "ewallet.p12").write_bytes(b"existing-pkcs12")
+
+    service = OracleADBService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=41521,
+        tls_port=41522,
+        ords_port=48443,
+        mongo_port=47017,
+        wallet_dir=wallet_dir,
+        user="app",
+        password=DEFAULT_ORACLE_ADB_PASSWORD,
+        system_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        service_name="myatp_high.adb.oraclecloud.com",
+        wallet_password="WalletPass123",
+        workload_type="ATP",
+        service_names=ORACLE_ADB_ATP_SERVICES,
+    )
+
+    out_zip = service.build_wallet_zip(tmp_path / "nested" / "dir" / "wallet.zip", include_sso=include_sso)
+    assert out_zip.is_file()
+    with zipfile.ZipFile(out_zip) as archive:
+        names = set(archive.namelist())
+        assert "tnsnames.ora" in names
+        assert "sqlnet.ora" in names
+        assert archive.read("ewallet.p12") == b"existing-pkcs12"
+        assert ("cwallet.sso" in names) is include_sso
+
+
+def test_oracle_adb_build_wallet_zip_requires_wallet_dir(tmp_path: Path) -> None:
+    """Verify build_wallet_zip raises RuntimeError when wallet_dir is None."""
+    service = OracleADBService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=41521,
+        tls_port=41522,
+        ords_port=48443,
+        mongo_port=47017,
+        wallet_dir=None,
+        user="app",
+        password=DEFAULT_ORACLE_ADB_PASSWORD,
+        system_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        service_name="myatp_high.adb.oraclecloud.com",
+        wallet_password="WalletPass123",
+        workload_type="ATP",
+        service_names=ORACLE_ADB_ATP_SERVICES,
+    )
+    with pytest.raises(RuntimeError, match="wallet directory is not available"):
+        service.build_wallet_zip(tmp_path / "wallet.zip")
+
+
+def test_oracle_adb_build_wallet_zip_falls_back_without_cryptography(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify build_wallet_zip stays clientless and still bundles wallet files if cryptography is absent."""
+    wallet_dir = tmp_path / "wallet"
+    wallet_dir.mkdir()
+    (wallet_dir / "tnsnames.ora").write_text(SAMPLE_TNSNAMES, encoding="utf-8")
+    (wallet_dir / "sqlnet.ora").write_text(SAMPLE_SQLNET, encoding="utf-8")
+    (wallet_dir / "cwallet.sso").write_bytes(b"sso-data")
+    (wallet_dir / "ewallet.pem").write_text("dummy pem content", encoding="utf-8")
+
+    real_import_module = importlib.import_module
+
+    def _blocked_crypto(name: str, package: str | None = None) -> object:
+        if name.startswith("cryptography"):
+            raise ModuleNotFoundError(name)
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", _blocked_crypto)
+    service = OracleADBService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=41521,
+        tls_port=41522,
+        ords_port=48443,
+        mongo_port=47017,
+        wallet_dir=wallet_dir,
+        user="app",
+        password=DEFAULT_ORACLE_ADB_PASSWORD,
+        system_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        service_name="myatp_high.adb.oraclecloud.com",
+        wallet_password="WalletPass123",
+        workload_type="ATP",
+        service_names=ORACLE_ADB_ATP_SERVICES,
+    )
+    out_zip = service.build_wallet_zip(tmp_path / "wallet.zip")
+    with zipfile.ZipFile(out_zip) as archive:
+        assert set(archive.namelist()) == {"tnsnames.ora", "sqlnet.ora", "cwallet.sso", "ewallet.pem"}
+
+
+def _create_test_ca_and_leaf_pem() -> tuple[bytes, object, object]:
+    """Build a test CA certificate, RSA client key/cert pair, and PEM bundle."""
+    x509 = pytest.importorskip("cryptography.x509")
+    hashes = importlib.import_module("cryptography.hazmat.primitives.hashes")
+    serialization = importlib.import_module("cryptography.hazmat.primitives.serialization")
+    rsa = importlib.import_module("cryptography.hazmat.primitives.asymmetric.rsa")
+    name_oid = importlib.import_module("cryptography.x509.oid").NameOID
+
+    now = dt.datetime.now(dt.UTC)
+    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca_name = x509.Name([x509.NameAttribute(name_oid.COMMON_NAME, "Oracle Test CA")])
+    ca_cert = (
+        x509
+        .CertificateBuilder()
+        .subject_name(ca_name)
+        .issuer_name(ca_name)
+        .public_key(ca_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(days=1))
+        .not_valid_after(now + dt.timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+
+    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    leaf_name = x509.Name([x509.NameAttribute(name_oid.COMMON_NAME, "Oracle ADB Client")])
+    leaf_cert = (
+        x509
+        .CertificateBuilder()
+        .subject_name(leaf_name)
+        .issuer_name(ca_name)
+        .public_key(leaf_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(days=1))
+        .not_valid_after(now + dt.timedelta(days=30))
+        .sign(ca_key, hashes.SHA256())
+    )
+    pem_bundle = (
+        leaf_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        + leaf_cert.public_bytes(serialization.Encoding.PEM)
+        + ca_cert.public_bytes(serialization.Encoding.PEM)
+    )
+    return pem_bundle, leaf_cert, ca_cert
+
+
+@pytest.mark.parametrize("override_password", [None, "OverridePass456"])
+def test_oracle_adb_build_wallet_zip_synthesizes_pkcs12_from_pem(
+    tmp_path: Path,
+    override_password: str | None,
+) -> None:
+    """Verify build_wallet_zip synthesizes encrypted ewallet.p12 from ewallet.pem when cryptography is installed."""
+    pkcs12 = pytest.importorskip("cryptography.hazmat.primitives.serialization.pkcs12")
+    pem_bundle, leaf_cert, ca_cert = _create_test_ca_and_leaf_pem()
+    wallet_dir = tmp_path / "wallet"
+    wallet_dir.mkdir()
+    (wallet_dir / "tnsnames.ora").write_text(SAMPLE_TNSNAMES, encoding="utf-8")
+    (wallet_dir / "sqlnet.ora").write_text(SAMPLE_SQLNET, encoding="utf-8")
+    (wallet_dir / "cwallet.sso").write_bytes(b"sso-data")
+    (wallet_dir / "ewallet.pem").write_bytes(pem_bundle)
+
+    service = OracleADBService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=41521,
+        tls_port=41522,
+        ords_port=48443,
+        mongo_port=47017,
+        wallet_dir=wallet_dir,
+        user="app",
+        password=DEFAULT_ORACLE_ADB_PASSWORD,
+        system_password=DEFAULT_ORACLE_ADB_PASSWORD,
+        service_name="myatp_high.adb.oraclecloud.com",
+        wallet_password="WalletPass123",
+        workload_type="ATP",
+        service_names=ORACLE_ADB_ATP_SERVICES,
+    )
+
+    out_zip = service.build_wallet_zip(
+        tmp_path / "out" / "wallet.zip",
+        include_sso=False,
+        wallet_password=override_password,
+    )
+    expected_pw = (override_password or "WalletPass123").encode("utf-8")
+    with zipfile.ZipFile(out_zip) as archive:
+        names = set(archive.namelist())
+        assert "cwallet.sso" not in names
+        assert "ewallet.p12" in names
+        loaded_key, loaded_cert, loaded_cas = pkcs12.load_key_and_certificates(archive.read("ewallet.p12"), expected_pw)
+        assert loaded_key is not None
+        assert loaded_cert == leaf_cert
+        assert ca_cert in loaded_cas
+
+
+@pytest.mark.parametrize(
+    ("raw_sql", "expected_suffix"),
+    [
+        ("CREATE OR REPLACE PROCEDURE demo_proc AS BEGIN NULL; END;", "END;\n/"),
+        ("CREATE EDITIONABLE FUNCTION demo_fn RETURN NUMBER IS BEGIN RETURN 1; END", "END;\n/"),
+        ("CREATE TRIGGER demo_trg BEFORE INSERT ON t BEGIN NULL; END;", "END;\n/"),
+        ("SELECT 1 FROM dual", "SELECT 1 FROM dual;"),
+    ],
+)
+def test_oracle_normalize_sqlplus_statement_plsql_ddl(raw_sql: str, expected_suffix: str) -> None:
+    """Verify stored PL/SQL DDL statements receive a trailing SQL*Plus slash terminator."""
+    assert oracle._normalize_sqlplus_statement(raw_sql).endswith(expected_suffix)

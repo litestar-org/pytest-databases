@@ -26,7 +26,7 @@ from pytest_databases.runtime import (
     default_host_from_base_url,
     resolve_container_runtime,
 )
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import PostgresBackend, ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 __all__ = (
     "MANAGED_LABEL",
     "OWNER_LABEL",
+    "POSTGRES_BACKEND_ENV",
     "SERVICE_LABEL",
     "ContainerService",
     "DockerService",
@@ -53,6 +54,7 @@ __all__ = (
     "has_active_owner_sessions",
     "pytest_addoption",
     "pytest_sessionfinish",
+    "resolve_postgres_backend",
     "should_keep_containers",
     "stop_all_containers",
     "stop_owned_containers",
@@ -89,12 +91,17 @@ class ContainerService(AbstractContextManager):
         self._run_id = _derive_run_id(tmp_path)
         self._session_lease: filelock.BaseFileLock | None = None
         self._session_lease_path: Path | None = None
-        self._executed_after_start: set[tuple[str, str]] = set()
+        self._executed_after_start: set[tuple[str, str, str]] = set()
 
     @property
     def owner_id(self) -> str:
         """Deterministic session owner identifier."""
         return self._owner_id
+
+    @property
+    def temp_dir(self) -> Path:
+        """Shared session temporary directory used for cross-worker lock files."""
+        return self._tmp_path
 
     def container_name(self, service_name: str) -> str:
         """Generate a session-scoped container name.
@@ -452,11 +459,13 @@ class ContainerService(AbstractContextManager):
         raw_id = getattr(container, "id", None)
         raw_token = raw_id[:12] if isinstance(raw_id, str) and raw_id else f"obj{id(container):x}"
         container_token = re.sub(r"[^a-zA-Z0-9_.-]+", "_", raw_token)
-        key = (service_name, container_token)
+        cmd_text = command if isinstance(command, str) else "\x00".join(command)
+        cmd_digest = hashlib.sha256(cmd_text.encode("utf-8")).hexdigest()[:12]
+        key = (service_name, container_token, cmd_digest)
 
         if self._is_xdist:
             safe_service = re.sub(r"[^a-zA-Z0-9_.-]+", "_", service_name)
-            marker_stem = f"{safe_service}_{container_token}.after_start"
+            marker_stem = f"{safe_service}_{container_token}_{cmd_digest}.after_start"
             lock_path = self._tmp_path / f"{marker_stem}.lock"
             done_path = self._tmp_path / f"{marker_stem}.done"
             lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -522,11 +531,66 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Keep database containers running after the pytest session finishes.",
     )
+    parser.addoption(
+        "--postgres-backend",
+        action="store",
+        dest="postgres_backend",
+        choices=("docker", "embedded"),
+        default=None,
+        help="Backend selected by postgres_any_service ('docker' or 'embedded').",
+    )
     parser.addini(
         "container_runtime",
         help="Default container runtime (auto, docker, podman).",
         default=None,
     )
+    parser.addini(
+        "postgres_backend",
+        help="Default backend for postgres_any_service ('docker' or 'embedded').",
+        default="",
+    )
+
+
+POSTGRES_BACKEND_ENV: str = "PYTEST_DATABASES_POSTGRES_BACKEND"
+_VALID_POSTGRES_BACKENDS: frozenset[str] = frozenset({"docker", "embedded"})
+
+
+def _normalize_postgres_backend(raw: str) -> PostgresBackend:
+    """Validate and normalize a PostgreSQL backend selector string.
+
+    Returns:
+        Validated backend literal (``'docker'`` or ``'embedded'``).
+
+    Raises:
+        pytest.UsageError: If ``raw`` does not normalize to ``'docker'`` or ``'embedded'``.
+    """
+    normalized = raw.strip().lower()
+    if normalized not in _VALID_POSTGRES_BACKENDS:
+        msg = f"Invalid postgres backend {raw!r}; expected 'docker' or 'embedded'."
+        raise pytest.UsageError(msg)
+    return "embedded" if normalized == "embedded" else "docker"
+
+
+def resolve_postgres_backend(config: pytest.Config) -> PostgresBackend:
+    """Resolve active PostgreSQL backend (``'docker'`` or ``'embedded'``) from CLI, ini, env, or default.
+
+    Returns:
+        Active PostgreSQL backend literal.
+
+    Raises:
+        pytest.UsageError: If ini ``postgres_backend`` or ``PYTEST_DATABASES_POSTGRES_BACKEND`` is non-empty
+            and outside ``('docker', 'embedded')``.
+    """
+    cli_value = config.getoption("postgres_backend", default=None)
+    if isinstance(cli_value, str) and cli_value.strip():
+        return _normalize_postgres_backend(cli_value)
+    ini_value = config.getini("postgres_backend")
+    if isinstance(ini_value, str) and ini_value.strip():
+        return _normalize_postgres_backend(ini_value)
+    env_value = os.getenv(POSTGRES_BACKEND_ENV, "")
+    if env_value.strip():
+        return _normalize_postgres_backend(env_value)
+    return "docker"
 
 
 def should_keep_containers(config: pytest.Config | None = None) -> bool:
@@ -753,7 +817,7 @@ def container_service(
     Yields:
         A ContainerService manager instance.
     """
-    tmp_path = _get_base_tmp_path(tmp_path_factory)
+    tmp_path = _get_base_tmp_path(tmp_path_factory, is_worker=hasattr(request.config, "workerinput"))
     with ContainerService(
         client=container_client,
         tmp_path=tmp_path,
@@ -1179,9 +1243,10 @@ def _sweep_and_detect_active_leases(session_dir: Path, *, exclude_run_id: str | 
     return other_active
 
 
-def _get_base_tmp_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def _get_base_tmp_path(tmp_path_factory: pytest.TempPathFactory, *, is_worker: bool | None = None) -> Path:
     tmp_path: Path = tmp_path_factory.getbasetemp()
-    if get_xdist_worker_id() is not None:
+    worker_active = get_xdist_worker_id() is not None if is_worker is None else is_worker
+    if worker_active:
         tmp_path = tmp_path.parent
     return tmp_path
 
@@ -1189,5 +1254,5 @@ def _get_base_tmp_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def _get_ctrl_file(session: pytest.Session) -> Path:
     config: Any = session.config
     tmp_path_factory: pytest.TempPathFactory = config._tmp_path_factory
-    tmp_path = _get_base_tmp_path(tmp_path_factory)
+    tmp_path = _get_base_tmp_path(tmp_path_factory, is_worker=hasattr(config, "workerinput"))
     return tmp_path / "ctrl"

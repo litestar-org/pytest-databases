@@ -24,19 +24,26 @@ Usage Example
    pytest_plugins = ["pytest_databases.docker.sybase"]
 
 
-   def test_sybase_connection(sybase_service: SybaseService) -> None:
-       conn = pymssql.connect(
-           server=sybase_service.host,
-           port=sybase_service.port,
+   def test_sybase_freetds_alias(sybase_service: SybaseService, sybase_freetds_alias: str) -> None:
+       with pymssql.connect(
+           server=sybase_freetds_alias,
            user=sybase_service.user,
            password=sybase_service.password,
            database=sybase_service.database,
            autocommit=True,
-       )
-       with conn.cursor() as cur:
+       ) as conn, conn.cursor() as cur:
            cur.execute("SELECT 1")
            res = cur.fetchone()[0]
            assert res == 1
+
+FreeTDS 5.0 Client Configuration
+--------------------------------
+
+FreeTDS builds targeting TDS 7.x by default (for MS SQL Server) require ``tds version = 5.0`` to talk to SAP ASE.
+``sybase_freetds_alias`` writes a dedicated server block via :meth:`~pytest_databases.docker.sybase.SybaseService.write_freetds_conf`
+(preserving existing server sections in ``FREETDSCONF`` without mutating ``[global]`` ``tds version``), sets
+``FREETDSCONF`` for the session, and restores the prior environment variable at teardown so concurrent MS SQL Server
+clients remain unaffected.
 
 Parallel Execution
 ------------------
@@ -71,6 +78,7 @@ Available Fixtures
   ``SYBASE_STARTUP_TIMEOUT``).
 * ``xdist_sybase_isolation_level``: Worker isolation mode (default: ``database``).
 * ``sybase_service``: Provides a running Sybase ASE service container.
+* ``sybase_freetds_alias``: Session-scoped server alias configured in ``FREETDSCONF`` with ``tds version = 5.0`` (via ``SybaseService.write_freetds_conf``).
 
 Service API
 -----------

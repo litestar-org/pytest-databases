@@ -18,29 +18,31 @@ Usage Example
 
 .. code-block:: python
 
-    import pytest
     import psycopg
     from pytest_databases.docker.cockroachdb import CockroachDBService
 
     pytest_plugins = ["pytest_databases.docker.cockroachdb"]
 
-    @pytest.fixture(scope="session")
-    def cockroach_uri(cockroachdb_service: CockroachDBService) -> str:
-        return (
-            f"postgresql://root@{cockroachdb_service.host}:{cockroachdb_service.port}"
-            f"/{cockroachdb_service.database}?sslmode=disable"
-        )
 
-    def test(cockroach_uri: str) -> None:
-        with psycopg.connect(cockroach_uri) as conn:
+    def test_cockroachdb(cockroachdb_service: CockroachDBService) -> None:
+        exit_code, output = cockroachdb_service.exec_sql("SELECT 1")
+        assert exit_code == 0
+        assert isinstance(output, bytes)
+        assert cockroachdb_service.connection_config["database"] == cockroachdb_service.database
+        with psycopg.connect(cockroachdb_service.dsn) as conn:
             db_open = conn.execute("SELECT 1").fetchone()
             assert db_open is not None and db_open[0] == 1
+
+``CockroachDBService`` exposes ``user`` (default ``"root"``), ``dsn`` (``postgresql://root@host:port/database?sslmode=disable``),
+``connection_config`` (``host``, ``port``, ``user``, ``database``, plus ``driver_opts``), and
+``exec_sql(sql, *, database=None) -> tuple[int, bytes]``, delegating to public
+:func:`~pytest_databases.docker.cockroachdb.exec_cockroach_sql`.
 
 Available Fixtures
 ------------------
 
 * ``cockroachdb_image``: The Docker image to use for CockroachDB.
-* ``cockroachdb_service``: A fixture that provides a CockroachDB service.
+* ``cockroachdb_service``: A fixture that provides a :class:`~pytest_databases.docker.cockroachdb.CockroachDBService` instance.
 
 Service API
 -----------

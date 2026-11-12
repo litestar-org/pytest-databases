@@ -8,7 +8,7 @@ import re
 import shlex
 import tempfile
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
@@ -37,6 +37,7 @@ __all__ = [
     "DB2_MAX_DB_NAME_LENGTH",
     "DB2_PORT",
     "DEFAULT_DB2_IMAGE",
+    "DEFAULT_DB2_IPC_MODE",
     "Db2Service",
     "activate_db2_database",
     "create_worker_database",
@@ -44,11 +45,13 @@ __all__ = [
     "db2_activate_database",
     "db2_dbname",
     "db2_image",
+    "db2_ipc_mode",
     "db2_password",
     "db2_port",
     "db2_service",
     "db2_startup_timeout",
     "db2_username",
+    "db2_volumes",
     "exec_db2_sql",
     "provide_db2_service",
     "validate_db2_database_name",
@@ -56,8 +59,11 @@ __all__ = [
 ]
 
 DEFAULT_DB2_IMAGE = "icr.io/db2_community/db2:12.1.5.0"
+DEFAULT_DB2_IPC_MODE = "host"
 DB2_PORT = 50000
 DB2_MAX_DB_NAME_LENGTH = 8
+_DB2_INIT_LOCK_TIMEOUT = 300.0
+_DB2_CONTAINER_LOCK_FILE = f"/{'tmp'}/pytest_databases_db2_init.lock"
 _DB2_4K_REGISTRY_SETTINGS: tuple[tuple[str, str], ...] = (("DB2_4K_DEVICE_SUPPORT", "ON"), ("DB2_DIRECT_IO", "NO"))
 _CLP_MAX_SUCCESS_EXIT_CODE = 3
 _CLP_MAX_ACTIVATE_EXIT_CODE = 2
@@ -66,7 +72,16 @@ _DB2_REGISTRY_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DB2_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 _DB2_SETUP_SCRIPT = "/var/db2_setup/lib/setup_db2_instance.sh"
 _DB2_SETUP_FUNCTIONS = "/var/db2_setup/include/db2_common_functions"
-_DB2_4K_MISSING_DATABASE_MARKERS = ("SQL1013N", "SQL0293N")
+_DB2_4K_MISSING_DATABASE_MARKERS: tuple[str, ...] = ("SQL1013N", "SQL0293N", "42705")
+_DB2_FATAL_STARTUP_MARKERS: tuple[str, ...] = ("SQL1042C", "SQL5005C", "SQL1084C", "SQL1220C")
+_DB2_TRANSIENT_57019_MARKERS: tuple[str, ...] = (
+    "SQL1032N",
+    "SQL1035N",
+    "SQL1015N",
+    "SQL1493N",
+    "SQL1063N",
+    "SQL1064N",
+)
 
 
 @dataclass
@@ -76,6 +91,7 @@ class Db2Service(ServiceContainer):
     db_name: str
     username: str
     password: str
+    _lock_path: Path | None = field(default=None, repr=False, compare=False)
 
     @property
     def dsn(self) -> str:
@@ -112,7 +128,7 @@ class Db2Service(ServiceContainer):
 
     def create_worker_database(self, db_name: str) -> None:
         """Create an isolated Db2 database inside the container."""
-        create_worker_database(self.container, db_name, instance_user=self.username)
+        create_worker_database(self.container, db_name, instance_user=self.username, lock_path=self._lock_path)
 
     def activate_database(self, db_name: str | None = None) -> str:
         """Pin ``db_name`` (defaults to ``self.db_name``) active in Db2 shared memory.
@@ -197,6 +213,7 @@ def create_worker_database(
     db_name: str,
     *,
     instance_user: str = "db2inst1",
+    lock_path: Path | None = None,
 ) -> None:
     """Create a Db2 database inside the container if it does not already exist.
 
@@ -204,13 +221,20 @@ def create_worker_database(
         container: Running Db2 container.
         db_name: Target Db2 database name (at most 8 characters).
         instance_user: Db2 instance owner OS user inside the container.
+        lock_path: Optional cross-worker host lock file path serializing catalog writes.
     """
     validate_db2_database_name(db_name)
-    inner_cmd = (
+    inner_cmd = _wrap_with_container_flock(
         f"db2 list db directory | grep -Eiq '^[[:space:]]*Database name[[:space:]]*= {db_name}[[:space:]]*$' "
         f"|| db2 create database {shlex.quote(db_name)}"
     )
-    result = container.exec_run(["su", "-", instance_user, "-c", inner_cmd])
+    lock_cm: contextlib.AbstractContextManager[object] = (
+        filelock.FileLock(str(lock_path), timeout=_DB2_INIT_LOCK_TIMEOUT)
+        if lock_path is not None
+        else contextlib.nullcontext()
+    )
+    with lock_cm:
+        result = container.exec_run(["su", "-", instance_user, "-c", inner_cmd])
     if result.exit_code != 0:
         output = exec_output_to_bytes(result.output).decode("utf-8", errors="replace")
         msg = f"Failed to create Db2 database {db_name!r} (exit {result.exit_code}): {output.strip()}"
@@ -269,6 +293,8 @@ def provide_db2_service(
     shm_size: int | str | None = None,
     mem_limit: str | None = None,
     platform: str | None = None,
+    ipc_mode: str | None = DEFAULT_DB2_IPC_MODE,
+    volumes: dict[str, dict[str, str]] | list[str] | None = None,
     init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> Generator[Db2Service, None, None]:
     """Start and yield a ready IBM Db2 Community Edition service container.
@@ -295,6 +321,8 @@ def provide_db2_service(
         shm_size: Optional ``/dev/shm`` size forwarded to container creation.
         mem_limit: Optional memory limit forwarded to container creation.
         platform: Optional OCI platform override (for example ``"linux/amd64"`` on Apple Silicon).
+        ipc_mode: Container IPC mode (defaults to ``"host"``; pass ``None`` or ``""`` to omit).
+        volumes: Optional container volume mounts (for example ``/database`` persistence).
         init_sql: Optional SQL statement, ``.sql`` path, or sequence executed once per database.
 
     Yields:
@@ -311,25 +339,47 @@ def provide_db2_service(
         nonlocal recreate_attempted
         if not tcp_port_open(service.host, service.port):
             return False
-        try:
-            output = exec_db2_sql(
-                service.container,
-                "SELECT 1 FROM SYSIBM.SYSDUMMY1",
-                db_name=initial_db,
-                instance_user=db2_username,
-            )
-        except RuntimeError as exc:
-            missing = any(marker in str(exc) for marker in _DB2_4K_MISSING_DATABASE_MARKERS)
-            if settings and missing and not recreate_attempted:
-                recreate_attempted = True
-                _create_database_with_registry_settings(
+        probe_lock = _resolve_db2_lock_path(container_service, service.container)
+        lock_cm: contextlib.AbstractContextManager[object] = (
+            filelock.FileLock(str(probe_lock), timeout=_DB2_INIT_LOCK_TIMEOUT)
+            if probe_lock is not None
+            else contextlib.nullcontext()
+        )
+        with lock_cm:
+            try:
+                output = exec_db2_sql(
                     service.container,
-                    initial_db,
+                    "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+                    db_name=initial_db,
                     instance_user=db2_username,
-                    settings=settings,
                 )
-            return False
-        return output == "1"
+            except RuntimeError as exc:
+                err_text = str(exc)
+                _raise_if_fatal_db2_failure(service.container, initial_db, err_text)
+                if settings and _is_missing_db2_database_error(err_text) and not recreate_attempted:
+                    recreate_attempted = True
+                    try:
+                        reprobe = exec_db2_sql(
+                            service.container,
+                            "SELECT 1 FROM SYSIBM.SYSDUMMY1",
+                            db_name=initial_db,
+                            instance_user=db2_username,
+                        )
+                    except RuntimeError as reprobe_exc:
+                        reprobe_text = str(reprobe_exc)
+                        _raise_if_fatal_db2_failure(service.container, initial_db, reprobe_text)
+                        if _is_missing_db2_database_error(reprobe_text):
+                            _create_database_with_registry_settings(
+                                service.container,
+                                initial_db,
+                                instance_user=db2_username,
+                                settings=settings,
+                            )
+                    else:
+                        if reprobe == "1":
+                            return True
+                return False
+            return output == "1"
 
     entrypoint, command = _build_db2_startup_command(settings)
     with container_service.run(
@@ -348,8 +398,11 @@ def provide_db2_service(
             shm_size=shm_size,
             mem_limit=mem_limit,
             platform=platform,
+            ipc_mode=ipc_mode,
+            volumes=volumes,
         )
     ) as service:
+        lock_path = _resolve_db2_lock_path(container_service, service.container)
         _finalize_db2_database(
             service.container,
             db2_dbname=db2_dbname,
@@ -357,6 +410,7 @@ def provide_db2_service(
             instance_user=db2_username,
             activate=activate_database,
             init_sql=init_sql,
+            lock_path=lock_path,
         )
         yield Db2Service(
             container=service.container,
@@ -365,6 +419,7 @@ def provide_db2_service(
             db_name=db2_dbname,
             username=db2_username,
             password=db2_password,
+            _lock_path=lock_path,
         )
 
 
@@ -431,6 +486,18 @@ def db2_startup_timeout() -> int:
 
 
 @pytest.fixture(scope="session")
+def db2_ipc_mode() -> str | None:
+    """Provide the container IPC mode for Db2 (defaults to ``"host"``; empty string omits ``ipc_mode``)."""
+    return os.getenv("DB2_IPC_MODE", DEFAULT_DB2_IPC_MODE) or None
+
+
+@pytest.fixture(scope="session")
+def db2_volumes() -> dict[str, dict[str, str]] | list[str] | None:
+    """Optional container volume mounts for Db2 (for example ``{"/host/db2": {"bind": "/database", "mode": "rw"}}``)."""
+    return None
+
+
+@pytest.fixture(scope="session")
 def db2_service(
     container_service: ContainerService,
     db2_image: str,
@@ -442,6 +509,8 @@ def db2_service(
     db2_4k_device_support: bool,
     db2_activate_database: bool,
     db2_port: int | None,
+    db2_ipc_mode: str | None,
+    db2_volumes: dict[str, dict[str, str]] | list[str] | None,
 ) -> Generator[Db2Service, None, None]:
     """Start and yield a ready IBM Db2 Community Edition service container.
 
@@ -459,6 +528,8 @@ def db2_service(
         enable_4k_device_support=db2_4k_device_support,
         activate_database=db2_activate_database,
         host_port=db2_port,
+        ipc_mode=db2_ipc_mode,
+        volumes=db2_volumes,
     ) as service:
         yield service
 
@@ -508,11 +579,6 @@ def _build_db2_startup_command(
     return ["/bin/bash", "-c"], [_db2_registry_setup_command(settings)]
 
 
-def _db2_4k_setup_command() -> str:
-    """Build the container command that applies the 4096-byte sector registry settings before Db2 setup runs."""
-    return _db2_registry_setup_command(_DB2_4K_REGISTRY_SETTINGS)
-
-
 def _db2_registry_setup_command(settings: tuple[tuple[str, str], ...]) -> str:
     """Build a ``bash -c`` command patching ``db2_common_functions`` to set ``settings`` before ``db2start``."""
 
@@ -541,6 +607,8 @@ class _Db2RunKwargs(TypedDict):
     shm_size: NotRequired[int | str]
     mem_limit: NotRequired[str]
     platform: NotRequired[str]
+    ipc_mode: NotRequired[str]
+    volumes: NotRequired[dict[str, dict[str, str]] | list[str]]
 
 
 def _build_db2_run_kwargs(
@@ -559,6 +627,8 @@ def _build_db2_run_kwargs(
     shm_size: int | str | None,
     mem_limit: str | None,
     platform: str | None,
+    ipc_mode: str | None,
+    volumes: dict[str, dict[str, str]] | list[str] | None,
 ) -> _Db2RunKwargs:
     """Assemble keyword arguments forwarded to :meth:`ContainerService.run` without clobbering defaults."""
     container_env: dict[str, str] = {
@@ -595,7 +665,64 @@ def _build_db2_run_kwargs(
         kwargs["mem_limit"] = mem_limit
     if platform is not None:
         kwargs["platform"] = platform
+    if ipc_mode:
+        kwargs["ipc_mode"] = ipc_mode
+    if volumes is not None:
+        kwargs["volumes"] = volumes
     return kwargs
+
+
+def _resolve_db2_lock_path(container_service: ContainerService, container: Container) -> Path | None:
+    """Resolve the shared host lock path for Db2 catalog operations inside ``container``."""
+    container_id = getattr(container, "id", None)
+    if not isinstance(container_id, str) or not container_id.strip():
+        return None
+    base_dir = container_service.temp_dir
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir / f"{container_id.strip()}_db2_init.lock"
+
+
+def _wrap_with_container_flock(inner_cmd: str) -> str:
+    """Serialize in-container Db2 catalog writes behind a non-blocking-safe fd ``flock`` guard."""
+    timeout_s = int(_DB2_INIT_LOCK_TIMEOUT)
+    return (
+        f"if command -v flock >/dev/null 2>&1; then "
+        f"exec 9>{_DB2_CONTAINER_LOCK_FILE} && flock -w {timeout_s} 9 || exit 1; "
+        f"fi; {inner_cmd}"
+    )
+
+
+def _is_missing_db2_database_error(err_text: str) -> bool:
+    """Return whether ``err_text`` indicates a missing or 4K-sector-uninitialized Db2 database."""
+    upper_err = err_text.upper()
+    return any(marker in upper_err for marker in _DB2_4K_MISSING_DATABASE_MARKERS)
+
+
+def _raise_if_fatal_db2_failure(container: Container, db_name: str, err_text: str) -> None:
+    """Raise ``RuntimeError`` immediately when CLP output or container logs contain a fatal Db2 startup marker."""
+    raw_logs: object = None
+    with contextlib.suppress(Exception):
+        raw_logs = container.logs(tail=100)
+    log_text = ""
+    if isinstance(raw_logs, (bytes, bytearray)):
+        log_text = raw_logs.decode("utf-8", errors="replace")
+    elif isinstance(raw_logs, str):
+        log_text = raw_logs
+    upper_err = err_text.upper()
+    upper_combined = f"{err_text}\n{log_text}".upper()
+    matched = next((marker for marker in _DB2_FATAL_STARTUP_MARKERS if marker in upper_combined), None)
+    if (
+        matched is None
+        and "57019" in upper_err
+        and not any(transient in upper_err for transient in _DB2_TRANSIENT_57019_MARKERS)
+    ):
+        matched = "57019"
+    if matched is None:
+        return
+    diag_lines = [line.strip() for line in (*err_text.splitlines(), *log_text.splitlines()) if line.strip()]
+    tail = "\n".join(diag_lines[-10:])
+    msg = f"Fatal Db2 startup error ({matched}) probing database {db_name!r}:\n{tail}"
+    raise RuntimeError(msg)
 
 
 def _create_database_with_registry_settings(
@@ -608,7 +735,7 @@ def _create_database_with_registry_settings(
     """Apply ``settings``, restart the Db2 instance, and create ``db_name`` if missing."""
     validate_db2_database_name(db_name)
     registry = " && ".join(f"db2set {key}={shlex.quote(value) if '/' in value else value}" for key, value in settings)
-    inner_cmd = (
+    inner_cmd = _wrap_with_container_flock(
         f"db2 list db directory | grep -Eiq '^[[:space:]]*Database name[[:space:]]*= {db_name}[[:space:]]*$' "
         f"|| ({registry} && db2stop force && db2start && db2 create database {shlex.quote(db_name)})"
     )
@@ -627,17 +754,20 @@ def _finalize_db2_database(
     instance_user: str,
     activate: bool,
     init_sql: str | Path | Sequence[str | Path] | None,
+    lock_path: Path | None = None,
 ) -> None:
     """Create worker database when isolated, optionally pin it active in memory, and execute ``init_sql``."""
     target_db = validate_db2_database_name(db2_dbname)
     if target_db != initial_db:
-        create_worker_database(container, target_db, instance_user=instance_user)
+        create_worker_database(container, target_db, instance_user=instance_user, lock_path=lock_path)
+    lock_dir = lock_path.parent if lock_path is not None else Path(tempfile.gettempdir())
     if activate:
         container_id = getattr(container, "id", None)
         lock_cm: contextlib.AbstractContextManager[object] = contextlib.nullcontext()
         if isinstance(container_id, str) and container_id:
-            lock_path = Path(tempfile.gettempdir()) / f"pytest-databases-db2-act-{container_id[:12]}-{target_db}.lock"
-            lock_cm = filelock.FileLock(str(lock_path), timeout=120.0)
+            lock_dir.mkdir(parents=True, exist_ok=True)
+            act_lock_path = lock_dir / f"pytest-databases-db2-act-{container_id[:12]}-{target_db}.lock"
+            lock_cm = filelock.FileLock(str(act_lock_path), timeout=120.0)
         with lock_cm:
             activate_db2_database(container, target_db, instance_user=instance_user)
     statements = read_init_scripts(init_sql)
@@ -649,4 +779,4 @@ def _finalize_db2_database(
         for statement in statements:
             exec_db2_sql(container, statement, db_name=target_db, instance_user=instance_user)
 
-    run_container_init_once(container, f"db2:{target_db}", fingerprint, _run)
+    run_container_init_once(container, f"db2:{target_db}", fingerprint, _run, lock_dir=lock_dir)

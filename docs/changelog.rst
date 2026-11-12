@@ -102,26 +102,30 @@ Added
   ``extract_adb_wallet``, ``parse_tnsnames``, ``rewrite_tnsnames`` and ``rewrite_sqlnet_ora``.
   ``oracle_adb_filesystemio_options`` (default ``NONE``, env ``ORACLE_ADB_FILESYSTEMIO_OPTIONS``) rewrites the server
   parameter file before the database starts so the instance opens on storage with 4096-byte logical sectors.
-* Floci cloud emulators in ``pytest_databases.docker.floci``: ``floci_aws_service`` (``FlociAWSService``, image
-  ``floci/floci:2.4.0``, port ``4566``), ``floci_az_service`` (``FlociAzureService`` with ``blob_endpoint``,
-  ``floci/floci-az:0.16.0``, port ``4577``), ``floci_gcp_service`` (``FlociGCPService`` with ``ensure_bucket()``,
-  ``storage_emulator_host`` and ``pubsub_emulator_host``, ``floci/floci-gcp:0.12.0``, port ``4588``) and
-  ``floci_oci_service`` (``FlociOCIService`` with ``ensure_bucket()``, ``floci/floci-oci:0.6.0``, port ``4599``), with
-  ``floci_<cloud>_image`` fixtures (env ``FLOCI_AWS_IMAGE``, ``FLOCI_AZ_IMAGE``, ``FLOCI_GCP_IMAGE``,
-  ``FLOCI_OCI_IMAGE``), ``floci_aws_region``, ``floci_aws_access_key``, ``floci_aws_secret_key``,
-  ``floci_az_account_name``, ``floci_az_account_key``, ``floci_gcp_project``, ``floci_oci_namespace`` (default
-  ``floci-local``), ``floci_oci_region``, ``floci_oci_compartment_id``, ``floci_resource_prefix``,
-  ``xdist_floci_isolation_level`` (default ``database``: one container per cloud), ``provide_floci_container``,
-  ``check_floci_health``, ``ensure_gcs_bucket``, ``ensure_oci_bucket``, ``FLOCI_CONTAINER_PORTS`` and
-  ``FLOCI_HEALTH_PATHS``.
+* Floci cloud emulators in ``pytest_databases.docker.floci``: ``floci_aws_service`` (``FlociAWSService`` with
+  ``ensure_bucket(bucket_name) -> None``, image ``floci/floci:2.4.0``, port ``4566``), ``floci_az_service``
+  (``FlociAzureService`` with ``blob_endpoint``, ``floci/floci-az:0.16.0``, port ``4577``), ``floci_gcp_service``
+  (``FlociGCPService`` with ``ensure_bucket()``, ``storage_emulator_host`` and ``pubsub_emulator_host``,
+  ``floci/floci-gcp:0.12.0``, port ``4588``) backed by the session-scoped ``floci_gcp_compat_proxy``
+  (``FLOCI_GCP_COMPAT_PROXY``, default ``True``) for ``obstore``, ``gcsfs``, and ``google-cloud-storage``
+  compatibility, and ``floci_oci_service`` (``FlociOCIService`` with ``ensure_bucket()``,
+  ``floci/floci-oci:0.6.0``, port ``4599``), with ``floci_<cloud>_image`` fixtures (env ``FLOCI_AWS_IMAGE``,
+  ``FLOCI_AZ_IMAGE``, ``FLOCI_GCP_IMAGE``, ``FLOCI_OCI_IMAGE``), ``floci_aws_region``, ``floci_aws_access_key``,
+  ``floci_aws_secret_key``, ``floci_az_account_name``, ``floci_az_account_key``, ``floci_gcp_project``,
+  ``floci_oci_namespace`` (default ``floci-local``), ``floci_oci_region``, ``floci_oci_compartment_id``,
+  ``floci_resource_prefix``, ``xdist_floci_isolation_level`` (default ``database``: one container per cloud),
+  ``provide_floci_container``, ``provide_floci_gcp_service``, ``check_floci_health``, ``ensure_gcs_bucket``,
+  ``ensure_oci_bucket``, ``FLOCI_CONTAINER_PORTS`` and ``FLOCI_HEALTH_PATHS`` (gh-188).
 * ``snowflake_service`` (``SnowflakeService`` with ``endpoint``, ``connection_kwargs``, ``login()`` and ``query()``)
   for the Embucket Snowflake-compatible emulator (default ``embucket/embucket:0.2.2``, env ``SNOWFLAKE_IMAGE``, port
   ``3000``), the ``snowflake_image``, ``snowflake_user``, ``snowflake_password``, ``snowflake_account``,
-  ``snowflake_database``, ``snowflake_schema``, ``snowflake_warehouse``, ``snowflake_role`` and
-  ``xdist_snowflake_isolation_level`` (default ``database``: one container, a ``public_<worker>`` schema per worker)
-  fixtures, and ``provide_snowflake_service``, ``check_snowflake_health``, ``login_snowflake_emulator`` and
-  ``query_snowflake_emulator``. ``query()`` logs in as ``snowflake_user`` and runs in ``snowflake_database`` /
-  ``snowflake_schema``.
+  ``snowflake_database``, ``snowflake_schema``, ``snowflake_warehouse``, ``snowflake_role``,
+  ``snowflake_wire_compat`` (``SNOWFLAKE_WIRE_COMPAT``, default ``True``) and ``xdist_snowflake_isolation_level``
+  (default ``database``: one container, a ``public_<worker>`` schema per worker) fixtures, and
+  ``provide_snowflake_service(..., wire_compat=True)`` (enabling gzip decompression, positional ``?`` binding
+  substitution, and stringified ``rowset`` cells for ``snowflake-connector-python``), ``check_snowflake_health``,
+  ``login_snowflake_emulator`` and ``query_snowflake_emulator``. ``query()`` logs in as ``snowflake_user`` and runs
+  in ``snowflake_database`` / ``snowflake_schema`` (gh-187).
 * ``sybase_service`` (``SybaseService`` with ``connection_config``, ``dsn``, ``exec_sql()`` and
   ``create_worker_database()``) for SAP ASE (default ``datagrip/sybase:16.0``, env ``SYBASE_IMAGE``, port ``5000``),
   the ``sybase_image``, ``sybase_user``, ``sybase_password``, ``sybase_database``, ``sybase_startup_timeout`` and
@@ -145,16 +149,17 @@ Added
   (``pytest_databases_template_<digest>``). ``PostgresService.ensure_template()``,
   ``create_worker_database_from_template()``, ``sweep_worker_databases()`` and ``compute_fingerprint()``.
 * ``pytest_databases.embedded.postgres``: ``embedded_postgres_service`` (``EmbeddedPostgresService`` with ``dsn``,
-  ``connection_config``, ``exec_sql()`` and the same template helpers as ``PostgresService``) runs local ``initdb`` /
+  ``connection_config``, ``password`` defaulting to ``""``, ``exec_sql(..., tuples_only=False, timeout=30.0) -> tuple[int, bytes]``,
+  and the same template helpers including ``init_sql`` staging as ``PostgresService``) runs local ``initdb`` /
   ``postgres`` binaries with trust authentication on a loopback port, without a container runtime or ``psql``.
   Binaries come from ``embedded_postgres_bin_dir``, ``PG_BIN_DIR``, the new ``embedded-postgres`` extra (``pgembed``
   on Python 3.12+, ``pgserver`` on 3.11), the ``PATH``, ``pg_config --bindir``, or common install directories.
   Fixtures ``embedded_postgres_user``, ``embedded_postgres_database``, ``embedded_postgres_port``,
   ``embedded_postgres_bin_dir``, ``embedded_postgres_template_name``, ``embedded_postgres_template_setup``,
-  ``embedded_postgres_template_fingerprint_sources``, ``embedded_postgres_template_lock_dir`` and
-  ``xdist_embedded_postgres_isolation_level`` (default ``template``: xdist workers share one cluster and each gets a
-  database cloned from the template). ``provide_embedded_postgres_service``, ``resolve_postgres_binaries`` and
-  ``PostgresBinaries``.
+  ``embedded_postgres_template_fingerprint_sources``, ``embedded_postgres_template_lock_dir``, ``postgres_any_service``,
+  and ``xdist_embedded_postgres_isolation_level`` (default ``template``: xdist workers share one cluster and each gets a
+  database cloned from the template). ``provide_embedded_postgres_service(..., password="", init_sql=None)``,
+  ``resolve_postgres_binaries`` and ``PostgresBinaries`` (gh-185, gh-193).
 * ``cloudflare_service`` (``CloudflareService`` with ``api_base_url``, ``r2_s3_endpoint_url``, ``kv_put()``,
   ``kv_get()``, ``r2_put()``, ``r2_get()`` and ``d1_query()``) for Cloudflare KV, R2 and D1, backed by Miniflare's
   Local Explorer API and R2 S3 endpoint in a ``node:22-slim`` container (env ``CLOUDFLARE_IMAGE``, port ``8787``;
@@ -164,8 +169,34 @@ Added
   ``cloudflare_secret_access_key``, ``cloudflare_startup_timeout`` (default ``300``) and
   ``xdist_cloudflare_isolation_level`` (default ``database``: one container binding ``<name>_<worker>`` for every
   worker), and ``provide_cloudflare_service``.
-* ``pytest_databases.helpers.http_request(url, *, method, data, headers, timeout)``, which returns ``(status, body)``
-  for container endpoints without going through ``HTTP_PROXY``.
+* ``ContainerService.temp_dir`` exposing a session-scoped temporary :class:`pathlib.Path` on ``container_service`` /
+  ``docker_service`` for cross-worker ``FileLock`` and session state coordination (gh-184, gh-186).
+* ``pytest_databases.send_http_request`` (returning ``(status, headers, body)``), ``ssl_context`` support on
+  ``pytest_databases.helpers.http_request`` (returning ``(status, body)``), and public
+  ``pytest_databases.create_s3_bucket(..., timeout=10.0, ssl_context=None) -> bool`` (also exported from
+  ``pytest_databases.helpers``) for creating S3 buckets without routing through ambient
+  ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``ALL_PROXY`` variables (gh-184, gh-188).
+* ``PostgresServiceProtocol``, ``PostgresBackend``, ``--postgres-backend`` CLI flag / ``postgres_backend`` ini
+  setting / ``PYTEST_DATABASES_POSTGRES_BACKEND`` env var (resolved via ``resolve_postgres_backend``), and portable
+  session-scoped ``postgres_any_service`` fixture switching cleanly between Docker and embedded PostgreSQL (gh-193).
+* ``postgres_startup_timeout`` (default ``60``), ``alloydb_omni_shm_size`` (default ``"512m"``),
+  ``alloydb_omni_startup_timeout`` (default ``90``), ``alloydb_omni_command`` and ``alloydb_omni_legacy_command``
+  (``build_alloydb_omni_command``), automatic ``CREATE EXTENSION IF NOT EXISTS vector`` across ``pgvector_service``
+  and ``pgvector_13_service``..``pgvector_18_service``, out-of-the-box AlloyDB Omni ``google_columnar_engine``,
+  ``pg_stat_statements``, ``vector``, ``alloydb_scann``, ``google_ml_integration``, and ``alloydb_ai_nl`` (versions
+  15–18) plus ``pg_textsearch`` BM25 (versions 17/18), and ``init_sql`` staging on
+  ``PostgresTemplateSupport.ensure_template`` (gh-185).
+* ``CockroachDBService.user`` (default ``"root"``), ``CockroachDBService.dsn``,
+  ``CockroachDBService.connection_config`` (``"database"`` key aligned with ``PostgresService``),
+  ``CockroachDBService.exec_sql(...) -> tuple[int, bytes]``, and public ``exec_cockroach_sql`` (gh-193).
+* ``SpannerService.emulator_host`` and ``configure_spanner_emulator_client_guards`` disabling built-in client metrics,
+  shortening ``DatabaseSessionsManager._MAINTENANCE_THREAD_POLLING_INTERVAL`` to 100ms, raising session-manager logger
+  verbosity to ``WARNING``, and suppressing closed-stream ``ValueError`` teardown tracebacks (gh-189).
+* ``BigQueryService.is_healthy(*, timeout=5.0)`` and ``BIGQUERY_IMAGE`` environment override on ``bigquery_image``
+  (gh-190).
+* ``db2_volumes`` fixture (gh-186), public ``exec_sqlplus``, ``OracleADBService.mtls_alias``, and
+  ``OracleADBService.build_wallet_zip`` with optional ``cryptography`` PKCS#12 ``ewallet.p12`` synthesis (gh-191), and
+  ``SybaseService.write_freetds_conf`` plus session-scoped ``sybase_freetds_alias`` for FreeTDS 5.0 clients (gh-192).
 * ``oracle_startup_timeout`` (default ``180``, env ``ORACLE_STARTUP_TIMEOUT``) and ``oracle_adb_startup_timeout``
   (default ``420``, env ``ORACLE_ADB_STARTUP_TIMEOUT``) fixtures, plus validated keyword-only ``timeout`` and ``pause``
   parameters on ``provide_oracle_service`` (defaults ``180`` and ``1.0``) and ``provide_oracle_adb_service``
@@ -272,9 +303,14 @@ Changed
   SharedKey; ``azure-storage-blob`` is no longer imported by the plugin.
 * ``bigquery_service`` checks readiness with a stdlib HTTP query against the emulator REST API; the Google Cloud
   libraries are no longer imported by the plugin. ``bigquery_client`` now closes its client at teardown.
-* Under ``pytest-xdist`` with the default ``database`` isolation, ``bigquery_service`` starts one shared emulator and
-  gives each worker its own dataset (``BigQueryService.dataset`` = ``test-dataset_<worker>``), instead of one
-  emulator per worker with ``test-dataset``. Read the dataset from ``BigQueryService.dataset``.
+* Pinned default ``bigquery_image`` to ``ghcr.io/goccy/bigquery-emulator:0.8.1`` (``DEFAULT_BIGQUERY_IMAGE``) and
+  changed default ``xdist_bigquery_isolation_level`` to ``"server"`` (non-transient shared container in single-process
+  sessions, transient per-worker containers under ``pytest-xdist`` to avoid SQLite catalog DDL races); override
+  ``xdist_bigquery_isolation_level`` to ``"database"`` for per-worker ``test-dataset_<worker>`` datasets on a shared
+  container (gh-190).
+* Default ``db2_ipc_mode`` changed to ``"host"`` across Docker and Podman (set ``DB2_IPC_MODE=""`` or override
+  ``db2_ipc_mode`` to ``None`` to opt into private container IPC namespaces) to prevent ``SQL1042C`` SysV semaphore
+  exhaustion (gh-186).
 * Under ``pytest-xdist`` with the default ``database`` isolation, Oracle services start one shared container per
   version and give each worker its own user, so ``OracleService.user`` is ``app_<worker>`` instead of ``app``. Set
   ``xdist_oracle_isolation_level`` to ``server`` for the previous container per worker.
@@ -299,6 +335,16 @@ Changed
 Fixed
 ~~~~~
 
+* Bypass ambient ``HTTP_PROXY``, ``HTTPS_PROXY``, and ``ALL_PROXY`` variables across S3, MinIO, RustFS, Azurite,
+  Elasticsearch, Snowflake, Floci, Spanner, and BigQuery HTTP readiness probes while preserving SigV4 and SharedKey
+  signatures (gh-184).
+* Serialize concurrent ``pytest-xdist`` user grant provisioning in ``provide_mysql_service`` and
+  ``provide_mariadb_service``, serialize Db2 4Kn ``db2stop force`` recovery (``SQL1013N`` / SQLSTATE ``42705``) and
+  ``create_worker_database`` via ``FileLock`` under ``ContainerService.temp_dir`` and in-container ``flock``, and
+  fast-fail immediately on Db2 ``SQL1042C`` / ``SQLSTATE=57019`` container startup errors (gh-184, gh-186).
+* Forward ``command``, ``timeout``, ``shm_size``, and ``init_sql`` through PostgreSQL family fixture factories and run
+  provider ``init_sql`` statements inside containerized, external, and embedded staging template databases prior to
+  user ``postgres_template_setup`` and ``embedded_postgres_template_setup`` hooks (gh-185).
 * Loading the ``pytest11`` plugin (``pytest_databases._service``) no longer imports ``pytest_databases.docker`` on
   startup; ``TRUE_VALUES`` is now defined in ``pytest_databases.helpers`` and re-exported from
   ``pytest_databases.docker`` for backward compatibility.
