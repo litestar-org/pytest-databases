@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import configparser
+from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
 
 import pytest_databases.docker.sybase as sybase_mod
 from pytest_databases.docker.sybase import (
+    DEFAULT_SYBASE_FREETDS_SECTION,
     DEFAULT_SYBASE_IMAGE,
     SYBASE_DATABASE,
     SYBASE_PASSWORD,
@@ -21,12 +24,12 @@ from pytest_databases.docker.sybase import (
     create_worker_database,
     exec_isql,
     provide_sybase_service,
+    sybase_freetds_alias,
     validate_sybase_database_name,
 )
+from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from pytest_databases.types import XdistIsolationLevel
 
 ISQL_SELECT_OUTPUT = b"        4242 \n\n(1 row affected)\n"
@@ -539,3 +542,118 @@ def test_configure_sybase_monitoring_raises_on_isql_failure(
     fake_container.exec_run.return_value = SimpleNamespace(exit_code=0, output=ISQL_SERVER_ERROR)
     with pytest.raises(RuntimeError, match="Failed to enable Sybase MDA monitoring"):
         configure_sybase_monitoring(fake_container)
+
+
+@pytest.mark.parametrize(
+    "bad_section",
+    ["", "   ", "global", "GLOBAL", "[bad]", "bad[1]", "bad]2", "line\nbreak", "line\rbreak", "null\x00char"],
+)
+def test_sybase_write_freetds_conf_rejects_invalid_section_names(
+    tmp_path: Path,
+    bad_section: str,
+) -> None:
+    """Verify write_freetds_conf rejects empty, global, bracketed, and control-character headers."""
+    service = SybaseService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=5000,
+        user="sa",
+        password="myPassword",
+        database="master",
+    )
+    with pytest.raises(ValueError, match="Invalid FreeTDS section name"):
+        service.write_freetds_conf(tmp_path / "conf", section_name=bad_section)
+
+
+def test_sybase_write_freetds_conf_merges_preserving_global_and_existing_sections(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify write_freetds_conf preserves [global] TDS 7.4 and existing sections from FREETDSCONF and target."""
+    prior_conf = tmp_path / "prior" / "freetds.conf"
+    prior_conf.parent.mkdir(parents=True)
+    prior_conf.write_text(
+        "[global]\n\ttds version = 7.4\n\n[MSSQL_EXISTING]\n\thost = sqlserver.local\n\tport = 1433\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FREETDSCONF", str(prior_conf))
+
+    target_dir = tmp_path / "nested" / "freetds"
+    target_dir.mkdir(parents=True)
+    (target_dir / "freetds.conf").write_text("[TARGET_ONLY]\nhost = other.local\nport = 5001\n", encoding="utf-8")
+
+    service = SybaseService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=45123,
+        user="sa",
+        password="myPassword",
+        database="master",
+    )
+    conf_path, alias = service.write_freetds_conf(target_dir, section_name="  CUSTOM_SYBASE  ")
+
+    assert alias == "CUSTOM_SYBASE"
+    assert conf_path == target_dir / "freetds.conf"
+    assert "sybase_freetds_alias" in sybase_mod.__all__
+    assert "DEFAULT_SYBASE_FREETDS_SECTION" in sybase_mod.__all__
+
+    parsed = configparser.ConfigParser(interpolation=None)
+    parsed.read(conf_path, encoding="utf-8")
+    assert parsed["global"]["tds version"] == "7.4"
+    assert parsed["MSSQL_EXISTING"]["host"] == "sqlserver.local"
+    assert parsed["TARGET_ONLY"]["port"] == "5001"
+    assert dict(parsed["CUSTOM_SYBASE"]) == {
+        "host": "127.0.0.1",
+        "port": "45123",
+        "tds version": "5.0",
+        "client charset": "UTF-8",
+    }
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "prior_env", "expected_alias"),
+    [
+        (None, None, DEFAULT_SYBASE_FREETDS_SECTION),
+        (2, "original_freetds.conf", f"{DEFAULT_SYBASE_FREETDS_SECTION}_2"),
+    ],
+)
+def test_sybase_freetds_alias_fixture_lifecycle_and_env_restore(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    worker_num: int | None,
+    prior_env: str | None,
+    expected_alias: str,
+) -> None:
+    """Verify sybase_freetds_alias configures FREETDSCONF and restores prior env state on teardown."""
+    monkeypatch.setattr(sybase_mod, "get_xdist_worker_num", lambda: worker_num)
+    if prior_env is None:
+        monkeypatch.delenv("FREETDSCONF", raising=False)
+    else:
+        prior_file = tmp_path / prior_env
+        prior_file.write_text("[global]\ntds version = 7.4\n", encoding="utf-8")
+        monkeypatch.setenv("FREETDSCONF", str(prior_file))
+        prior_env = str(prior_file)
+
+    service = SybaseService(
+        container=MagicMock(),
+        host="127.0.0.1",
+        port=45999,
+        user="sa",
+        password="myPassword",
+        database="master",
+    )
+    fake_tmp_factory = MagicMock()
+    fake_tmp_factory.mktemp.return_value = tmp_path / "alias_conf"
+
+    gen: Any = unwrap_fixture(sybase_freetds_alias)(service, fake_tmp_factory)
+    yielded_alias = next(gen)
+    assert yielded_alias == expected_alias
+    conf_path = Path(sybase_mod.os.environ["FREETDSCONF"])
+    assert conf_path == tmp_path / "alias_conf" / "freetds.conf"
+    parsed = configparser.ConfigParser(interpolation=None)
+    parsed.read(conf_path, encoding="utf-8")
+    assert parsed[expected_alias]["tds version"] == "5.0"
+
+    with pytest.raises(StopIteration):
+        next(gen)
+    assert sybase_mod.os.environ.get("FREETDSCONF") == prior_env

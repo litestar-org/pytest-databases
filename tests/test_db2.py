@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import re
 import shlex
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 
+from pytest_databases._service import ContainerService
 from pytest_databases.docker import db2
 from pytest_databases.docker.db2 import (
     DEFAULT_DB2_IMAGE,
+    DEFAULT_DB2_IPC_MODE,
     Db2Service,
     activate_db2_database,
     create_worker_database,
@@ -124,6 +129,7 @@ def test_db2_contract_fixtures(pytester: pytest.Pytester, monkeypatch: MonkeyPat
         "DB2_USER",
         "DB2_PASSWORD",
         "DB2_PORT",
+        "DB2_IPC_MODE",
         "DB2_ACTIVATE_DATABASE",
     ):
         monkeypatch.delenv(var, raising=False)
@@ -139,6 +145,8 @@ def test_db2_contract_fixtures(pytester: pytest.Pytester, monkeypatch: MonkeyPat
         db2_startup_timeout,
         db2_activate_database,
         db2_port,
+        db2_ipc_mode,
+        db2_volumes,
         xdist_db2_isolation_level,
     ) -> None:
         assert db2_image == {DEFAULT_DB2_IMAGE!r}
@@ -148,6 +156,8 @@ def test_db2_contract_fixtures(pytester: pytest.Pytester, monkeypatch: MonkeyPat
         assert db2_startup_timeout == 600
         assert db2_activate_database is True
         assert db2_port is None
+        assert db2_ipc_mode == {DEFAULT_DB2_IPC_MODE!r}
+        assert db2_volumes is None
         assert xdist_db2_isolation_level == "database"
     """)
 
@@ -156,11 +166,36 @@ def test_db2_contract_fixtures(pytester: pytest.Pytester, monkeypatch: MonkeyPat
 
 
 @pytest.mark.parametrize(
-    ("worker_num", "isolation_level", "expected_name", "expected_transient"),
+    ("env_value", "expected_ipc"),
+    [(None, "host"), ("", None), ("shareable", "shareable")],
+)
+def test_db2_ipc_mode_fixture_env_overrides(
+    pytester: pytest.Pytester,
+    monkeypatch: MonkeyPatch,
+    env_value: str | None,
+    expected_ipc: str | None,
+) -> None:
+    """Verify db2_ipc_mode honors DB2_IPC_MODE and maps empty strings to None."""
+    if env_value is None:
+        monkeypatch.delenv("DB2_IPC_MODE", raising=False)
+    else:
+        monkeypatch.setenv("DB2_IPC_MODE", env_value)
+    pytester.makepyfile(f"""
+    pytest_plugins = ["pytest_databases.docker.db2"]
+
+    def test_ipc(db2_ipc_mode) -> None:
+        assert db2_ipc_mode == {expected_ipc!r}
+    """)
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "-vv")
+    result.assert_outcomes(passed=1)
+
+
+@pytest.mark.parametrize(
+    ("worker_num", "isolation_level", "expected_name", "expected_transient", "ipc_mode", "volumes"),
     [
-        (None, "server", "db2", False),
-        (2, "database", "db2", False),
-        (2, "server", "db2_2", True),
+        (None, "server", "db2", False, DEFAULT_DB2_IPC_MODE, None),
+        (2, "database", "db2", False, None, {"/host/db2": {"bind": "/database", "mode": "rw"}}),
+        (2, "server", "db2_2", True, "shareable", ["db2data:/database"]),
     ],
 )
 def test_db2_service_runtime_options(
@@ -169,8 +204,10 @@ def test_db2_service_runtime_options(
     isolation_level: XdistIsolationLevel,
     expected_name: str,
     expected_transient: bool,
+    ipc_mode: str | None,
+    volumes: dict[str, dict[str, str]] | list[str] | None,
 ) -> None:
-    """Verify the container is privileged without host IPC, and the naming and transient rule per isolation level."""
+    """Verify privileged mode, IPC/volume forwarding, and container naming/transient options."""
     captured_kwargs: dict[str, object] = {}
     mock_container = MagicMock()
     mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"          1\n")
@@ -197,10 +234,19 @@ def test_db2_service_runtime_options(
         db2_password="pytest_db2_pwd",
         db2_startup_timeout=600,
         xdist_db2_isolation_level=isolation_level,
+        ipc_mode=ipc_mode,
+        volumes=volumes,
     ) as service:
         assert service.db_name == db_name
     assert captured_kwargs["privileged"] is True
-    assert "ipc_mode" not in captured_kwargs
+    if ipc_mode:
+        assert captured_kwargs["ipc_mode"] == ipc_mode
+    else:
+        assert "ipc_mode" not in captured_kwargs
+    if volumes is not None:
+        assert captured_kwargs["volumes"] == volumes
+    else:
+        assert "volumes" not in captured_kwargs
     assert captured_kwargs["wait_for_log"] == "Setup has completed"
     assert captured_kwargs["name"] == expected_name
     assert captured_kwargs["transient"] is expected_transient
@@ -264,6 +310,8 @@ def test_db2_service_4k_device_support_setup_command(monkeypatch: MonkeyPatch, e
     ("enable_4k_device_support", "first_error", "expect_recreate"),
     [
         (True, b"SQL1013N  The database alias name or database name PYTESTDB could not be found.", True),
+        (True, b"SQL0293N  Error accessing a table space container.", True),
+        (True, b'SQL0204N  "SYSIBM.SYSDUMMY1" is an undefined name. SQLSTATE=42705', True),
         (True, b"SQL1032N  No start database manager command was issued.", False),
         (False, b"SQL1013N  The database alias name or database name PYTESTDB could not be found.", False),
     ],
@@ -273,7 +321,8 @@ def test_db2_service_recreates_missing_database_once(
 ) -> None:
     """Verify a database missing after setup is created once with the 4K registry settings and an instance restart."""
     scripts: list[str] = []
-    responses = iter([MagicMock(exit_code=4, output=first_error), MagicMock(exit_code=4, output=first_error)])
+    error_count = 3 if expect_recreate and enable_4k_device_support else 2
+    responses = iter([MagicMock(exit_code=4, output=first_error) for _ in range(error_count)])
 
     def exec_run(cmd: list[str]) -> MagicMock:
         scripts.append(cmd[4])
@@ -314,6 +363,8 @@ def test_db2_service_recreates_missing_database_once(
         assert recreate_scripts == []
         return
     assert len(recreate_scripts) == 1
+    assert "flock -w 300 9" in recreate_scripts[0]
+    assert f"/{'tmp'}/pytest_databases_db2_init.lock" in recreate_scripts[0]
     assert (
         "db2set DB2_4K_DEVICE_SUPPORT=ON && db2set DB2_DIRECT_IO=NO && db2stop force && db2start "
         "&& db2 create database pytestdb" in recreate_scripts[0]
@@ -408,6 +459,8 @@ def test_create_worker_database_matches_exact_name(directory_listing: str, expec
     container.exec_run.return_value = MagicMock(exit_code=0, output=b"")
     create_worker_database(container, "ptdb_1")
     script = container.exec_run.call_args.args[0][4]
+    assert "flock -w 300 9" in script
+    assert f"/{'tmp'}/pytest_databases_db2_init.lock" in script
     grep_pattern = script.split("grep -Eiq ", 1)[1].split(" || ", 1)[0].strip("'")
     found = any(
         re.search(grep_pattern.replace("[[:space:]]", r"\s"), line, re.IGNORECASE)
@@ -442,6 +495,8 @@ def test_db2_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
             assert request.getfixturevalue("db2_4k_device_support") is True
             assert request.getfixturevalue("db2_activate_database") is True
             assert request.getfixturevalue("db2_port") is None
+            assert request.getfixturevalue("db2_ipc_mode") == "host"
+            assert request.getfixturevalue("db2_volumes") is None
             assert request.getfixturevalue("db2_image")
             assert request.getfixturevalue("db2_username") == "db2inst1"
             assert request.getfixturevalue("db2_password") == "pytest_db2_pwd"
@@ -515,6 +570,7 @@ def test_provide_db2_service_registry_vars_resources_and_init_sql(
         yield ServiceContainer(container=mock_container, host="127.0.0.1", port=50123)
 
     cs = MagicMock()
+    cs.temp_dir = tmp_path
     cs.run.side_effect = fake_run
 
     sql_path = tmp_path / "seed.sql"
@@ -602,3 +658,212 @@ def test_provide_db2_service_rejects_invalid_registry_vars(
     ):
         pass
     cs.run.assert_not_called()
+
+
+def test_db2_4k_fallback_skips_restart_when_peer_worker_recovers(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify peer worker re-probes inside FileLock and skips duplicate db2stop force recovery."""
+    monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: True)
+
+    mock_session = MagicMock()
+    mock_session.config.rootpath = tmp_path
+    container_service = ContainerService(cast("Any", MagicMock()), tmp_path, mock_session, owner_id="db2owner1234")
+
+    mock_container = MagicMock()
+    mock_container.id = "db2cid01"
+    state_lock = threading.Lock()
+    recreated = False
+    recreate_count = 0
+
+    def _exec_run(cmd: list[str]) -> MagicMock:
+        nonlocal recreated, recreate_count
+        script = cmd[4]
+        if "db2stop force" in script:
+            time.sleep(0.03)
+            with state_lock:
+                recreated = True
+                recreate_count += 1
+            return MagicMock(exit_code=0, output=b"DB20000I")
+        with state_lock:
+            is_ready = recreated
+        if is_ready:
+            return MagicMock(exit_code=0, output=b"1\n")
+        return MagicMock(exit_code=4, output=b"SQL0204N  SQLSTATE=42705")
+
+    mock_container.exec_run.side_effect = _exec_run
+    captured_checks: list[object] = []
+
+    @contextmanager
+    def _fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
+        captured_checks.append(kwargs["check"])
+        yield ServiceContainer(container=mock_container, host="127.0.0.1", port=50000)
+
+    monkeypatch.setattr(container_service, "run", _fake_run)
+    for _ in range(2):
+        with db2.provide_db2_service(
+            container_service=container_service,
+            db2_image=DEFAULT_DB2_IMAGE,
+            db2_dbname="pytestdb",
+            db2_username="db2inst1",
+            db2_password="pw",
+            db2_startup_timeout=300,
+            xdist_db2_isolation_level="database",
+            activate_database=False,
+        ):
+            pass
+
+    svc = ServiceContainer(container=mock_container, host="127.0.0.1", port=50000)
+    results: list[bool] = []
+    results_lock = threading.Lock()
+    barrier = threading.Barrier(2)
+
+    def _invoke(check_fn: object) -> None:
+        assert callable(check_fn)
+        barrier.wait(timeout=5)
+        outcome = bool(check_fn(svc))
+        with results_lock:
+            results.append(outcome)
+
+    threads = [threading.Thread(target=_invoke, args=(fn,)) for fn in captured_checks]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert recreate_count == 1
+    assert sorted(results) == [False, True]
+    assert (tmp_path / "db2cid01_db2_init.lock").is_file()
+
+
+def test_db2_create_worker_database_serializes_concurrent_workers(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify Db2Service.create_worker_database and xdist finalization serialize catalog writes via FileLock."""
+    monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: True)
+
+    mock_session = MagicMock()
+    mock_session.config.rootpath = tmp_path
+    container_service = ContainerService(cast("Any", MagicMock()), tmp_path, mock_session, owner_id="db2owner5678")
+
+    mock_container = MagicMock()
+    mock_container.id = "db2cid02"
+    state_lock = threading.Lock()
+    active_creates = 0
+    max_active_creates = 0
+
+    def _exec_run(cmd: list[str]) -> MagicMock:
+        nonlocal active_creates, max_active_creates
+        script = cmd[4]
+        if "db2 create database" in script:
+            with state_lock:
+                active_creates += 1
+                max_active_creates = max(max_active_creates, active_creates)
+            try:
+                time.sleep(0.03)
+            finally:
+                with state_lock:
+                    active_creates -= 1
+            return MagicMock(exit_code=0, output=b"DB20000I")
+        return MagicMock(exit_code=0, output=b"1\n")
+
+    mock_container.exec_run.side_effect = _exec_run
+
+    @contextmanager
+    def _fake_run(**_kwargs: object) -> Generator[ServiceContainer, None, None]:
+        yield ServiceContainer(container=mock_container, host="127.0.0.1", port=50000)
+
+    monkeypatch.setattr(container_service, "run", _fake_run)
+
+    with (
+        db2.provide_db2_service(
+            container_service=container_service,
+            db2_image=DEFAULT_DB2_IMAGE,
+            db2_dbname="pytestdb",
+            db2_username="db2inst1",
+            db2_password="pw",
+            db2_startup_timeout=300,
+            xdist_db2_isolation_level="database",
+        ) as svc,
+        ThreadPoolExecutor(max_workers=3) as pool,
+    ):
+        futures = [pool.submit(svc.create_worker_database, f"ptdb_{idx}") for idx in range(3)]
+        for future in futures:
+            future.result()
+
+    assert max_active_creates == 1
+    assert (tmp_path / "db2cid02_db2_init.lock").is_file()
+
+    monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: 1)
+    with db2.provide_db2_service(
+        container_service=container_service,
+        db2_image=DEFAULT_DB2_IMAGE,
+        db2_dbname="ptdb_1",
+        db2_username="db2inst1",
+        db2_password="pw",
+        db2_startup_timeout=300,
+        xdist_db2_isolation_level="database",
+    ) as worker_svc:
+        assert worker_svc.db_name == "ptdb_1"
+
+
+@pytest.mark.parametrize(
+    ("clp_output", "container_logs", "expected_marker"),
+    [
+        (b"SQL1042C  An unexpected system error occurred.\n", b"", "SQL1042C"),
+        (b"SQL5005C  System Error. SQLSTATE=57019\n", b"", "57019"),
+        (
+            b"SQL1032N  No start database manager command was issued.\n",
+            b"ADM0503C  Instance stopped SQL1042C\n",
+            "SQL1042C",
+        ),
+    ],
+)
+def test_db2_check_fails_fast_on_fatal_startup_errors(
+    monkeypatch: MonkeyPatch,
+    clp_output: bytes,
+    container_logs: bytes,
+    expected_marker: str,
+) -> None:
+    """Verify check() re-raises fatal SQL1042C/57019 failures immediately without attempting 4Kn restart."""
+    monkeypatch.setattr(db2, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(db2, "tcp_port_open", lambda *_args, **_kwargs: True)
+
+    scripts: list[str] = []
+    mock_container = MagicMock()
+    mock_container.logs.return_value = container_logs
+
+    def _exec_run(cmd: list[str]) -> MagicMock:
+        scripts.append(cmd[4])
+        return MagicMock(exit_code=4, output=clp_output)
+
+    mock_container.exec_run.side_effect = _exec_run
+
+    @contextmanager
+    def _fake_run(**kwargs: object) -> Generator[ServiceContainer, None, None]:
+        check_fn = kwargs["check"]
+        assert callable(check_fn)
+        svc = ServiceContainer(container=mock_container, host="127.0.0.1", port=50000)
+        with pytest.raises(RuntimeError, match=expected_marker) as exc_info:
+            check_fn(svc)
+        assert "pytestdb" in str(exc_info.value)
+        yield svc
+
+    container_service = MagicMock()
+    container_service.run.side_effect = _fake_run
+    with db2.provide_db2_service(
+        container_service=container_service,
+        db2_image=DEFAULT_DB2_IMAGE,
+        db2_dbname="pytestdb",
+        db2_username="db2inst1",
+        db2_password="pw",
+        db2_startup_timeout=300,
+        xdist_db2_isolation_level="database",
+        activate_database=False,
+    ):
+        pass
+    assert not any("db2stop force" in script for script in scripts)

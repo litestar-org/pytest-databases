@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import time
 import warnings
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -58,6 +59,7 @@ __all__ = [
     "ensure_oracle_adb_user",
     "ensure_oracle_user",
     "exec_oracle_sql",
+    "exec_sqlplus",
     "extract_adb_wallet",
     "oracle_18c_connection",
     "oracle_18c_image",
@@ -304,6 +306,137 @@ class OracleADBService(OracleService):
             url_mapping_pattern=url_mapping_pattern,
             auto_rest_auth=auto_rest_auth,
         )
+
+    @property
+    def mtls_alias(self) -> str | None:
+        """Preferred ``TCPS`` TNS alias from ``wallet_dir/tnsnames.ora``, if available."""
+        if self.wallet_dir is None:
+            return None
+        tns_path = self.wallet_dir / "tnsnames.ora"
+        if not tns_path.is_file():
+            return None
+        entries = parse_tnsnames(tns_path.read_text(encoding="utf-8", errors="replace"))
+        tcps_entries = {
+            alias: descriptor
+            for alias, descriptor in entries.items()
+            if descriptor.get("protocol", "").upper() == "TCPS"
+        }
+        if not tcps_entries:
+            return None
+        target_service = self.service_name.lower()
+        for alias, descriptor in tcps_entries.items():
+            if descriptor.get("service_name", "").lower() == target_service:
+                return alias
+        stem = target_service.split(".", 1)[0].split("_", 1)[0]
+        for tier in ("tp", "low", "high"):
+            preferred = f"{stem}_{tier}"
+            if preferred in tcps_entries:
+                return preferred
+        for tier in ("_tp", "_low", "_high"):
+            for alias in tcps_entries:
+                if alias.endswith(tier):
+                    return alias
+        return next(iter(tcps_entries))
+
+    def build_wallet_zip(
+        self,
+        target_path: str | Path,
+        *,
+        include_sso: bool = True,
+        wallet_password: str | None = None,
+    ) -> Path:
+        """Bundle extracted ADB wallet files into a ZIP archive at ``target_path``.
+
+        When ``ewallet.p12`` is absent and ``ewallet.pem`` exists, lazily synthesizes an
+        encrypted PKCS#12 ``ewallet.p12`` bundle using ``cryptography`` if installed.
+
+        Args:
+            target_path: Destination ZIP archive path.
+            include_sso: Whether to include ``cwallet.sso`` in the archive.
+            wallet_password: Optional password override used to encrypt synthesized ``ewallet.p12``.
+
+        Returns:
+            Resolved ``Path`` of the written ZIP archive.
+
+        Raises:
+            RuntimeError: If ``wallet_dir`` is unset or does not exist on disk.
+        """
+        if self.wallet_dir is None or not self.wallet_dir.is_dir():
+            msg = "Oracle ADB wallet directory is not available; pass wallet_dir when starting the service."
+            raise RuntimeError(msg)
+        dest = Path(target_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        resolved_password = self.wallet_password if wallet_password is None else wallet_password
+
+        files = sorted((p for p in self.wallet_dir.iterdir() if p.is_file()), key=lambda p: p.name)
+        lower_names = {p.name.lower(): p for p in files}
+        synthesized_p12: bytes | None = None
+        if "ewallet.p12" not in lower_names and "ewallet.pem" in lower_names:
+            synthesized_p12 = self._synthesize_ewallet_pkcs12(lower_names["ewallet.pem"], resolved_password)
+
+        with zipfile.ZipFile(dest, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for file_path in files:
+                if not include_sso and file_path.name.lower() == "cwallet.sso":
+                    continue
+                archive.write(file_path, arcname=file_path.name)
+            if synthesized_p12 is not None:
+                archive.writestr("ewallet.p12", synthesized_p12)
+        return dest
+
+    @staticmethod
+    def _synthesize_ewallet_pkcs12(pem_path: Path, wallet_password: str) -> bytes | None:
+        """Lazily build encrypted ``ewallet.p12`` bytes from ``ewallet.pem`` when ``cryptography`` is available."""
+        try:
+            serialization = importlib.import_module("cryptography.hazmat.primitives.serialization")
+            pkcs12 = importlib.import_module("cryptography.hazmat.primitives.serialization.pkcs12")
+            x509 = importlib.import_module("cryptography.x509")
+        except ModuleNotFoundError:
+            return None
+
+        pem_bytes = pem_path.read_bytes()
+        try:
+            private_key = serialization.load_pem_private_key(pem_bytes, password=None)
+        except (TypeError, ValueError):
+            try:
+                private_key = serialization.load_pem_private_key(
+                    pem_bytes,
+                    password=wallet_password.encode("utf-8"),
+                )
+            except (TypeError, ValueError):
+                return None
+
+        try:
+            certs = x509.load_pem_x509_certificates(pem_bytes)
+        except ValueError:
+            return None
+        if not certs:
+            return None
+
+        key_public_bytes = private_key.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        leaf_cert = next(
+            (
+                cert
+                for cert in certs
+                if cert.public_key().public_bytes(
+                    serialization.Encoding.DER,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
+                == key_public_bytes
+            ),
+            certs[0],
+        )
+        ca_certs = [cert for cert in certs if cert is not leaf_cert]
+        p12_bytes: bytes = pkcs12.serialize_key_and_certificates(
+            name=b"oracle-adb-wallet",
+            key=private_key,
+            cert=leaf_cert,
+            cas=ca_certs or None,
+            encryption_algorithm=serialization.BestAvailableEncryption(wallet_password.encode("utf-8")),
+        )
+        return p12_bytes
 
 
 def oracle_responsive(host: str, port: int, service_name: str, user: str, password: str) -> bool:
@@ -712,6 +845,64 @@ def exec_oracle_sql(
         as_sysdba=as_sysdba,
         whenever_sqlerror=whenever_sqlerror,
     )
+
+
+def exec_sqlplus(
+    container: Container,
+    sql: str,
+    *,
+    connect_as: str = "/ as sysdba",
+    whenever_sqlerror: str = "EXIT SQL.SQLCODE",
+) -> tuple[int, str]:
+    """Execute SQL or PL/SQL inside an Oracle container via ``sqlplus`` and decode the output.
+
+    Supports both OS authentication (default ``"/ as sysdba"``) and explicit credential strings
+    such as ``"user/password@//127.0.0.1:1521/FREEPDB1"``. Modulo-256 zero exit codes with
+    ``ORA-``/``PLS-``/``SP2-`` output errors are normalized to ``1``.
+
+    Args:
+        container: Running Oracle container handle.
+        sql: SQL statement or PL/SQL block.
+        connect_as: SQL*Plus connection specifier.
+        whenever_sqlerror: SQL*Plus ``WHENEVER SQLERROR`` directive.
+
+    Returns:
+        Tuple of ``(exit_code, decoded_output)``.
+
+    Raises:
+        ValueError: If ``connect_as`` is empty or whitespace-only.
+    """
+    target = connect_as.strip()
+    if not target:
+        msg = "connect_as must be non-empty."
+        raise ValueError(msg)
+    priv_match = re.match(
+        r"^(.*?)\s+(as\s+(?:sysdba|sysoper|sysasm|sysbackup|sysdg|syskm))$",
+        target,
+        re.IGNORECASE,
+    )
+    if priv_match:
+        credential_part = priv_match.group(1).strip()
+        priv_part = " ".join(priv_match.group(2).lower().split())
+        quoted_target = "/" if credential_part == "/" else shlex.quote(credential_part)
+        connect_clause = f"{quoted_target} {priv_part}"
+    else:
+        connect_clause = shlex.quote(target)
+    script = "\n".join([
+        "SET HEADING OFF FEEDBACK OFF PAGESIZE 0 VERIFY OFF ECHO OFF",
+        "WHENEVER OSERROR EXIT 9",
+        f"WHENEVER SQLERROR {whenever_sqlerror}",
+        _normalize_sqlplus_statement(sql),
+        "EXIT",
+        "",
+    ])
+    command = f"printf '%s' {shlex.quote(script)} | sqlplus -L -S {connect_clause}"
+    result = container.exec_run(["bash", "-lc", command])
+    exit_code = result.exit_code if result.exit_code is not None else -1
+    output = exec_output_to_bytes(result.output)
+    if exit_code == 0 and whenever_sqlerror.strip().upper() != "CONTINUE" and _SQLPLUS_ERROR_PATTERN.search(output):
+        exit_code = 1
+    return exit_code, output.decode("utf-8", errors="replace")
 
 
 @contextlib.contextmanager
@@ -1452,8 +1643,16 @@ def _normalize_sqlplus_statement(sql: str) -> str:
         Terminated SQL*Plus statement.
     """
     statement = sql.strip()
-    if not statement.endswith((";", "/")):
-        statement = f"{statement};"
+    if not statement:
+        return statement
+    if re.search(r"(?:^|\n)\s*/\s*$", statement):
+        return statement
+    tail = statement.rsplit("\n/", 1)[-1]
+    tail_code = re.sub(r"^(?:\s*--[^\n]*\n|\s*/\*.*?\*/\s*)*", "", tail, flags=re.DOTALL).lstrip()
+    if re.match(r"^(?:BEGIN|DECLARE)\b", tail_code, re.IGNORECASE):
+        return f"{statement}\n/" if statement.endswith(";") else f"{statement};\n/"
+    if not statement.endswith(";"):
+        return f"{statement};"
     return statement
 
 

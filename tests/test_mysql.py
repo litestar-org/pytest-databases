@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import threading
+import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 from docker.errors import APIError, NotFound
 
+from pytest_databases._service import ContainerService
 from pytest_databases.docker import mysql as mysql_mod
 from pytest_databases.docker.mysql import exec_mysql, provide_mysql_service
 from pytest_databases.types import ServiceContainer
@@ -307,6 +311,7 @@ def test_mysql_command_env_init_sql_and_exec_sql(monkeypatch: pytest.MonkeyPatch
 
     mock_container.exec_run.side_effect = _record_exec
     mock_docker = MagicMock()
+    mock_docker.temp_dir = tmp_path
     mock_docker.run.return_value.__enter__.return_value = ServiceContainer(
         host="127.0.0.1",
         port=43306,
@@ -412,3 +417,130 @@ def test_mysql_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
     result.assert_outcomes(passed=1)
+
+
+def test_provide_mysql_service_serializes_concurrent_grants(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify concurrent provide_mysql_service calls serialize GRANT/FLUSH behind ContainerService.temp_dir lock."""
+    monkeypatch.setattr(mysql_mod, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(mysql_mod, "tcp_port_open", lambda _h, _p: True)
+
+    mock_session = MagicMock()
+    mock_session.config.rootpath = tmp_path
+    docker_service = ContainerService(cast("Any", MagicMock()), tmp_path, mock_session, owner_id="mysql01")
+
+    state_lock = threading.Lock()
+    active_calls = 0
+    max_active_calls = 0
+    mock_container = MagicMock()
+    mock_container.id = "mysqlcid_xdist"
+
+    def _exec_run(cmd: list[str], environment: dict[str, str] | None = None) -> MagicMock:
+        nonlocal active_calls, max_active_calls
+        _ = environment
+        if "GRANT ALL PRIVILEGES" in cmd[-1]:
+            with state_lock:
+                active_calls += 1
+                max_active_calls = max(max_active_calls, active_calls)
+            try:
+                time.sleep(0.03)
+            finally:
+                with state_lock:
+                    active_calls -= 1
+        return MagicMock(exit_code=0, output=b"1\n")
+
+    mock_container.exec_run.side_effect = _exec_run
+
+    @contextmanager
+    def _fake_run(**_kwargs: object) -> Generator[ServiceContainer, None, None]:
+        yield ServiceContainer(host="127.0.0.1", port=3306, container=mock_container)
+
+    monkeypatch.setattr(docker_service, "run", _fake_run)
+
+    def _worker(db_name: str) -> None:
+        with provide_mysql_service(
+            docker_service=docker_service,
+            image="mysql:8.4",
+            name="mysql-8.4",
+            isolation_level="database",
+            platform=None,
+            user="app",
+            password="secret",
+            root_password="root",
+            database=db_name,
+        ):
+            pass
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(_worker, f"test_db_{idx}") for idx in range(3)]
+        for future in futures:
+            future.result()
+
+    assert max_active_calls == 1
+    assert (tmp_path / "mysqlcid_xdist_db_init.lock").is_file()
+
+
+@pytest.mark.parametrize("failure_mode", ["grant_error", "retry_exhaustion"])
+def test_provide_mysql_service_releases_lock_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_mode: str,
+) -> None:
+    """Verify failed provisioning releases the MySQL xdist init lock so peer workers can proceed."""
+    monkeypatch.setattr(mysql_mod, "get_xdist_worker_num", lambda: None)
+    monkeypatch.setattr(mysql_mod, "tcp_port_open", lambda _h, _p: True)
+    monkeypatch.setattr(mysql_mod.time, "sleep", lambda _s: None)
+
+    mock_session = MagicMock()
+    mock_session.config.rootpath = tmp_path
+    docker_service = ContainerService(cast("Any", MagicMock()), tmp_path, mock_session, owner_id="mysql02")
+    mock_container = MagicMock()
+    mock_container.id = "mysqlcid_fail"
+
+    def _failing_exec(cmd: list[str], environment: dict[str, str] | None = None) -> MagicMock:
+        _ = environment
+        if failure_mode == "grant_error" and "GRANT ALL PRIVILEGES" in cmd[-1]:
+            return MagicMock(exit_code=1, output=b"ERROR 1396")
+        if failure_mode == "retry_exhaustion" and cmd[-1] == "SELECT 1":
+            return MagicMock(exit_code=1, output=b"ERROR 1045")
+        return MagicMock(exit_code=0, output=b"1\n")
+
+    @contextmanager
+    def _fake_run(**_kwargs: object) -> Generator[ServiceContainer, None, None]:
+        yield ServiceContainer(host="127.0.0.1", port=3306, container=mock_container)
+
+    monkeypatch.setattr(docker_service, "run", _fake_run)
+    mock_container.exec_run.side_effect = _failing_exec
+
+    with (
+        pytest.raises(RuntimeError, match="after 15 attempts"),
+        provide_mysql_service(
+            docker_service=docker_service,
+            image="mysql:8.4",
+            name="mysql-8.4",
+            isolation_level="database",
+            platform=None,
+            user="app",
+            password="secret",
+            root_password="root",
+            database="test_db_0",
+        ),
+    ):
+        pass
+
+    mock_container.exec_run.side_effect = None
+    mock_container.exec_run.return_value = MagicMock(exit_code=0, output=b"1\n")
+    with provide_mysql_service(
+        docker_service=docker_service,
+        image="mysql:8.4",
+        name="mysql-8.4",
+        isolation_level="database",
+        platform=None,
+        user="app",
+        password="secret",
+        root_password="root",
+        database="test_db_1",
+    ) as service:
+        assert service.db == "test_db_1"

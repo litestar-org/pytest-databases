@@ -8,8 +8,10 @@ import shlex
 import time
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import filelock
 import pytest
 from docker.errors import APIError, NotFound
 
@@ -27,11 +29,12 @@ from pytest_databases.helpers import (
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
-    from pathlib import Path
 
     from docker.models.containers import Container
 
     from pytest_databases.types import XdistIsolationLevel
+
+_DB_INIT_LOCK_TIMEOUT: float = 180.0
 
 __all__ = [
     "MySQLService",
@@ -181,6 +184,7 @@ def provide_mysql_service(
         platform=platform,
         host_port=host_port,
     ) as service:
+        lock_path = _resolve_db_init_lock_path(docker_service, service.container)
         _provision_mysql_database(
             service.container,
             fixture_name=resolved_name,
@@ -188,6 +192,7 @@ def provide_mysql_service(
             user=user,
             password=password,
             root_password=root_password,
+            lock_path=lock_path,
         )
         _apply_mysql_init_sql(
             service.container,
@@ -439,6 +444,16 @@ def _build_mysql_env(
     return container_env
 
 
+def _resolve_db_init_lock_path(docker_service: DockerService, container: Container) -> Path | None:
+    """Resolve the cross-worker lock file path for container database initialization."""
+    container_id = getattr(container, "id", None)
+    if not isinstance(container_id, str) or not container_id.strip():
+        return None
+    temp_dir = Path(docker_service.temp_dir)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    return temp_dir / f"{container_id.strip()}_db_init.lock"
+
+
 def _provision_mysql_database(
     container: Container,
     *,
@@ -447,6 +462,7 @@ def _provision_mysql_database(
     user: str,
     password: str,
     root_password: str,
+    lock_path: Path | None = None,
 ) -> None:
     """Ensure ``db_name`` exists and ``user`` has global privileges and verified login access."""
     quoted_db = _quote_mysql_identifier(db_name)
@@ -457,17 +473,25 @@ def _provision_mysql_database(
             "FLUSH PRIVILEGES",
         ))
     setup_sql = "; ".join(setup_parts) + ";"
+    lock_context: contextlib.AbstractContextManager[object] = (
+        filelock.FileLock(str(lock_path), timeout=_DB_INIT_LOCK_TIMEOUT)
+        if lock_path is not None
+        else contextlib.nullcontext()
+    )
     last_err = b""
-    for attempt in range(15):
-        setup_code, setup_out = exec_mysql(container, setup_sql, user="root", password=root_password, batch=False)
-        if setup_code == 0:
-            verify_code, verify_out = exec_mysql(container, "SELECT 1", user=user, password=password, database=db_name)
-            if verify_code == 0:
-                return
-            last_err = verify_out
-        else:
-            last_err = setup_out
-        time.sleep(1 + attempt * 0.5)
+    with lock_context:
+        for attempt in range(15):
+            setup_code, setup_out = exec_mysql(container, setup_sql, user="root", password=root_password, batch=False)
+            if setup_code == 0:
+                verify_code, verify_out = exec_mysql(
+                    container, "SELECT 1", user=user, password=password, database=db_name
+                )
+                if verify_code == 0:
+                    return
+                last_err = verify_out
+            else:
+                last_err = setup_out
+            time.sleep(1 + attempt * 0.5)
     msg = (
         f"MySQL fixture {fixture_name!r}: user {user!r} could not reach database "
         f"{db_name!r} after 15 attempts. Last output: {last_err!r}"

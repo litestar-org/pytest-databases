@@ -96,6 +96,11 @@ class ContainerService(AbstractContextManager):
         """Deterministic session owner identifier."""
         return self._owner_id
 
+    @property
+    def temp_dir(self) -> Path:
+        """Shared session temporary directory used for cross-worker lock files."""
+        return self._tmp_path
+
     def container_name(self, service_name: str) -> str:
         """Generate a session-scoped container name.
 

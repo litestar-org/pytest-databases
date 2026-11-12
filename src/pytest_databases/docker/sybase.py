@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import configparser
 import dataclasses
 import os
 import posixpath
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from pytest_databases._service import ContainerService
 
 __all__ = (
+    "DEFAULT_SYBASE_FREETDS_SECTION",
     "DEFAULT_SYBASE_IMAGE",
     "SYBASE_DATABASE",
     "SYBASE_MAX_DB_NAME_LENGTH",
@@ -51,6 +53,7 @@ __all__ = (
     "provide_sybase_service",
     "sybase_database",
     "sybase_enable_monitoring",
+    "sybase_freetds_alias",
     "sybase_image",
     "sybase_password",
     "sybase_port",
@@ -62,6 +65,7 @@ __all__ = (
 )
 
 DEFAULT_SYBASE_IMAGE = "datagrip/sybase:16.0"
+DEFAULT_SYBASE_FREETDS_SECTION = "PYTEST_DATABASES_SYBASE"
 SYBASE_PORT = 5000
 SYBASE_USER = "sa"
 SYBASE_PASSWORD = "myPassword"
@@ -148,6 +152,67 @@ class SybaseService(ServiceContainer):
             user=self.user,
             password=self.password,
         )
+
+    def write_freetds_conf(
+        self,
+        target_dir: str | Path,
+        section_name: str = DEFAULT_SYBASE_FREETDS_SECTION,
+    ) -> tuple[Path, str]:
+        """Write a FreeTDS server alias section to ``<target_dir>/freetds.conf``.
+
+        Merges readable sections from any pre-existing ``FREETDSCONF`` and the target
+        ``freetds.conf`` without modifying ``[global]``, configuring ``host``, ``port``,
+        ``tds version = 5.0``, and ``client charset = UTF-8`` strictly under ``[section_name]``.
+
+        Args:
+            target_dir: Directory where ``freetds.conf`` is created or updated.
+            section_name: Server section header name to configure.
+
+        Returns:
+            Tuple of ``(conf_path, section_name)``.
+
+        Raises:
+            ValueError: If ``section_name`` is empty, ``"global"``, or contains INI delimiters or control characters.
+        """
+        cleaned = self._validate_freetds_section(section_name)
+        conf_dir = Path(target_dir)
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        conf_path = conf_dir / "freetds.conf"
+
+        parser = configparser.ConfigParser(interpolation=None)
+        setattr(parser, "optionxform", str)
+        prior_env = os.environ.get("FREETDSCONF")
+        if prior_env:
+            prior_path = Path(prior_env)
+            if prior_path.is_file() and prior_path.resolve() != conf_path.resolve():
+                with suppress(OSError, configparser.Error):
+                    parser.read(prior_path, encoding="utf-8")
+        if conf_path.is_file():
+            with suppress(OSError, configparser.Error):
+                parser.read(conf_path, encoding="utf-8")
+
+        if not parser.has_section(cleaned):
+            parser.add_section(cleaned)
+        parser.set(cleaned, "host", str(self.host))
+        parser.set(cleaned, "port", str(self.port))
+        parser.set(cleaned, "tds version", "5.0")
+        parser.set(cleaned, "client charset", "UTF-8")
+
+        with conf_path.open("w", encoding="utf-8") as conf_file:
+            parser.write(conf_file)
+        return conf_path, cleaned
+
+    @staticmethod
+    def _validate_freetds_section(section_name: str) -> str:
+        """Validate a FreeTDS server section name for INI serialization."""
+        if any(char in section_name for char in ("[", "]", "\r", "\n", "\x00")):
+            msg = f"Invalid FreeTDS section name {section_name!r}."
+            raise ValueError(msg)
+        cleaned = section_name.strip()
+        if not cleaned or cleaned.lower() == "global":
+            msg = f"Invalid FreeTDS section name {section_name!r}."
+            raise ValueError(msg)
+        return cleaned
 
 
 def validate_sybase_database_name(db_name: str) -> str:
@@ -515,6 +580,33 @@ def sybase_service(
         xdist_sybase_isolation_level=xdist_sybase_isolation_level,
     ) as service:
         yield service
+
+
+@pytest.fixture(scope="session")
+def sybase_freetds_alias(
+    sybase_service: SybaseService,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[str, None, None]:
+    """Write a ``freetds.conf`` alias for ``sybase_service``, export ``FREETDSCONF``, and restore on teardown.
+
+    Yields:
+        The FreeTDS section alias configured in ``FREETDSCONF``.
+    """
+    worker_num = get_xdist_worker_num()
+    section_name = (
+        DEFAULT_SYBASE_FREETDS_SECTION if worker_num is None else f"{DEFAULT_SYBASE_FREETDS_SECTION}_{worker_num}"
+    )
+    conf_dir = tmp_path_factory.mktemp("sybase_freetds")
+    conf_path, alias = sybase_service.write_freetds_conf(conf_dir, section_name=section_name)
+    previous = os.environ.get("FREETDSCONF")
+    os.environ["FREETDSCONF"] = str(conf_path)
+    try:
+        yield alias
+    finally:
+        if previous is None:
+            os.environ.pop("FREETDSCONF", None)
+        else:
+            os.environ["FREETDSCONF"] = previous
 
 
 class _SybaseRunKwargs(TypedDict):

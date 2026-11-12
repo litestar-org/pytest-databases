@@ -96,6 +96,13 @@ def test_derive_session_owner_id_is_deterministic(tmp_path: Path) -> None:
     assert all(c in "0123456789abcdef" for c in first)
 
 
+def test_container_service_temp_dir_exposes_session_tmp_path(tmp_path: Path) -> None:
+    """Ensure ContainerService.temp_dir returns the shared session temporary directory."""
+    service = make_service(tmp_path)
+    assert service.temp_dir == tmp_path
+    assert service.temp_dir.is_dir()
+
+
 def test_derive_session_owner_id_distinguishes_different_paths(tmp_path: Path) -> None:
     """Ensure distinct paths produce distinct owner digests."""
     dir_a = tmp_path / "worktree_a"
