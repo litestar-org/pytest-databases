@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import socket
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
@@ -12,9 +13,14 @@ import pytest
 
 from pytest_databases.docker import postgres as postgres_mod
 from pytest_databases.docker.postgres import (
+    ALLOYDB_OMNI_INIT_SQL,
+    ALLOYDB_OMNI_LEGACY_PRELOAD_LIBRARIES,
+    ALLOYDB_OMNI_PRELOAD_LIBRARIES,
+    PGVECTOR_INIT_SQL,
     ExternalPostgresService,
     PostgresService,
     PostgresTemplateOptions,
+    build_alloydb_omni_command,
     clone_template_database,
     drop_database_force,
     make_connection_string,
@@ -23,7 +29,7 @@ from pytest_databases.docker.postgres import (
     provide_postgres_service,
 )
 from pytest_databases.embedded import postgres as embedded_pg_mod
-from pytest_databases.helpers import tcp_port_open
+from pytest_databases.helpers import ensure_template, resolve_template_name, tcp_port_open
 from tests.conftest import unwrap_fixture
 
 if TYPE_CHECKING:
@@ -664,7 +670,8 @@ def test_provide_postgres_service_template_isolation(
     [
         name
         for name in postgres_mod.__all__
-        if name.endswith("_service") and name not in {"provide_postgres_service", "provide_external_postgres_service"}
+        if name.endswith("_service")
+        and name not in {"provide_postgres_service", "provide_external_postgres_service", "postgres_any_service"}
     ],
 )
 def test_family_services_forward_template_options(fixture_name: str) -> None:
@@ -678,7 +685,8 @@ def test_family_services_template_count() -> None:
     service_fixtures = [
         name
         for name in postgres_mod.__all__
-        if name.endswith("_service") and name not in {"provide_postgres_service", "provide_external_postgres_service"}
+        if name.endswith("_service")
+        and name not in {"provide_postgres_service", "provide_external_postgres_service", "postgres_any_service"}
     ]
     assert len(service_fixtures) == 27
 
@@ -845,9 +853,12 @@ def test_postgres_all_fixtures_inprocess(pytester: pytest.Pytester) -> None:
                     if name in {
                         "ExternalPostgresService",
                         "PostgresService",
+                        "PostgresServiceProtocol",
                         "PostgresTemplateOptions",
+                        "postgres_any_service",
                         "postgres_external_service",
                         "postgres_responsive",
+                        "provide_default_postgres_session",
                         "provide_external_postgres_service",
                         "provide_postgres_service",
                         "provide_postgres_connection",
@@ -1100,3 +1111,408 @@ def test_provide_external_postgres_service_live_scram_and_template(
                 assert (t_code, t_out.strip()) == (0, b"42")
     finally:
         embedded_pg_mod.stop_cluster(_LOCAL_PG_BINARIES, data_dir, proc)
+
+
+@pytest.mark.parametrize(
+    ("image", "command_env", "expected_textsearch", "expected_override"),
+    [
+        pytest.param("gcr.io/alloydb-omni/alloydbomni:18", None, True, None, id="omni-18"),
+        pytest.param("gcr.io/alloydb-omni/alloydbomni:17.1.0", None, True, None, id="omni-17-dot"),
+        pytest.param("gcr.io/alloydb-omni/alloydbomni:16", None, False, None, id="omni-16"),
+        pytest.param(
+            "localhost:5000/alloydb-omni/alloydbomni:15-bookworm@sha256:deadbeef",
+            None,
+            False,
+            None,
+            id="omni-15-port-and-digest",
+        ),
+        pytest.param(
+            "localhost:5000/alloydb-omni/alloydbomni",
+            None,
+            True,
+            None,
+            id="omni-registry-port-untagged",
+        ),
+        pytest.param("gcr.io/alloydb-omni/alloydbomni:18", "", False, None, id="command-cleared"),
+        pytest.param(
+            "gcr.io/alloydb-omni/alloydbomni:18",
+            "postgres -c max_connections=200",
+            False,
+            ["postgres", "-c", "max_connections=200"],
+            id="command-override",
+        ),
+    ],
+)
+def test_build_alloydb_omni_command_and_fixtures(
+    monkeypatch: pytest.MonkeyPatch,
+    image: str,
+    command_env: str | None,
+    expected_textsearch: bool,
+    expected_override: list[str] | None,
+) -> None:
+    """Verify AlloyDB Omni command builder, tag parsing, startup timeouts, shm_size, and exec_sql timeout."""
+    with_ts = build_alloydb_omni_command(include_textsearch=True)
+    without_ts = build_alloydb_omni_command(include_textsearch=False)
+    assert f"shared_preload_libraries={','.join(ALLOYDB_OMNI_PRELOAD_LIBRARIES)}" in with_ts
+    assert f"shared_preload_libraries={','.join(ALLOYDB_OMNI_LEGACY_PRELOAD_LIBRARIES)}" in without_ts
+    for guc in (
+        "pg_stat_statements.track=all",
+        "google_columnar_engine.enabled=on",
+        "google_columnar_engine.memory_size_in_mb=256",
+        "omni_enable_ml_agent_process=on",
+        "google_ml_integration.enable_model_support=on",
+        "google_ml_integration.enable_ai_query_engine=on",
+        "alloydb_ai_nl.enabled=on",
+        "max_connections=500",
+    ):
+        assert guc in with_ts
+        assert guc in without_ts
+
+    overridden = build_alloydb_omni_command(
+        extra_gucs={"google_columnar_engine.memory_size_in_mb": "512", "log_statement": "ddl"}
+    )
+    assert overridden.count("google_columnar_engine.memory_size_in_mb=512") == 1
+    assert "google_columnar_engine.memory_size_in_mb=256" not in overridden
+    assert "log_statement=ddl" in overridden
+
+    if command_env is None:
+        monkeypatch.delenv("ALLOYDB_OMNI_COMMAND", raising=False)
+        monkeypatch.delenv("ALLOYDB_OMNI_LEGACY_COMMAND", raising=False)
+    else:
+        monkeypatch.setenv("ALLOYDB_OMNI_COMMAND", command_env)
+        monkeypatch.delenv("ALLOYDB_OMNI_LEGACY_COMMAND", raising=False)
+
+    cmd = unwrap_fixture(postgres_mod.alloydb_omni_command)(image)
+    if command_env == "":
+        assert cmd is None
+    elif expected_override is not None:
+        assert cmd == expected_override
+    else:
+        assert isinstance(cmd, list)
+        has_ts = any("pg_textsearch" in arg for arg in cmd)
+        assert has_ts is expected_textsearch
+
+    legacy_cmd = unwrap_fixture(postgres_mod.alloydb_omni_legacy_command)()
+    if command_env == "":
+        assert legacy_cmd is None
+    elif expected_override is not None:
+        assert legacy_cmd == expected_override
+    else:
+        assert isinstance(legacy_cmd, list)
+        assert not any("pg_textsearch" in arg for arg in legacy_cmd)
+
+    monkeypatch.delenv("ALLOYDB_OMNI_SHM_SIZE", raising=False)
+    monkeypatch.delenv("POSTGRES_STARTUP_TIMEOUT", raising=False)
+    monkeypatch.delenv("ALLOYDB_OMNI_STARTUP_TIMEOUT", raising=False)
+    assert unwrap_fixture(postgres_mod.alloydb_omni_shm_size)() == "256m"
+    assert unwrap_fixture(postgres_mod.postgres_startup_timeout)() == 60
+    assert unwrap_fixture(postgres_mod.alloydb_omni_startup_timeout)() == 90
+
+    monkeypatch.setenv("ALLOYDB_OMNI_SHM_SIZE", "")
+    assert unwrap_fixture(postgres_mod.alloydb_omni_shm_size)() is None
+
+    recording = RecordingContainer()
+    pg_svc = _template_service(recording)
+    assert pg_svc.exec_sql("SELECT 1", timeout=12.0) == (0, b"1\n")
+
+
+def test_ensure_template_runs_init_sql_before_setup_sql(tmp_path: Path) -> None:
+    """Verify ensure_template executes init_sql strictly before setup_sql and hashes init_sql on demand."""
+    baseline = resolve_template_name("pg_tpl", setup_sql=("CREATE TABLE docs (v vector(3));",))
+    without_init = resolve_template_name("pg_tpl", setup_sql=("CREATE TABLE docs (v vector(3));",), init_sql=())
+    assert baseline == without_init
+
+    with_vec = resolve_template_name(
+        "pg_tpl", setup_sql=("CREATE TABLE docs (v vector(3));",), init_sql=PGVECTOR_INIT_SQL
+    )
+    with_other = resolve_template_name(
+        "pg_tpl",
+        setup_sql=("CREATE TABLE docs (v vector(3));",),
+        init_sql=("CREATE EXTENSION IF NOT EXISTS pgcrypto;",),
+    )
+    assert with_vec != baseline
+    assert with_other != with_vec
+
+    container = RecordingContainer(_no_template_yet)
+    service = _template_service(container)
+    resolved = ensure_template(
+        service._run_sql,
+        template_name="pg_tpl",
+        init_sql=PGVECTOR_INIT_SQL,
+        setup_sql=("CREATE TABLE docs (v vector(3));",),
+        lock_dir=tmp_path,
+    )
+    assert resolved == with_vec
+    staging = f"{resolved}_staging"
+    staged_statements = [sql for db, sql in container.statements if db == staging]
+    assert staged_statements == [*PGVECTOR_INIT_SQL, "CREATE TABLE docs (v vector(3));"]
+
+
+@pytest.mark.parametrize(
+    ("isolate", "expect_post_clone_init"),
+    [
+        pytest.param("template", False, id="template-mode"),
+        pytest.param("database", True, id="database-mode"),
+    ],
+)
+def test_provide_postgres_and_external_template_init_sql_skip_duplicate_post_clone(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    isolate: PostgresXdistIsolationLevel,
+    expect_post_clone_init: bool,
+) -> None:
+    """Verify container and external template provisioning run init_sql on staging without duplicate post-clone runs."""
+    monkeypatch.setattr(postgres_mod, "get_xdist_worker_num", lambda: 1)
+
+    container = RecordingContainer(_no_template_yet)
+    fake_service = SimpleNamespace(host="127.0.0.1", port=5432, container=container)
+    run_ctx = MagicMock()
+    run_ctx.__enter__.return_value = fake_service
+    run_ctx.__exit__.return_value = False
+    docker_service = MagicMock()
+    docker_service.run.return_value = run_ctx
+
+    cmd = build_alloydb_omni_command()
+    tpl = PostgresTemplateOptions(name="ai_tpl", setup="CREATE TABLE items (v vector(3));", lock_dir=tmp_path)
+    with provide_postgres_service(
+        docker_service,
+        image="gcr.io/alloydb-omni/alloydbomni:18",
+        name="alloydb-omni",
+        host="127.0.0.1",
+        user="postgres",
+        password="pw",
+        xdist_postgres_isolate=isolate,
+        database="workdb",
+        timeout=90,
+        shm_size="256m",
+        command=cmd,
+        template=tpl,
+        init_sql=ALLOYDB_OMNI_INIT_SQL,
+    ) as svc:
+        assert svc.database == "workdb_1"
+
+    run_kwargs = docker_service.run.call_args.kwargs
+    assert run_kwargs["timeout"] == 90
+    assert run_kwargs["shm_size"] == "256m"
+    assert run_kwargs["command"] == cmd
+    worker_init_calls = [sql for db, sql in container.statements if db == "workdb_1" and sql in ALLOYDB_OMNI_INIT_SQL]
+    staging_init_calls = [
+        sql for db, sql in container.statements if db.endswith("_staging") and sql in ALLOYDB_OMNI_INIT_SQL
+    ]
+    if expect_post_clone_init:
+        assert len(worker_init_calls) == len(ALLOYDB_OMNI_INIT_SQL)
+        assert staging_init_calls == []
+    else:
+        assert worker_init_calls == []
+        assert len(staging_init_calls) == len(ALLOYDB_OMNI_INIT_SQL)
+
+    if isolate == "template":
+        ext_statements: list[tuple[str, str]] = []
+
+        def fake_run_simple_query(
+            _host: str,
+            _port: int,
+            *,
+            user: str,
+            database: str,
+            sql: str,
+            password: str = "",
+            timeout: float = 30.0,
+        ) -> tuple[int, bytes]:
+            del user, password, timeout
+            ext_statements.append((database, sql))
+            if "datistemplate = true" in sql:
+                return 0, b""
+            return 0, b"1" if sql == "SELECT 1" else b""
+
+        monkeypatch.setattr(postgres_mod, "tcp_port_open", lambda *_a, **_kw: True)
+        monkeypatch.setattr(postgres_mod, "run_simple_query", fake_run_simple_query)
+        with provide_external_postgres_service(
+            "127.0.0.1",
+            5432,
+            database="extdb",
+            xdist_postgres_isolate="template",
+            template=PostgresTemplateOptions(
+                name="ext_vec", setup="CREATE TABLE docs (v vector(3));", lock_dir=tmp_path
+            ),
+            init_sql=PGVECTOR_INIT_SQL,
+            lock_dir=tmp_path,
+        ) as ext_svc:
+            assert ext_svc.database == "extdb_1"
+        ext_staging = [sql for db, sql in ext_statements if db.endswith("_staging")]
+        assert ext_staging == [*PGVECTOR_INIT_SQL, "CREATE TABLE docs (v vector(3));"]
+        assert not [sql for db, sql in ext_statements if db == "extdb_1" and sql in PGVECTOR_INIT_SQL]
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_timeout", "expected_shm", "expected_init_sql", "expect_cmd"),
+    [
+        pytest.param("postgres_service", 60, None, None, None, id="postgres"),
+        pytest.param("pgvector_service", 60, None, PGVECTOR_INIT_SQL, None, id="pgvector"),
+        pytest.param("pgvector_16_service", 60, None, PGVECTOR_INIT_SQL, None, id="pgvector-16"),
+        pytest.param("paradedb_service", 60, None, None, None, id="paradedb"),
+        pytest.param("alloydb_omni_service", 90, "256m", ALLOYDB_OMNI_INIT_SQL, "full", id="alloydb-omni"),
+        pytest.param("alloydb_omni_15_service", 90, "256m", ALLOYDB_OMNI_INIT_SQL, "legacy", id="alloydb-omni-15"),
+        pytest.param("alloydb_omni_16_service", 90, "256m", ALLOYDB_OMNI_INIT_SQL, "legacy", id="alloydb-omni-16"),
+        pytest.param("alloydb_omni_18_service", 90, "256m", ALLOYDB_OMNI_INIT_SQL, "full", id="alloydb-omni-18"),
+    ],
+)
+def test_family_services_forward_runtime_options_and_init_sql(
+    monkeypatch: pytest.MonkeyPatch,
+    fixture_name: str,
+    expected_timeout: int,
+    expected_shm: str | None,
+    expected_init_sql: tuple[str, ...] | None,
+    expect_cmd: str | None,
+) -> None:
+    """Verify generated PostgreSQL family fixtures forward timeout, shm_size, command, and init_sql."""
+    captured: list[dict[str, Any]] = []
+
+    @contextmanager
+    def _spy_provide(*args: Any, **kwargs: Any) -> Any:
+        del args
+        captured.append(kwargs)
+        yield MagicMock()
+
+    monkeypatch.setattr(postgres_mod, "provide_postgres_service", _spy_provide)
+    fixture_fn = unwrap_fixture(getattr(postgres_mod, fixture_name))
+    fixture_params = list(inspect.signature(fixture_fn).parameters)
+    sample_values: dict[str, Any] = {
+        "docker_service": MagicMock(),
+        "postgres_image": "postgres:18",
+        "pgvector_image": "pgvector/pgvector:pg18",
+        "paradedb_image": "paradedb/paradedb:latest-pg18",
+        "alloydb_omni_image": "gcr.io/alloydb-omni/alloydbomni:18",
+        "xdist_postgres_isolation_level": "database",
+        "postgres_host": "127.0.0.1",
+        "postgres_user": "postgres",
+        "postgres_password": "secret",
+        "postgres_database": "pytest_databases",
+        "postgres_template_options": PostgresTemplateOptions(),
+        "postgres_startup_timeout": 60,
+        "alloydb_omni_startup_timeout": 90,
+        "alloydb_omni_shm_size": "256m",
+        "alloydb_omni_command": build_alloydb_omni_command(include_textsearch=True),
+        "alloydb_omni_legacy_command": build_alloydb_omni_command(include_textsearch=False),
+    }
+    call_kwargs = {param: sample_values.get(param) for param in fixture_params}
+    gen = fixture_fn(**call_kwargs)
+    next(gen)
+    with pytest.raises(StopIteration):
+        next(gen)
+
+    assert len(captured) == 1
+    assert captured[0]["timeout"] == expected_timeout
+    assert captured[0]["shm_size"] == expected_shm
+    assert captured[0]["init_sql"] == expected_init_sql
+    if expect_cmd == "full":
+        assert any("pg_textsearch" in part for part in captured[0]["command"])
+    elif expect_cmd == "legacy":
+        assert not any("pg_textsearch" in part for part in captured[0]["command"])
+    else:
+        assert captured[0]["command"] is None
+
+
+@pytest.mark.parametrize(
+    ("plugins", "cli_args", "expected_backend"),
+    [
+        pytest.param(["pytest_databases.docker.postgres"], [], "docker", id="docker-default"),
+        pytest.param(["pytest_databases.docker.postgres"], ["--postgres-backend=docker"], "docker", id="docker-cli"),
+        pytest.param(
+            ["pytest_databases.docker.postgres"],
+            ["--postgres-backend=embedded"],
+            "embedded",
+            id="docker-only-switches-to-embedded",
+        ),
+        pytest.param(
+            ["pytest_databases.docker.postgres", "pytest_databases.embedded.postgres"],
+            ["--postgres-backend=docker"],
+            "docker",
+            id="both-plugins-docker",
+        ),
+    ],
+)
+def test_postgres_any_service_docker_plugin_selector(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    plugins: list[str],
+    cli_args: list[str],
+    expected_backend: str,
+) -> None:
+    """Verify postgres_any_service routes cleanly between Docker and embedded providers without cross-eval."""
+    monkeypatch.delenv("PYTEST_DATABASES_POSTGRES_BACKEND", raising=False)
+    pytester.makepyfile(f"""
+    from contextlib import contextmanager
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases import PostgresServiceProtocol
+    import pytest_databases.docker.postgres as dp_mod
+    import pytest_databases.embedded.postgres as ep_mod
+    from pytest_databases.docker.postgres import PostgresService
+    from pytest_databases.embedded.postgres import EmbeddedPostgresService, PostgresBinaries
+
+    pytest_plugins = {plugins!r}
+
+    @pytest.fixture(autouse=True, scope="session")
+    def patch_providers(tmp_path_factory):
+        d = tmp_path_factory.mktemp("pg")
+        bins = PostgresBinaries(initdb=d / "initdb", postgres=d / "postgres")
+        orig_doc = dp_mod.provide_postgres_service
+        orig_res = ep_mod.resolve_postgres_binaries
+        orig_emb = ep_mod.provide_embedded_postgres_service
+        orig_prep = ep_mod._prepare_database
+
+        @contextmanager
+        def fake_doc(*args, **kwargs):
+            yield PostgresService(
+                host="127.0.0.1",
+                port=5432,
+                container=MagicMock(),
+                database=kwargs.get("database", "pytest_databases"),
+                user=kwargs.get("user", "postgres"),
+                password=kwargs.get("password", "super-secret"),
+            )
+
+        @contextmanager
+        def fake_emb(**kwargs):
+            yield EmbeddedPostgresService(
+                host="127.0.0.1",
+                port=55432,
+                user="postgres",
+                database=kwargs.get("database", "pytest_databases"),
+                data_dir=d,
+                binaries=bins,
+            )
+
+        dp_mod.provide_postgres_service = fake_doc
+        ep_mod.resolve_postgres_binaries = lambda *a, **kw: bins
+        ep_mod.provide_embedded_postgres_service = fake_emb
+        ep_mod._prepare_database = lambda admin, **kw: admin
+        yield
+        dp_mod.provide_postgres_service = orig_doc
+        ep_mod.resolve_postgres_binaries = orig_res
+        ep_mod.provide_embedded_postgres_service = orig_emb
+        ep_mod._prepare_database = orig_prep
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        if {expected_backend!r} == "embedded":
+            pytest.fail("docker_service must not be evaluated when --postgres-backend=embedded")
+        return MagicMock()
+
+    @pytest.fixture(scope="session")
+    def embedded_postgres_service():
+        if {expected_backend!r} == "docker":
+            pytest.fail("embedded_postgres_service must not be evaluated when --postgres-backend=docker")
+        return MagicMock()
+
+    def test_any(postgres_any_service):
+        assert isinstance(postgres_any_service, PostgresServiceProtocol)
+        if {expected_backend!r} == "embedded":
+            assert isinstance(postgres_any_service, EmbeddedPostgresService)
+        else:
+            assert isinstance(postgres_any_service, PostgresService)
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", *cli_args)
+    result.assert_outcomes(passed=1)

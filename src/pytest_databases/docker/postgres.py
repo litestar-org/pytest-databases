@@ -6,6 +6,7 @@ import dataclasses
 import importlib
 import inspect
 import os
+import shlex
 import tempfile
 import time
 import warnings
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 import filelock
 import pytest
 
+from pytest_databases._service import resolve_postgres_backend
 from pytest_databases.embedded._pgwire import run_simple_query
 from pytest_databases.helpers import (
     DEFAULT_TEMPLATE_NAME,
@@ -32,7 +34,7 @@ from pytest_databases.helpers import (
     tcp_port_open,
     validate_identifier,
 )
-from pytest_databases.types import PostgresXdistIsolationLevel, ServiceContainer
+from pytest_databases.types import PostgresServiceProtocol, PostgresXdistIsolationLevel, ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Mapping, Sequence
@@ -43,8 +45,16 @@ if TYPE_CHECKING:
     from pytest_databases._service import DockerService
 
 __all__ = (
+    "ALLOYDB_OMNI_INIT_SQL",
+    "ALLOYDB_OMNI_LEGACY_PRELOAD_LIBRARIES",
+    "ALLOYDB_OMNI_PRELOAD_LIBRARIES",
+    "DEFAULT_ALLOYDB_OMNI_SHM_SIZE",
+    "DEFAULT_ALLOYDB_OMNI_STARTUP_TIMEOUT",
+    "DEFAULT_POSTGRES_STARTUP_TIMEOUT",
+    "PGVECTOR_INIT_SQL",
     "ExternalPostgresService",
     "PostgresService",
+    "PostgresServiceProtocol",
     "PostgresTemplateOptions",
     "alloydb_omni_15_connection",
     "alloydb_omni_15_port",
@@ -58,10 +68,15 @@ __all__ = (
     "alloydb_omni_18_connection",
     "alloydb_omni_18_port",
     "alloydb_omni_18_service",
+    "alloydb_omni_command",
     "alloydb_omni_connection",
     "alloydb_omni_image",
+    "alloydb_omni_legacy_command",
     "alloydb_omni_port",
     "alloydb_omni_service",
+    "alloydb_omni_shm_size",
+    "alloydb_omni_startup_timeout",
+    "build_alloydb_omni_command",
     "clone_template_database",
     "create_worker_database",
     "drop_database_force",
@@ -129,6 +144,7 @@ __all__ = (
     "postgres_18_connection",
     "postgres_18_port",
     "postgres_18_service",
+    "postgres_any_service",
     "postgres_connection",
     "postgres_database",
     "postgres_external_host",
@@ -139,17 +155,92 @@ __all__ = (
     "postgres_password",
     "postgres_port",
     "postgres_service",
+    "postgres_startup_timeout",
     "postgres_template_fingerprint_sources",
     "postgres_template_lock_dir",
     "postgres_template_name",
     "postgres_template_options",
     "postgres_template_setup",
     "postgres_user",
+    "provide_default_postgres_session",
     "provide_external_postgres_service",
     "provide_postgres_connection",
     "provide_postgres_service",
     "xdist_postgres_isolation_level",
 )
+
+DEFAULT_POSTGRES_STARTUP_TIMEOUT: int = 60
+DEFAULT_ALLOYDB_OMNI_STARTUP_TIMEOUT: int = 90
+DEFAULT_ALLOYDB_OMNI_SHM_SIZE: str = "256m"
+
+ALLOYDB_OMNI_LEGACY_PRELOAD_LIBRARIES: tuple[str, ...] = (
+    "g_stats",
+    "google_columnar_engine",
+    "google_job_scheduler",
+    "google_ml_integration",
+    "google_storage",
+    "pg_stat_statements",
+)
+ALLOYDB_OMNI_PRELOAD_LIBRARIES: tuple[str, ...] = (
+    *ALLOYDB_OMNI_LEGACY_PRELOAD_LIBRARIES,
+    "pg_textsearch",
+)
+
+
+def _idempotent_extension_sql(extension: str, *, cascade: bool = True) -> str:
+    """Return a PL/pgSQL block creating ``extension`` while tolerating concurrent ML-agent install races."""
+    cascade_clause = " CASCADE" if cascade else ""
+    return (
+        "DO $$ BEGIN "
+        f"CREATE EXTENSION IF NOT EXISTS {extension}{cascade_clause}; "
+        "EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; "
+        "END $$;"
+    )
+
+
+ALLOYDB_OMNI_INIT_SQL: tuple[str, ...] = (
+    _idempotent_extension_sql("google_columnar_engine"),
+    _idempotent_extension_sql("pg_stat_statements"),
+    _idempotent_extension_sql("vector"),
+    _idempotent_extension_sql("alloydb_scann"),
+    _idempotent_extension_sql("google_ml_integration"),
+    _idempotent_extension_sql("alloydb_ai_nl"),
+    (
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_textsearch') THEN "
+        "CREATE EXTENSION IF NOT EXISTS pg_textsearch CASCADE; "
+        "END IF; "
+        "EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; "
+        "END $$;"
+    ),
+)
+PGVECTOR_INIT_SQL: tuple[str, ...] = (_idempotent_extension_sql("vector", cascade=False),)
+
+
+def build_alloydb_omni_command(
+    *,
+    include_textsearch: bool = True,
+    extra_gucs: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Return PostgreSQL postmaster args enabling verified AlloyDB Omni 15-18 columnar, BM25, ScaNN, and AI GUCs."""
+    preload = ALLOYDB_OMNI_PRELOAD_LIBRARIES if include_textsearch else ALLOYDB_OMNI_LEGACY_PRELOAD_LIBRARIES
+    gucs: dict[str, str] = {
+        "shared_preload_libraries": ",".join(preload),
+        "pg_stat_statements.track": "all",
+        "google_columnar_engine.enabled": "on",
+        "google_columnar_engine.memory_size_in_mb": "256",
+        "omni_enable_ml_agent_process": "on",
+        "google_ml_integration.enable_model_support": "on",
+        "google_ml_integration.enable_ai_query_engine": "on",
+        "alloydb_ai_nl.enabled": "on",
+        "max_connections": "500",
+    }
+    if extra_gucs:
+        gucs.update(extra_gucs)
+    command = ["postgres"]
+    for key, value in gucs.items():
+        command.extend(["-c", f"{key}={value}"])
+    return command
 
 
 @dataclasses.dataclass
@@ -203,12 +294,14 @@ class PostgresService(ServiceContainer, PostgresTemplateSupport):
         *,
         database: str | None = None,
         tuples_only: bool = False,
+        timeout: float = 30.0,
     ) -> tuple[int, bytes]:
         """Execute ``sql`` against ``database`` (defaults to ``self.database``) via in-container ``psql``.
 
         Returns:
             Tuple of ``(exit_code, output_bytes)``.
         """
+        del timeout
         return self._run_sql(database or self.database, sql, tuples_only=tuples_only)
 
     def _run_sql(self, database: str, sql: str, *, tuples_only: bool = False) -> tuple[int, bytes]:
@@ -606,14 +699,16 @@ def provide_postgres_service(
             db_name=db_name,
             isolate=xdist_postgres_isolate,
             template=template,
-        )
-        _apply_container_init_sql(
-            service.container,
-            user=user,
-            password=password,
-            db_name=db_name,
             init_sql=init_sql,
         )
+        if xdist_postgres_isolate != "template":
+            _apply_container_init_sql(
+                service.container,
+                user=user,
+                password=password,
+                db_name=db_name,
+                init_sql=init_sql,
+            )
         yield PostgresService(
             host=service.host,
             port=service.port,
@@ -697,10 +792,16 @@ def provide_external_postgres_service(
     )
     admin = ExternalPostgresService(host=host, port=port, database=maint_db, user=user, password=password)
     _provision_external_database(
-        admin, db_name=db_name, isolate=xdist_postgres_isolate, template=template, lock_dir=lock_dir
+        admin,
+        db_name=db_name,
+        isolate=xdist_postgres_isolate,
+        template=template,
+        init_sql=init_sql,
+        lock_dir=lock_dir,
     )
     target = ExternalPostgresService(host=host, port=port, database=db_name, user=user, password=password)
-    _apply_external_init_sql(target, admin=admin, init_sql=init_sql, lock_dir=lock_dir)
+    if xdist_postgres_isolate != "template":
+        _apply_external_init_sql(target, admin=admin, init_sql=init_sql, lock_dir=lock_dir)
     yield target
 
 
@@ -713,6 +814,7 @@ def postgres_external_service(
     postgres_database: str,
     xdist_postgres_isolation_level: PostgresXdistIsolationLevel,
     postgres_template_options: PostgresTemplateOptions,
+    postgres_startup_timeout: int,
 ) -> Generator[ExternalPostgresService, None, None]:
     """Attach to a pre-started PostgreSQL service configured via ``POSTGRES_EXTERNAL_HOST``.
 
@@ -732,6 +834,7 @@ def postgres_external_service(
         database=postgres_database,
         xdist_postgres_isolate=isolate,
         template=postgres_template_options,
+        timeout=postgres_startup_timeout,
     ) as service:
         yield service
 
@@ -766,6 +869,12 @@ def provide_postgres_connection(
         yield conn
 
 
+@pytest.fixture(scope="session")
+def postgres_startup_timeout() -> int:
+    """Return startup readiness timeout in seconds for PostgreSQL containers."""
+    return int(os.getenv("POSTGRES_STARTUP_TIMEOUT", str(DEFAULT_POSTGRES_STARTUP_TIMEOUT)))
+
+
 def _make_postgres_service_fixture(
     fixture_name: str,
     *,
@@ -774,11 +883,18 @@ def _make_postgres_service_fixture(
     doc: str,
     image: str | None = None,
     image_fixture: str | None = None,
+    timeout_fixture_name: str | None = None,
+    command_fixture_name: str | None = None,
+    shm_size_fixture_name: str | None = None,
+    default_init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> Any:
     """Create a session-scoped PostgreSQL family service fixture."""
 
     def _fixture(**kwargs: Any) -> Generator[PostgresService, None, None]:
         resolved_image = kwargs[image_fixture] if image_fixture is not None else str(image)
+        timeout = kwargs[timeout_fixture_name] if timeout_fixture_name is not None else DEFAULT_POSTGRES_STARTUP_TIMEOUT
+        command = kwargs[command_fixture_name] if command_fixture_name is not None else None
+        shm_size = kwargs[shm_size_fixture_name] if shm_size_fixture_name is not None else None
         with provide_postgres_service(
             kwargs["docker_service"],
             image=resolved_image,
@@ -788,8 +904,12 @@ def _make_postgres_service_fixture(
             user=kwargs["postgres_user"],
             password=kwargs["postgres_password"],
             host_port=kwargs[port_fixture],
+            timeout=timeout,
             template=kwargs["postgres_template_options"],
             database=kwargs["postgres_database"],
+            command=command,
+            shm_size=shm_size,
+            init_sql=default_init_sql,
         ) as service:
             yield service
 
@@ -805,6 +925,12 @@ def _make_postgres_service_fixture(
         port_fixture,
         "postgres_template_options",
     ])
+    if timeout_fixture_name is not None:
+        param_names.append(timeout_fixture_name)
+    if command_fixture_name is not None:
+        param_names.append(command_fixture_name)
+    if shm_size_fixture_name is not None:
+        param_names.append(shm_size_fixture_name)
     _fixture.__signature__ = inspect.Signature([  # type: ignore[attr-defined]
         inspect.Parameter(param, inspect.Parameter.POSITIONAL_OR_KEYWORD) for param in param_names
     ])
@@ -843,6 +969,7 @@ postgres_11_service = _make_postgres_service_fixture(
     name="postgres-11",
     port_fixture="postgres_11_port",
     doc="Provide a PostgreSQL 11 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 postgres_12_service = _make_postgres_service_fixture(
     "postgres_12_service",
@@ -850,6 +977,7 @@ postgres_12_service = _make_postgres_service_fixture(
     name="postgres-12",
     port_fixture="postgres_12_port",
     doc="Provide a PostgreSQL 12 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 postgres_13_service = _make_postgres_service_fixture(
     "postgres_13_service",
@@ -857,6 +985,7 @@ postgres_13_service = _make_postgres_service_fixture(
     name="postgres-13",
     port_fixture="postgres_13_port",
     doc="Provide a PostgreSQL 13 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 postgres_14_service = _make_postgres_service_fixture(
     "postgres_14_service",
@@ -864,6 +993,7 @@ postgres_14_service = _make_postgres_service_fixture(
     name="postgres-14",
     port_fixture="postgres_14_port",
     doc="Provide a PostgreSQL 14 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 postgres_15_service = _make_postgres_service_fixture(
     "postgres_15_service",
@@ -871,6 +1001,7 @@ postgres_15_service = _make_postgres_service_fixture(
     name="postgres-15",
     port_fixture="postgres_15_port",
     doc="Provide a PostgreSQL 15 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 postgres_16_service = _make_postgres_service_fixture(
     "postgres_16_service",
@@ -878,6 +1009,7 @@ postgres_16_service = _make_postgres_service_fixture(
     name="postgres-16",
     port_fixture="postgres_16_port",
     doc="Provide a PostgreSQL 16 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 postgres_17_service = _make_postgres_service_fixture(
     "postgres_17_service",
@@ -885,6 +1017,7 @@ postgres_17_service = _make_postgres_service_fixture(
     name="postgres-17",
     port_fixture="postgres_17_port",
     doc="Provide a PostgreSQL 17 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 postgres_18_service = _make_postgres_service_fixture(
     "postgres_18_service",
@@ -892,6 +1025,7 @@ postgres_18_service = _make_postgres_service_fixture(
     name="postgres-18",
     port_fixture="postgres_18_port",
     doc="Provide a PostgreSQL 18 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 
 postgres_11_connection = _make_postgres_connection_fixture(
@@ -988,6 +1122,7 @@ postgres_service = _make_postgres_service_fixture(
     name="postgres",
     port_fixture="postgres_port",
     doc="Provide the default PostgreSQL service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 postgres_connection = _make_postgres_connection_fixture(
     "postgres_connection",
@@ -1044,6 +1179,8 @@ pgvector_service = _make_postgres_service_fixture(
     name="pgvector",
     port_fixture="pgvector_port",
     doc="Provide the default pgvector service.",
+    timeout_fixture_name="postgres_startup_timeout",
+    default_init_sql=PGVECTOR_INIT_SQL,
 )
 pgvector_13_service = _make_postgres_service_fixture(
     "pgvector_13_service",
@@ -1051,6 +1188,8 @@ pgvector_13_service = _make_postgres_service_fixture(
     name="pgvector-13",
     port_fixture="pgvector_13_port",
     doc="Provide a pgvector PG13 service.",
+    timeout_fixture_name="postgres_startup_timeout",
+    default_init_sql=PGVECTOR_INIT_SQL,
 )
 pgvector_14_service = _make_postgres_service_fixture(
     "pgvector_14_service",
@@ -1058,6 +1197,8 @@ pgvector_14_service = _make_postgres_service_fixture(
     name="pgvector-14",
     port_fixture="pgvector_14_port",
     doc="Provide a pgvector PG14 service.",
+    timeout_fixture_name="postgres_startup_timeout",
+    default_init_sql=PGVECTOR_INIT_SQL,
 )
 pgvector_15_service = _make_postgres_service_fixture(
     "pgvector_15_service",
@@ -1065,6 +1206,8 @@ pgvector_15_service = _make_postgres_service_fixture(
     name="pgvector-15",
     port_fixture="pgvector_15_port",
     doc="Provide a pgvector PG15 service.",
+    timeout_fixture_name="postgres_startup_timeout",
+    default_init_sql=PGVECTOR_INIT_SQL,
 )
 pgvector_16_service = _make_postgres_service_fixture(
     "pgvector_16_service",
@@ -1072,6 +1215,8 @@ pgvector_16_service = _make_postgres_service_fixture(
     name="pgvector-16",
     port_fixture="pgvector_16_port",
     doc="Provide a pgvector PG16 service.",
+    timeout_fixture_name="postgres_startup_timeout",
+    default_init_sql=PGVECTOR_INIT_SQL,
 )
 pgvector_17_service = _make_postgres_service_fixture(
     "pgvector_17_service",
@@ -1079,6 +1224,8 @@ pgvector_17_service = _make_postgres_service_fixture(
     name="pgvector-17",
     port_fixture="pgvector_17_port",
     doc="Provide a pgvector PG17 service.",
+    timeout_fixture_name="postgres_startup_timeout",
+    default_init_sql=PGVECTOR_INIT_SQL,
 )
 pgvector_18_service = _make_postgres_service_fixture(
     "pgvector_18_service",
@@ -1086,6 +1233,8 @@ pgvector_18_service = _make_postgres_service_fixture(
     name="pgvector-18",
     port_fixture="pgvector_18_port",
     doc="Provide a pgvector PG18 service.",
+    timeout_fixture_name="postgres_startup_timeout",
+    default_init_sql=PGVECTOR_INIT_SQL,
 )
 
 pgvector_connection = _make_postgres_connection_fixture(
@@ -1163,6 +1312,7 @@ paradedb_service = _make_postgres_service_fixture(
     name="paradedb",
     port_fixture="paradedb_port",
     doc="Provide the default ParadeDB service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 paradedb_15_service = _make_postgres_service_fixture(
     "paradedb_15_service",
@@ -1170,6 +1320,7 @@ paradedb_15_service = _make_postgres_service_fixture(
     name="paradedb-15",
     port_fixture="paradedb_15_port",
     doc="Provide a ParadeDB PG15 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 paradedb_16_service = _make_postgres_service_fixture(
     "paradedb_16_service",
@@ -1177,6 +1328,7 @@ paradedb_16_service = _make_postgres_service_fixture(
     name="paradedb-16",
     port_fixture="paradedb_16_port",
     doc="Provide a ParadeDB PG16 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 paradedb_17_service = _make_postgres_service_fixture(
     "paradedb_17_service",
@@ -1184,6 +1336,7 @@ paradedb_17_service = _make_postgres_service_fixture(
     name="paradedb-17",
     port_fixture="paradedb_17_port",
     doc="Provide a ParadeDB PG17 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 paradedb_18_service = _make_postgres_service_fixture(
     "paradedb_18_service",
@@ -1191,6 +1344,7 @@ paradedb_18_service = _make_postgres_service_fixture(
     name="paradedb-18",
     port_fixture="paradedb_18_port",
     doc="Provide a ParadeDB PG18 service.",
+    timeout_fixture_name="postgres_startup_timeout",
 )
 
 paradedb_connection = _make_postgres_connection_fixture(
@@ -1252,12 +1406,49 @@ alloydb_omni_18_port = _make_port_fixture(
     "Return an optional pinned host port for AlloyDB Omni 18.",
 )
 
+
+@pytest.fixture(scope="session")
+def alloydb_omni_startup_timeout() -> int:
+    """Return startup readiness timeout in seconds for AlloyDB Omni containers."""
+    return int(os.getenv("ALLOYDB_OMNI_STARTUP_TIMEOUT", str(DEFAULT_ALLOYDB_OMNI_STARTUP_TIMEOUT)))
+
+
+@pytest.fixture(scope="session")
+def alloydb_omni_shm_size() -> str | None:
+    """Return shared-memory size for AlloyDB Omni containers."""
+    return os.getenv("ALLOYDB_OMNI_SHM_SIZE", DEFAULT_ALLOYDB_OMNI_SHM_SIZE) or None
+
+
+@pytest.fixture(scope="session")
+def alloydb_omni_command(alloydb_omni_image: str) -> list[str] | str | None:
+    """Return postmaster command for ``alloydb_omni_service``, omitting ``pg_textsearch`` for 15/16 tags."""
+    override = os.getenv("ALLOYDB_OMNI_COMMAND")
+    if override is not None:
+        return shlex.split(override) or None
+    return build_alloydb_omni_command(include_textsearch=not _is_legacy_alloydb_omni_image(alloydb_omni_image))
+
+
+@pytest.fixture(scope="session")
+def alloydb_omni_legacy_command() -> list[str] | str | None:
+    """Return postmaster command for AlloyDB Omni 15 and 16 containers without ``pg_textsearch``."""
+    override = os.getenv("ALLOYDB_OMNI_LEGACY_COMMAND")
+    if override is None:
+        override = os.getenv("ALLOYDB_OMNI_COMMAND")
+    if override is not None:
+        return shlex.split(override) or None
+    return build_alloydb_omni_command(include_textsearch=False)
+
+
 alloydb_omni_service = _make_postgres_service_fixture(
     "alloydb_omni_service",
     image_fixture="alloydb_omni_image",
     name="alloydb-omni",
     port_fixture="alloydb_omni_port",
     doc="Provide the default AlloyDB Omni service.",
+    timeout_fixture_name="alloydb_omni_startup_timeout",
+    command_fixture_name="alloydb_omni_command",
+    shm_size_fixture_name="alloydb_omni_shm_size",
+    default_init_sql=ALLOYDB_OMNI_INIT_SQL,
 )
 alloydb_omni_15_service = _make_postgres_service_fixture(
     "alloydb_omni_15_service",
@@ -1265,6 +1456,10 @@ alloydb_omni_15_service = _make_postgres_service_fixture(
     name="alloydb-omni-15",
     port_fixture="alloydb_omni_15_port",
     doc="Provide an AlloyDB Omni 15 service.",
+    timeout_fixture_name="alloydb_omni_startup_timeout",
+    command_fixture_name="alloydb_omni_legacy_command",
+    shm_size_fixture_name="alloydb_omni_shm_size",
+    default_init_sql=ALLOYDB_OMNI_INIT_SQL,
 )
 alloydb_omni_16_service = _make_postgres_service_fixture(
     "alloydb_omni_16_service",
@@ -1272,6 +1467,10 @@ alloydb_omni_16_service = _make_postgres_service_fixture(
     name="alloydb-omni-16",
     port_fixture="alloydb_omni_16_port",
     doc="Provide an AlloyDB Omni 16 service.",
+    timeout_fixture_name="alloydb_omni_startup_timeout",
+    command_fixture_name="alloydb_omni_legacy_command",
+    shm_size_fixture_name="alloydb_omni_shm_size",
+    default_init_sql=ALLOYDB_OMNI_INIT_SQL,
 )
 alloydb_omni_17_service = _make_postgres_service_fixture(
     "alloydb_omni_17_service",
@@ -1279,6 +1478,10 @@ alloydb_omni_17_service = _make_postgres_service_fixture(
     name="alloydb-omni-17",
     port_fixture="alloydb_omni_17_port",
     doc="Provide an AlloyDB Omni 17 service.",
+    timeout_fixture_name="alloydb_omni_startup_timeout",
+    command_fixture_name="alloydb_omni_command",
+    shm_size_fixture_name="alloydb_omni_shm_size",
+    default_init_sql=ALLOYDB_OMNI_INIT_SQL,
 )
 alloydb_omni_18_service = _make_postgres_service_fixture(
     "alloydb_omni_18_service",
@@ -1286,6 +1489,10 @@ alloydb_omni_18_service = _make_postgres_service_fixture(
     name="alloydb-omni-18",
     port_fixture="alloydb_omni_18_port",
     doc="Provide an AlloyDB Omni 18 service.",
+    timeout_fixture_name="alloydb_omni_startup_timeout",
+    command_fixture_name="alloydb_omni_command",
+    shm_size_fixture_name="alloydb_omni_shm_size",
+    default_init_sql=ALLOYDB_OMNI_INIT_SQL,
 )
 
 alloydb_omni_connection = _make_postgres_connection_fixture(
@@ -1313,6 +1520,181 @@ alloydb_omni_18_connection = _make_postgres_connection_fixture(
     service_fixture="alloydb_omni_18_service",
     doc="Provide a deprecated psycopg connection to AlloyDB Omni 18.",
 )
+
+
+def _is_legacy_alloydb_omni_image(image: str) -> bool:
+    """Return whether ``image`` names an AlloyDB Omni 15 or 16 tag lacking ``pg_textsearch``."""
+    without_digest = image.split("@", 1)[0]
+    last_segment = without_digest.rsplit("/", 1)[-1]
+    if ":" not in last_segment:
+        return False
+    tag = last_segment.split(":", 1)[1]
+    return tag in {"15", "16"} or tag.startswith(("15.", "15-", "16.", "16-"))
+
+
+def _is_fixture_registered(request: pytest.FixtureRequest, name: str) -> bool:
+    """Return whether pytest has registered a fixture named ``name`` for the current node."""
+    return bool(request.session._fixturemanager.getfixturedefs(name, request.node))
+
+
+def _resolve_optional_postgres_template(request: pytest.FixtureRequest) -> PostgresTemplateOptions | None:
+    """Build ``PostgresTemplateOptions`` when user template fixtures are registered in the active session."""
+    if _is_fixture_registered(request, "postgres_template_options"):
+        return request.getfixturevalue("postgres_template_options")
+    has_override = any(
+        _is_fixture_registered(request, fixture_name)
+        for fixture_name in (
+            "postgres_template_setup",
+            "postgres_template_name",
+            "postgres_template_fingerprint_sources",
+            "postgres_template_lock_dir",
+        )
+    )
+    if not has_override:
+        return None
+    name = (
+        request.getfixturevalue("postgres_template_name")
+        if _is_fixture_registered(request, "postgres_template_name")
+        else None
+    )
+    setup = (
+        request.getfixturevalue("postgres_template_setup")
+        if _is_fixture_registered(request, "postgres_template_setup")
+        else None
+    )
+    fingerprint_sources = (
+        request.getfixturevalue("postgres_template_fingerprint_sources")
+        if _is_fixture_registered(request, "postgres_template_fingerprint_sources")
+        else ()
+    )
+    lock_dir = (
+        request.getfixturevalue("postgres_template_lock_dir")
+        if _is_fixture_registered(request, "postgres_template_lock_dir")
+        else None
+    )
+    return PostgresTemplateOptions(
+        name=name,
+        setup=setup,
+        lock_dir=lock_dir,
+        fingerprint_sources=fingerprint_sources,
+    )
+
+
+@contextmanager
+def provide_default_postgres_session(
+    request: pytest.FixtureRequest,
+) -> Generator[PostgresService | ExternalPostgresService, None, None]:
+    """Yield ``postgres_service`` if registered, or provision a Docker/external PostgreSQL session fallback.
+
+    Yields:
+        Active :class:`PostgresService` or :class:`ExternalPostgresService`.
+    """
+    if _is_fixture_registered(request, "postgres_service"):
+        yield request.getfixturevalue("postgres_service")
+        return
+
+    external_host = (
+        request.getfixturevalue("postgres_external_host")
+        if _is_fixture_registered(request, "postgres_external_host")
+        else os.environ.get("POSTGRES_EXTERNAL_HOST", "").strip() or None
+    )
+    isolate: PostgresXdistIsolationLevel = (
+        request.getfixturevalue("xdist_postgres_isolation_level")
+        if _is_fixture_registered(request, "xdist_postgres_isolation_level")
+        else "database"
+    )
+    user = (
+        request.getfixturevalue("postgres_user")
+        if _is_fixture_registered(request, "postgres_user")
+        else os.environ.get("POSTGRES_USER", "postgres")
+    )
+    password = (
+        request.getfixturevalue("postgres_password")
+        if _is_fixture_registered(request, "postgres_password")
+        else "super-secret"
+    )
+    database = (
+        request.getfixturevalue("postgres_database")
+        if _is_fixture_registered(request, "postgres_database")
+        else os.environ.get("POSTGRES_DATABASE", "pytest_databases")
+    )
+    timeout = (
+        request.getfixturevalue("postgres_startup_timeout")
+        if _is_fixture_registered(request, "postgres_startup_timeout")
+        else int(os.environ.get("POSTGRES_STARTUP_TIMEOUT", str(DEFAULT_POSTGRES_STARTUP_TIMEOUT)))
+    )
+    template = _resolve_optional_postgres_template(request)
+
+    if external_host:
+        external_port = (
+            request.getfixturevalue("postgres_external_port")
+            if _is_fixture_registered(request, "postgres_external_port")
+            else env_port("POSTGRES_EXTERNAL_PORT")
+        )
+        ext_isolate: PostgresXdistIsolationLevel = "database" if isolate == "server" else isolate
+        with provide_external_postgres_service(
+            host=external_host,
+            port=external_port or 5432,
+            user=user,
+            password=password,
+            database=database,
+            xdist_postgres_isolate=ext_isolate,
+            timeout=timeout,
+            template=template,
+        ) as ext_service:
+            yield ext_service
+        return
+
+    host = (
+        request.getfixturevalue("postgres_host")
+        if _is_fixture_registered(request, "postgres_host")
+        else os.environ.get("POSTGRES_HOST", "127.0.0.1")
+    )
+    host_port = (
+        request.getfixturevalue("postgres_port")
+        if _is_fixture_registered(request, "postgres_port")
+        else env_port("POSTGRES_PORT")
+    )
+    image = (
+        request.getfixturevalue("postgres_image")
+        if _is_fixture_registered(request, "postgres_image")
+        else "postgres:18"
+    )
+    docker_service = request.getfixturevalue("docker_service")
+    with provide_postgres_service(
+        docker_service,
+        image=image,
+        name="postgres",
+        host=host,
+        user=user,
+        password=password,
+        xdist_postgres_isolate=isolate,
+        host_port=host_port,
+        timeout=timeout,
+        template=template,
+        database=database,
+    ) as docker_pg_service:
+        yield docker_pg_service
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_any_service(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[PostgresServiceProtocol, None, None]:
+    """Provide a session-scoped Docker or embedded PostgreSQL service selected via ``--postgres-backend``.
+
+    Yields:
+        Active PostgreSQL service conforming to :class:`~pytest_databases.types.PostgresServiceProtocol`.
+    """
+    backend = resolve_postgres_backend(request.config)
+    if backend == "embedded":
+        embedded_pg_module = importlib.import_module("pytest_databases.embedded.postgres")
+        with embedded_pg_module.provide_default_embedded_postgres_session(request, tmp_path_factory) as service:
+            yield service
+        return
+    with provide_default_postgres_session(request) as service:
+        yield service
 
 
 def _resolve_postgres_targets(
@@ -1358,6 +1740,7 @@ def _provision_container_database(
     db_name: str,
     isolate: PostgresXdistIsolationLevel,
     template: PostgresTemplateOptions | None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> None:
     """Create or clone ``db_name`` inside a started PostgreSQL container."""
     if isolate != "template":
@@ -1377,6 +1760,7 @@ def _provision_container_database(
         options.name or DEFAULT_TEMPLATE_NAME,
         setup_fn=setup_fn,
         setup_sql=setup_sql,
+        init_sql=init_sql,
         fingerprint_sources=options.fingerprint_sources,
         lock_dir=options.lock_dir,
         lock_timeout=options.lock_timeout,
@@ -1455,6 +1839,7 @@ def _provision_external_database(
     isolate: PostgresXdistIsolationLevel,
     template: PostgresTemplateOptions | None,
     lock_dir: Path | str | None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> None:
     """Create or template-clone ``db_name`` on an external PostgreSQL endpoint."""
     if isolate == "template":
@@ -1464,6 +1849,7 @@ def _provision_external_database(
             options.name or DEFAULT_TEMPLATE_NAME,
             setup_fn=setup_fn,
             setup_sql=setup_sql,
+            init_sql=init_sql,
             fingerprint_sources=options.fingerprint_sources,
             lock_dir=options.lock_dir or lock_dir,
             lock_timeout=options.lock_timeout,

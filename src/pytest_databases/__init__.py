@@ -23,6 +23,8 @@ from pytest_databases.runtime import (
     RuntimeType,
 )
 from pytest_databases.types import (
+    PostgresBackend,
+    PostgresServiceProtocol,
     ServiceContainer,
     copy_from_container,
     copy_to_container,
@@ -36,6 +38,8 @@ __all__ = (
     "ContainerRuntimeConfig",
     "ContainerService",
     "DockerService",
+    "PostgresBackend",
+    "PostgresServiceProtocol",
     "RuntimeCandidate",
     "RuntimeResolutionError",
     "RuntimeType",

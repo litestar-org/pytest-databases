@@ -17,6 +17,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import pytest_databases
+from pytest_databases import PostgresBackend, PostgresServiceProtocol
+from pytest_databases import types as types_mod
+from pytest_databases.docker import postgres as docker_pg_mod
+from pytest_databases.docker.postgres import ExternalPostgresService, PostgresService
 from pytest_databases.embedded import _pgwire
 from pytest_databases.embedded import postgres as embedded_mod
 from pytest_databases.embedded.postgres import (
@@ -26,6 +31,9 @@ from pytest_databases.embedded.postgres import (
     provide_embedded_postgres_service,
     resolve_postgres_binaries,
     start_cluster,
+)
+from pytest_databases.embedded.postgres import (
+    PostgresServiceProtocol as EmbeddedPostgresProtocolExport,
 )
 from tests.conftest import unwrap_fixture
 
@@ -778,4 +786,397 @@ def test_embedded_postgres_all_fixtures_inprocess(pytester: pytest.Pytester) -> 
         assert embedded_postgres_service.port == 55432
     """)
     result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases")
+    result.assert_outcomes(passed=1)
+
+
+def _accept_postgres_protocol(service: PostgresServiceProtocol) -> tuple[str, dict[str, Any]]:
+    """Verify static structural protocol conformance across PostgreSQL service types."""
+    return service.dsn, service.connection_config
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param("docker", id="docker"),
+        pytest.param("external", id="external"),
+        pytest.param("embedded", id="embedded"),
+    ],
+)
+def test_postgres_service_protocol_runtime_and_static_conformance(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    """Verify Docker, external, and embedded PostgreSQL services satisfy PostgresServiceProtocol."""
+    backend_hint: PostgresBackend = "embedded"
+    assert backend_hint == "embedded"
+    assert EmbeddedPostgresProtocolExport is PostgresServiceProtocol
+    assert "PostgresBackend" in pytest_databases.__all__
+    assert "PostgresServiceProtocol" in pytest_databases.__all__
+    assert "PostgresBackend" in types_mod.__all__
+    assert "PostgresServiceProtocol" in types_mod.__all__
+    assert "PostgresServiceProtocol" in embedded_mod.__all__
+    assert "PostgresServiceProtocol" in docker_pg_mod.__all__
+
+    service: PostgresServiceProtocol
+    if kind == "docker":
+        service = PostgresService(
+            host="127.0.0.1",
+            port=5432,
+            container=MagicMock(),
+            database="db1",
+            user="postgres",
+            password="secret",
+        )
+    elif kind == "external":
+        service = ExternalPostgresService(
+            host="127.0.0.1",
+            port=5432,
+            database="db1",
+            user="postgres",
+            password="secret",
+        )
+    else:
+        service = EmbeddedPostgresService(
+            host="127.0.0.1",
+            port=55432,
+            user="postgres",
+            database="db1",
+            data_dir=tmp_path,
+            binaries=PostgresBinaries(initdb=tmp_path / "initdb", postgres=tmp_path / "postgres"),
+            password="secret",
+        )
+    assert isinstance(service, PostgresServiceProtocol)
+    assert not isinstance(object(), PostgresServiceProtocol)
+    dsn, config = _accept_postgres_protocol(service)
+    assert "db1" in dsn
+    assert config["database"] == "db1"
+
+
+@pytest.mark.parametrize(
+    ("password", "expected_dsn_fragment", "has_config_password"),
+    [
+        pytest.param("", None, False, id="empty"),
+        pytest.param("plain123", "password=plain123", True, id="plain"),
+        pytest.param("sp ace'\\=x", "password='sp ace\\'\\\\=x'", True, id="quoted"),
+    ],
+)
+def test_embedded_service_password_dsn_config_and_exec_sql(
+    tmp_path: Path,
+    password: str,
+    expected_dsn_fragment: str | None,
+    has_config_password: bool,
+) -> None:
+    """Verify EmbeddedPostgresService.password updates dsn, connection_config, and cleartext exec_sql auth."""
+    bins = PostgresBinaries(initdb=tmp_path / "initdb", postgres=tmp_path / "postgres")
+    service = EmbeddedPostgresService(
+        host="127.0.0.1",
+        port=5432,
+        user="postgres",
+        database="appdb",
+        data_dir=tmp_path,
+        binaries=bins,
+        password=password,
+    )
+    assert service.password == password
+    if has_config_password:
+        assert expected_dsn_fragment is not None
+        assert expected_dsn_fragment in service.dsn
+        assert service.connection_config["password"] == password
+    else:
+        assert "password=" not in service.dsn
+        assert "password" not in service.connection_config
+
+    server = socket.create_server(("127.0.0.1", 0))
+    server_port = server.getsockname()[1]
+
+    def _serve_cleartext() -> None:
+        conn, _ = server.accept()
+        with conn:
+            (slen,) = struct.unpack("!I", conn.recv(4))
+            conn.recv(slen - 4)
+            conn.sendall(_backend(b"R", struct.pack("!I", 3)))
+            kind, length_bytes = conn.recv(1), conn.recv(4)
+            (plen,) = struct.unpack("!I", length_bytes)
+            pw_payload = conn.recv(plen - 4)
+            assert kind == b"p" and pw_payload == b"plain123\x00"
+            conn.sendall(AUTH_OK + READY)
+            qkind, qlen_bytes = conn.recv(1), conn.recv(4)
+            (qlen,) = struct.unpack("!I", qlen_bytes)
+            conn.recv(qlen - 4)
+            assert qkind == b"Q"
+            conn.sendall(_data_row(b"1") + _backend(b"C", b"SELECT 1\x00") + READY)
+            conn.recv(5)
+
+    thread = threading.Thread(target=_serve_cleartext, daemon=True)
+    thread.start()
+    try:
+        auth_service = EmbeddedPostgresService(
+            host="127.0.0.1",
+            port=server_port,
+            user="postgres",
+            database="appdb",
+            data_dir=tmp_path,
+            binaries=bins,
+            password="plain123",
+        )
+        result = auth_service.exec_sql("SELECT 1", tuples_only=True, timeout=5.0)
+    finally:
+        thread.join(timeout=2)
+        server.close()
+
+    assert result == (0, b"1")
+
+
+@pytest.mark.parametrize(
+    ("isolation", "expect_template_call"),
+    [
+        pytest.param("template", True, id="template-isolation"),
+        pytest.param("database", False, id="database-isolation"),
+    ],
+)
+def test_provide_embedded_and_prepare_database_init_sql(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    isolation: str,
+    expect_template_call: bool,
+) -> None:
+    """Verify standalone provide_embedded_postgres_service and _prepare_database handle password and init_sql."""
+    bins = PostgresBinaries(initdb=tmp_path / "initdb", postgres=tmp_path / "postgres", pg_ctl=None)
+    stopped: list[Path] = []
+    executed: list[tuple[str, str]] = []
+    fail_init = False
+
+    def _fake_query(
+        _host: str,
+        _port: int,
+        *,
+        user: str,
+        database: str,
+        sql: str,
+        password: str = "",
+        timeout: float = 30.0,
+    ) -> tuple[int, bytes]:
+        del user, password, timeout
+        executed.append((database, sql))
+        if fail_init and "CREATE TABLE items" in sql:
+            return 1, b"ERROR: syntax error"
+        return 0, b"1" if sql == "SELECT 1" else b""
+
+    monkeypatch.setattr(embedded_mod, "init_cluster", lambda *_a, **_kw: None)
+    monkeypatch.setattr(embedded_mod, "start_cluster", lambda *_a, **_kw: (MagicMock(pid=1), 55432))
+    monkeypatch.setattr(embedded_mod, "stop_cluster", lambda *_a, **_kw: stopped.append(_a[1]))
+    monkeypatch.setattr(embedded_mod, "run_simple_query", _fake_query)
+
+    with provide_embedded_postgres_service(
+        binaries=bins,
+        data_dir=tmp_path / "standalone",
+        password="pw",
+        database="appdb",
+        init_sql="CREATE TABLE items (id int);",
+    ) as service:
+        assert service.password == "pw"
+        assert ("appdb", "CREATE TABLE items (id int);") in executed
+    assert len(stopped) == 1
+
+    fail_init = True
+    with (
+        pytest.raises(RuntimeError, match="Embedded PostgreSQL init_sql failed on 'appdb'"),
+        provide_embedded_postgres_service(
+            binaries=bins,
+            data_dir=tmp_path / "failing",
+            database="appdb",
+            init_sql="CREATE TABLE items (id int);",
+        ),
+    ):
+        pass
+    assert len(stopped) == 2
+
+    fail_init = False
+    executed.clear()
+    admin = EmbeddedPostgresService(
+        host="127.0.0.1",
+        port=55432,
+        user="postgres",
+        database="postgres",
+        data_dir=tmp_path,
+        binaries=bins,
+    )
+    ensure_calls: list[dict[str, Any]] = []
+
+    def _record_ensure_template(name: str = "tpl", **kwargs: Any) -> str:
+        ensure_calls.append({"name": name, **kwargs})
+        return "tpl_1"
+
+    monkeypatch.setattr(admin, "ensure_template", _record_ensure_template)
+    monkeypatch.setattr(admin, "create_worker_database_from_template", lambda *_a, **_kw: "w_db")
+    monkeypatch.setattr(admin, "drop_database_force", lambda *_a, **_kw: None)
+
+    prepared = embedded_mod._prepare_database(
+        admin,
+        db_name="w_db",
+        isolation=isolation,  # type: ignore[arg-type]
+        template_name="tpl",
+        template_setup=None,
+        fingerprint_sources=(),
+        lock_dir=None,
+        init_sql="CREATE EXTENSION cube;",
+    )
+    assert prepared.database == "w_db"
+    if expect_template_call:
+        assert len(ensure_calls) == 1
+        assert ensure_calls[0]["init_sql"] == "CREATE EXTENSION cube;"
+    else:
+        assert ensure_calls == []
+        assert ("w_db", "CREATE EXTENSION cube;") in executed
+
+
+@pytest.mark.parametrize(
+    ("plugins", "cli_args", "env_backend", "expected_backend", "use_env_worker"),
+    [
+        pytest.param(
+            ["pytest_databases.embedded.postgres"],
+            ["--postgres-backend=embedded"],
+            None,
+            "embedded",
+            False,
+            id="embedded-plugin-cli-embedded",
+        ),
+        pytest.param(
+            ["pytest_databases.embedded.postgres"],
+            [],
+            "embedded",
+            "embedded",
+            False,
+            id="embedded-plugin-env-embedded",
+        ),
+        pytest.param(
+            ["pytest_databases.embedded.postgres"],
+            ["--postgres-backend=docker"],
+            None,
+            "docker",
+            True,
+            id="embedded-plugin-fallback-docker-gw2",
+        ),
+        pytest.param(
+            ["pytest_databases.embedded.postgres", "pytest_databases.docker.postgres"],
+            ["--postgres-backend=embedded"],
+            None,
+            "embedded",
+            False,
+            id="both-plugins-embedded-wins",
+        ),
+    ],
+)
+def test_postgres_any_service_embedded_plugin_and_fallback(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    plugins: list[str],
+    cli_args: list[str],
+    env_backend: str | None,
+    expected_backend: str,
+    use_env_worker: bool,
+) -> None:
+    """Verify postgres_any_service selects backend without cross-runtime evaluation and preserves base database."""
+    if env_backend is not None:
+        monkeypatch.setenv("PYTEST_DATABASES_POSTGRES_BACKEND", env_backend)
+    else:
+        monkeypatch.delenv("PYTEST_DATABASES_POSTGRES_BACKEND", raising=False)
+    if use_env_worker:
+        monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw2")
+        monkeypatch.setenv("POSTGRES_DATABASE", "appdb")
+    else:
+        monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+
+    pytester.makepyfile(f"""
+    from contextlib import contextmanager
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    import pytest
+    from pytest_databases import PostgresServiceProtocol
+    import pytest_databases.docker.postgres as dp_mod
+    import pytest_databases.embedded.postgres as ep_mod
+    from pytest_databases.embedded.postgres import EmbeddedPostgresService, PostgresBinaries
+    from pytest_databases.docker.postgres import PostgresService
+
+    pytest_plugins = {plugins!r}
+
+    captured_calls = []
+
+    @pytest.fixture(autouse=True, scope="session")
+    def patch_providers(tmp_path_factory):
+        d = tmp_path_factory.mktemp("emb")
+        bins = PostgresBinaries(initdb=d / "initdb", postgres=d / "postgres")
+        orig_emb = ep_mod.provide_embedded_postgres_service
+        orig_res = ep_mod.resolve_postgres_binaries
+        orig_prep = ep_mod._prepare_database
+        orig_doc = dp_mod.provide_postgres_service
+
+        @contextmanager
+        def fake_emb(**kwargs):
+            yield EmbeddedPostgresService(
+                host="127.0.0.1",
+                port=55432,
+                user="postgres",
+                database=kwargs.get("database", "pytest_databases"),
+                data_dir=d,
+                binaries=bins,
+            )
+
+        @contextmanager
+        def fake_doc(*args, **kwargs):
+            captured_calls.append(kwargs)
+            yield PostgresService(
+                host="127.0.0.1",
+                port=5432,
+                container=MagicMock(),
+                database=kwargs.get("database", "pytest_databases"),
+                user=kwargs.get("user", "postgres"),
+                password=kwargs.get("password", "super-secret"),
+            )
+
+        ep_mod.resolve_postgres_binaries = lambda *a, **kw: bins
+        ep_mod.provide_embedded_postgres_service = fake_emb
+        ep_mod._prepare_database = lambda admin, **kw: admin
+        dp_mod.provide_postgres_service = fake_doc
+        yield
+        ep_mod.resolve_postgres_binaries = orig_res
+        ep_mod.provide_embedded_postgres_service = orig_emb
+        ep_mod._prepare_database = orig_prep
+        dp_mod.provide_postgres_service = orig_doc
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        if {expected_backend!r} == "embedded":
+            pytest.fail("docker_service must not be evaluated when --postgres-backend=embedded")
+        return MagicMock()
+
+    def test_any(postgres_any_service):
+        assert isinstance(postgres_any_service, PostgresServiceProtocol)
+        if {expected_backend!r} == "embedded":
+            assert isinstance(postgres_any_service, EmbeddedPostgresService)
+        else:
+            assert isinstance(postgres_any_service, PostgresService)
+            if {use_env_worker!r}:
+                assert captured_calls[-1]["database"] == "appdb"
+    """)
+    result = pytester.runpytest("-p", "no:sugar", "-p", "pytest_databases", *cli_args)
+    result.assert_outcomes(passed=1)
+
+
+@requires_binaries
+def test_postgres_any_service_live_embedded_without_docker(pytester: pytest.Pytester) -> None:
+    """Verify --postgres-backend=embedded starts real embedded Postgres even with only docker.postgres loaded."""
+    pytester.makepyfile("""
+    import pytest
+
+    pytest_plugins = ["pytest_databases.docker.postgres"]
+
+    @pytest.fixture(scope="session")
+    def docker_service():
+        pytest.fail("docker_service must not be evaluated when --postgres-backend=embedded")
+
+    def test_live_any(postgres_any_service):
+        assert postgres_any_service.exec_sql("SELECT 1") == (0, b"1")
+    """)
+    result = pytester.runpytest_subprocess("-p", "pytest_databases", "--postgres-backend=embedded")
     result.assert_outcomes(passed=1)

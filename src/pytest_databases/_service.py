@@ -26,7 +26,7 @@ from pytest_databases.runtime import (
     default_host_from_base_url,
     resolve_container_runtime,
 )
-from pytest_databases.types import ServiceContainer
+from pytest_databases.types import PostgresBackend, ServiceContainer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 __all__ = (
     "MANAGED_LABEL",
     "OWNER_LABEL",
+    "POSTGRES_BACKEND_ENV",
     "SERVICE_LABEL",
     "ContainerService",
     "DockerService",
@@ -53,6 +54,7 @@ __all__ = (
     "has_active_owner_sessions",
     "pytest_addoption",
     "pytest_sessionfinish",
+    "resolve_postgres_backend",
     "should_keep_containers",
     "stop_all_containers",
     "stop_owned_containers",
@@ -527,11 +529,66 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Keep database containers running after the pytest session finishes.",
     )
+    parser.addoption(
+        "--postgres-backend",
+        action="store",
+        dest="postgres_backend",
+        choices=("docker", "embedded"),
+        default=None,
+        help="Backend selected by postgres_any_service ('docker' or 'embedded').",
+    )
     parser.addini(
         "container_runtime",
         help="Default container runtime (auto, docker, podman).",
         default=None,
     )
+    parser.addini(
+        "postgres_backend",
+        help="Default backend for postgres_any_service ('docker' or 'embedded').",
+        default="",
+    )
+
+
+POSTGRES_BACKEND_ENV: str = "PYTEST_DATABASES_POSTGRES_BACKEND"
+_VALID_POSTGRES_BACKENDS: frozenset[str] = frozenset({"docker", "embedded"})
+
+
+def _normalize_postgres_backend(raw: str) -> PostgresBackend:
+    """Validate and normalize a PostgreSQL backend selector string.
+
+    Returns:
+        Validated backend literal (``'docker'`` or ``'embedded'``).
+
+    Raises:
+        pytest.UsageError: If ``raw`` does not normalize to ``'docker'`` or ``'embedded'``.
+    """
+    normalized = raw.strip().lower()
+    if normalized not in _VALID_POSTGRES_BACKENDS:
+        msg = f"Invalid postgres backend {raw!r}; expected 'docker' or 'embedded'."
+        raise pytest.UsageError(msg)
+    return "embedded" if normalized == "embedded" else "docker"
+
+
+def resolve_postgres_backend(config: pytest.Config) -> PostgresBackend:
+    """Resolve active PostgreSQL backend (``'docker'`` or ``'embedded'``) from CLI, ini, env, or default.
+
+    Returns:
+        Active PostgreSQL backend literal.
+
+    Raises:
+        pytest.UsageError: If ini ``postgres_backend`` or ``PYTEST_DATABASES_POSTGRES_BACKEND`` is non-empty
+            and outside ``('docker', 'embedded')``.
+    """
+    cli_value = config.getoption("postgres_backend", default=None)
+    if isinstance(cli_value, str) and cli_value.strip():
+        return _normalize_postgres_backend(cli_value)
+    ini_value = config.getini("postgres_backend")
+    if isinstance(ini_value, str) and ini_value.strip():
+        return _normalize_postgres_backend(ini_value)
+    env_value = os.getenv(POSTGRES_BACKEND_ENV, "")
+    if env_value.strip():
+        return _normalize_postgres_backend(env_value)
+    return "docker"
 
 
 def should_keep_containers(config: pytest.Config | None = None) -> bool:

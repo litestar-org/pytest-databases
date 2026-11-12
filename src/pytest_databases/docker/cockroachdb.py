@@ -8,6 +8,7 @@ import importlib
 import time
 import warnings
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote, urlencode
 
 import pytest
 from docker.errors import APIError, NotFound
@@ -31,6 +32,7 @@ __all__ = (
     "cockroachdb_driver_opts",
     "cockroachdb_image",
     "cockroachdb_service",
+    "exec_cockroach_sql",
     "provide_cockroachdb_service",
     "xdist_cockroachdb_isolation_level",
 )
@@ -39,12 +41,75 @@ COCKROACHDB_USER = "root"
 COCKROACHDB_DATABASE = "pytest_databases"
 
 
+def _default_cockroach_driver_opts() -> dict[str, str]:
+    """Return a fresh copy of default insecure CockroachDB libpq driver options."""
+    return {"sslmode": "disable"}
+
+
+def exec_cockroach_sql(
+    container: Container,
+    sql: str,
+    *,
+    database: str = "defaultdb",
+) -> tuple[int, bytes]:
+    """Execute SQL inside a CockroachDB container using ``cockroach sql --insecure``.
+
+    Returns:
+        Tuple of ``(exit_code, output_bytes)``.
+    """
+    try:
+        result = container.exec_run([
+            "cockroach",
+            "sql",
+            "--insecure",
+            "--host=localhost:26257",
+            f"--database={database}",
+            "--format=tsv",
+            "-e",
+            sql,
+        ])
+    except (APIError, NotFound) as exc:
+        return -1, str(exc).encode()
+    return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
+
+
 @dataclasses.dataclass
 class CockroachDBService(ServiceContainer):
     """Service handle for a running CockroachDB container."""
 
     database: str
-    driver_opts: dict[str, str] = dataclasses.field(default_factory=lambda: {"sslmode": "disable"})
+    driver_opts: dict[str, str] = dataclasses.field(default_factory=_default_cockroach_driver_opts)
+    user: str = COCKROACHDB_USER
+
+    @property
+    def dsn(self) -> str:
+        """Formatted ``postgresql://`` connection URI with encoded user, database, and ``driver_opts``."""
+        encoded_user = quote(self.user, safe="")
+        host = f"[{self.host}]" if ":" in self.host and not self.host.startswith("[") else self.host
+        encoded_db = quote(self.database, safe="")
+        base = f"postgresql://{encoded_user}@{host}:{self.port}/{encoded_db}"
+        if self.driver_opts:
+            return f"{base}?{urlencode(self.driver_opts)}"
+        return base
+
+    @property
+    def connection_config(self) -> dict[str, Any]:
+        """Driver keyword arguments (``host``, ``port``, ``user``, ``database``, and ``driver_opts``)."""
+        return {
+            "host": self.host,
+            "port": self.port,
+            "user": self.user,
+            "database": self.database,
+            **self.driver_opts,
+        }
+
+    def exec_sql(self, sql: str, *, database: str | None = None) -> tuple[int, bytes]:
+        """Execute ``sql`` via :func:`exec_cockroach_sql` against ``database`` (or ``self.database``).
+
+        Returns:
+            Tuple of ``(exit_code, output_bytes)``.
+        """
+        return exec_cockroach_sql(self.container, sql, database=database or self.database)
 
 
 @contextlib.contextmanager
@@ -61,7 +126,7 @@ def provide_cockroachdb_service(
     """
 
     def check(_service: ServiceContainer) -> bool:
-        exit_code, _ = _exec_cockroach_sql(_service.container, "SELECT 1")
+        exit_code, _ = exec_cockroach_sql(_service.container, "SELECT 1")
         return exit_code == 0
 
     container_name = "cockroachdb"
@@ -89,7 +154,7 @@ def provide_cockroachdb_service(
             port=service.port,
             container=service.container,
             database=db_name,
-            driver_opts=driver_opts,
+            driver_opts=dict(driver_opts),
         )
 
 
@@ -163,10 +228,7 @@ def _open_cockroachdb_connection(
         stacklevel=3,
     )
     psycopg = importlib.import_module("psycopg")
-    opts = "&".join(f"{k}={v}" for k, v in driver_opts.items()) if driver_opts else ""
-    conn_str = f"postgresql://{COCKROACHDB_USER}@{service.host}:{service.port}/{service.database}"
-    if opts:
-        conn_str = f"{conn_str}?{opts}"
+    conn_str = dataclasses.replace(service, driver_opts=dict(driver_opts)).dsn
     with psycopg.connect(conn_str) as conn:
         yield conn
 
@@ -175,38 +237,16 @@ def _quote_identifier(value: str) -> str:
     return f'"{value.replace(chr(34), chr(34) * 2)}"'
 
 
-def _exec_cockroach_sql(
-    container: Container,
-    sql: str,
-    *,
-    database: str = "defaultdb",
-) -> tuple[int, bytes]:
-    try:
-        result = container.exec_run([
-            "cockroach",
-            "sql",
-            "--insecure",
-            "--host=localhost:26257",
-            f"--database={database}",
-            "--format=tsv",
-            "-e",
-            sql,
-        ])
-    except (APIError, NotFound) as exc:
-        return -1, str(exc).encode()
-    return result.exit_code if result.exit_code is not None else -1, exec_output_to_bytes(result.output)
-
-
 def _prepare_database(container: Container, database: str) -> None:
     quoted_database = _quote_identifier(database)
     last_output = b""
     for attempt in range(15):
-        exit_code, output = _exec_cockroach_sql(
+        exit_code, output = exec_cockroach_sql(
             container,
             f"CREATE DATABASE IF NOT EXISTS {quoted_database}",
         )
         if exit_code == 0:
-            verify_code, verify_output = _exec_cockroach_sql(
+            verify_code, verify_output = exec_cockroach_sql(
                 container,
                 "SELECT 1",
                 database=database,

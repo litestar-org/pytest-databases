@@ -125,21 +125,25 @@ class PostgresTemplateSupport:
         *,
         setup_fn: Callable[[Self], object] | None = None,
         setup_sql: str | Path | Sequence[str | Path] | None = None,
+        init_sql: str | Path | Sequence[str | Path] | None = None,
         fingerprint_sources: Sequence[str | bytes | Path] = (),
         lock_dir: Path | str | None = None,
         lock_timeout: float = 180.0,
     ) -> str:
         """Build a template database once and return its name.
 
-        The name is ``template_name`` plus a 12-character digest of ``setup_sql`` (SQL text and file contents) and
-        ``fingerprint_sources``, so a changed setup builds a new template instead of reusing a stale one. A setup
-        callable cannot be fingerprinted; list its inputs in ``fingerprint_sources``. A file lock in ``lock_dir``
-        (default: the system temp directory) scoped to this server makes concurrent workers build it only once.
+        The name is ``template_name`` plus a 12-character digest of ``init_sql``, ``setup_sql`` (SQL text and file
+        contents), and ``fingerprint_sources``, so a changed setup builds a new template instead of reusing a stale one.
+        A setup callable cannot be fingerprinted; list its inputs in ``fingerprint_sources``. A file lock in
+        ``lock_dir`` (default: the system temp directory) scoped to this server makes concurrent workers build it only
+        once.
 
         Args:
             template_name: Template name, or the name prefix when a digest is appended.
             setup_fn: Callable receiving a copy of this service pointed at the staging database.
             setup_sql: SQL statements or ``.sql`` file paths executed against the staging database.
+            init_sql: Optional provider extension bootstrap statements or ``.sql`` paths executed strictly before
+                ``setup_sql`` and ``setup_fn``.
             fingerprint_sources: Extra strings, bytes, files, or directories folded into the digest.
             lock_dir: Directory for the cross-process lock file.
             lock_timeout: Seconds to wait for the lock.
@@ -151,6 +155,7 @@ class PostgresTemplateSupport:
             self._run_sql,
             template_name=template_name,
             setup_sql=_as_statements(setup_sql),
+            init_sql=_as_statements(init_sql),
             setup_fn=None if setup_fn is None else lambda staging: setup_fn(self._with_database(staging)),
             fingerprint_sources=fingerprint_sources,
             lock_dir=lock_dir,
@@ -736,19 +741,21 @@ def split_template_setup(
 
 
 def resolve_template_name(
-    template_name: str,
+    template_name: str = DEFAULT_TEMPLATE_NAME,
     *,
     setup_sql: Sequence[str | Path] = (),
+    init_sql: Sequence[str | Path] = (),
     fingerprint_sources: Sequence[str | bytes | Path] = (),
 ) -> str:
-    """Return ``template_name`` with a digest of the setup SQL and fingerprint sources appended.
+    """Return ``template_name`` with a digest of the init SQL, setup SQL, and fingerprint sources appended.
 
     Returns:
         The validated template name.
     """
-    sources: list[str | bytes | Path] = [
-        statement if isinstance(statement, Path) else statement.encode() for statement in setup_sql
-    ]
+    sources: list[str | bytes | Path] = []
+    for statement in init_sql:
+        sources.extend((b"init:", statement if isinstance(statement, Path) else statement.encode()))
+    sources.extend(statement if isinstance(statement, Path) else statement.encode() for statement in setup_sql)
     sources.extend(fingerprint_sources)
     if not sources:
         return validate_identifier(template_name)
@@ -816,6 +823,7 @@ def ensure_template(
     *,
     template_name: str = DEFAULT_TEMPLATE_NAME,
     setup_sql: Sequence[str | Path] = (),
+    init_sql: Sequence[str | Path] = (),
     setup_fn: Callable[[str], object] | None = None,
     fingerprint_sources: Sequence[str | bytes | Path] = (),
     lock_dir: Path | str | None = None,
@@ -824,8 +832,8 @@ def ensure_template(
 ) -> str:
     """Build a template database once and return its name.
 
-    The template is built in ``<name>_staging`` (setup SQL, then ``setup_fn(staging_name)``), marked
-    ``is_template = true allow_connections = false``, and renamed. An existing template with the same name is
+    The template is built in ``<name>_staging`` (``init_sql``, then ``setup_sql``, then ``setup_fn(staging_name)``),
+    marked ``is_template = true allow_connections = false``, and renamed. An existing template with the same name is
     reused; the double-checked file lock makes concurrent callers build it only once.
 
     Returns:
@@ -834,7 +842,12 @@ def ensure_template(
     Raises:
         RuntimeError: If a setup statement or a DDL step fails.
     """
-    name = resolve_template_name(template_name, setup_sql=setup_sql, fingerprint_sources=fingerprint_sources)
+    name = resolve_template_name(
+        template_name,
+        setup_sql=setup_sql,
+        init_sql=init_sql,
+        fingerprint_sources=fingerprint_sources,
+    )
     staging = validate_identifier(f"{name}{STAGING_SUFFIX}")
     if _template_exists(run_sql, name):
         return name
@@ -850,7 +863,14 @@ def ensure_template(
             run_sql("postgres", f'CREATE DATABASE "{staging}";'), f"Failed to create staging database {staging!r}"
         )
         try:
-            _build_template(run_sql, staging=staging, name=name, setup_sql=setup_sql, setup_fn=setup_fn)
+            _build_template(
+                run_sql,
+                staging=staging,
+                name=name,
+                init_sql=init_sql,
+                setup_sql=setup_sql,
+                setup_fn=setup_fn,
+            )
         except BaseException:
             _drop_staging(run_sql, staging)
             raise
@@ -931,8 +951,12 @@ def _build_template(
     name: str,
     setup_sql: Sequence[str | Path],
     setup_fn: Callable[[str], object] | None,
+    init_sql: Sequence[str | Path] = (),
 ) -> None:
-    """Run the setup in the existing ``staging`` database, mark it as a template, and rename it to ``name``."""
+    """Run init SQL and setup in the existing ``staging`` database, mark it as a template, and rename it."""
+    for statement in init_sql:
+        sql = statement.read_text(encoding="utf-8") if isinstance(statement, Path) else statement
+        _require_success(run_sql(staging, sql), f"Template init SQL failed on {staging!r}")
     for statement in setup_sql:
         sql = statement.read_text(encoding="utf-8") if isinstance(statement, Path) else statement
         _require_success(run_sql(staging, sql), f"Template setup SQL failed on {staging!r}")

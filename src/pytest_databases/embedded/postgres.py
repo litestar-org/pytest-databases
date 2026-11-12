@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import filelock
 import pytest
 
+from pytest_databases._service import resolve_postgres_backend
 from pytest_databases.embedded._pgwire import run_simple_query
 from pytest_databases.helpers import (
     DEFAULT_TEMPLATE_NAME,
@@ -36,10 +37,12 @@ from pytest_databases.helpers import (
     get_xdist_worker_id,
     get_xdist_worker_num,
     make_connection_string,
+    read_init_scripts,
     split_template_setup,
     tcp_port_open,
     validate_identifier,
 )
+from pytest_databases.types import PostgresServiceProtocol
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
@@ -49,6 +52,7 @@ if TYPE_CHECKING:
 __all__ = (
     "EmbeddedPostgresService",
     "PostgresBinaries",
+    "PostgresServiceProtocol",
     "embedded_postgres_bin_dir",
     "embedded_postgres_database",
     "embedded_postgres_port",
@@ -59,6 +63,8 @@ __all__ = (
     "embedded_postgres_template_setup",
     "embedded_postgres_user",
     "init_cluster",
+    "postgres_any_service",
+    "provide_default_embedded_postgres_session",
     "provide_embedded_postgres_service",
     "resolve_postgres_binaries",
     "start_cluster",
@@ -107,7 +113,7 @@ class PostgresBinaries:
 class EmbeddedPostgresService(PostgresTemplateSupport):
     """Connection metadata and helpers for an embedded PostgreSQL server.
 
-    The cluster uses ``trust`` authentication, so no password is needed. Template helpers
+    The cluster defaults to ``trust`` authentication with an empty ``password``. Template helpers
     (:meth:`ensure_template`, :meth:`create_worker_database_from_template`, :meth:`sweep_worker_databases`,
     :meth:`clone_template_database`, :meth:`drop_database_force`) behave as on the container service.
     """
@@ -119,6 +125,7 @@ class EmbeddedPostgresService(PostgresTemplateSupport):
     data_dir: Path
     binaries: PostgresBinaries
     process: subprocess.Popen[bytes] | None = None
+    password: str = ""
 
     @property
     def dsn(self) -> str:
@@ -128,19 +135,38 @@ class EmbeddedPostgresService(PostgresTemplateSupport):
             The connection string.
         """
         return make_connection_string(
-            host=self.host, port=self.port, user=self.user, password="", database=self.database
+            host=self.host,
+            port=self.port,
+            user=self.user,
+            password=self.password,
+            database=self.database,
         )
 
     @property
     def connection_config(self) -> dict[str, Any]:
-        """Driver keyword arguments: ``host``, ``port``, ``user``, and ``database``.
+        """Driver keyword arguments: ``host``, ``port``, ``user``, ``database``, and optional ``password``.
 
         Returns:
             The connection parameters.
         """
-        return {"host": self.host, "port": self.port, "user": self.user, "database": self.database}
+        config: dict[str, Any] = {
+            "host": self.host,
+            "port": self.port,
+            "user": self.user,
+            "database": self.database,
+        }
+        if self.password:
+            config["password"] = self.password
+        return config
 
-    def exec_sql(self, sql: str, *, database: str | None = None, timeout: float = 30.0) -> tuple[int, bytes]:
+    def exec_sql(
+        self,
+        sql: str,
+        *,
+        database: str | None = None,
+        tuples_only: bool = False,
+        timeout: float = 30.0,
+    ) -> tuple[int, bytes]:
         """Run ``sql`` against ``database`` (defaults to this service's database).
 
         Output mirrors ``psql -tA``; exit code ``1`` is an SQL error and ``2`` a connection failure.
@@ -148,8 +174,15 @@ class EmbeddedPostgresService(PostgresTemplateSupport):
         Returns:
             The exit code and output bytes.
         """
+        del tuples_only
         return run_simple_query(
-            self.host, self.port, user=self.user, database=database or self.database, sql=sql, timeout=timeout
+            self.host,
+            self.port,
+            user=self.user,
+            database=database or self.database,
+            sql=sql,
+            password=self.password,
+            timeout=timeout,
         )
 
     def _run_sql(self, database: str, sql: str, *, tuples_only: bool = False) -> tuple[int, bytes]:
@@ -158,7 +191,7 @@ class EmbeddedPostgresService(PostgresTemplateSupport):
         Returns:
             The exit code and output bytes.
         """
-        return self.exec_sql(sql, database=database)
+        return self.exec_sql(sql, database=database, tuples_only=tuples_only)
 
 
 def resolve_postgres_binaries(bin_dir: Path | str | None = None) -> PostgresBinaries:
@@ -321,9 +354,11 @@ def provide_embedded_postgres_service(
     host: str = "127.0.0.1",
     port: int = 0,
     user: str = "postgres",
+    password: str = "",
     database: str = "postgres",
     cleanup_mode: Literal["delete", "keep"] = "delete",
     timeout: float = 15.0,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> Generator[EmbeddedPostgresService, None, None]:
     """Start a private embedded PostgreSQL cluster for the duration of the context.
 
@@ -333,10 +368,12 @@ def provide_embedded_postgres_service(
         binaries: Already resolved binaries.
         host: Loopback address to listen on.
         port: TCP port, or 0 for a free port.
-        user: Superuser created by ``initdb`` (trust authentication, no password).
+        user: Superuser created by ``initdb`` (trust authentication by default).
+        password: Role password attached to :class:`EmbeddedPostgresService` (empty string for trust auth).
         database: Database to create and return; ``"postgres"`` uses the default database.
         cleanup_mode: ``"delete"`` removes the temporary ``data_dir`` on exit, ``"keep"`` leaves it for inspection.
         timeout: Seconds to wait for the server to answer.
+        init_sql: Optional SQL statement, ``.sql`` path, or sequence executed directly against ``database``.
 
     Yields:
         The running service.
@@ -363,9 +400,11 @@ def provide_embedded_postgres_service(
                 data_dir=target_dir,
                 binaries=resolved,
                 process=process,
+                password=password,
             )
             if database != "postgres":
                 _create_database(service, database)
+            _apply_embedded_init_sql(service, init_sql=init_sql)
             yield service
         finally:
             atexit.unregister(stop_handler)
@@ -493,6 +532,104 @@ def embedded_postgres_service(
                 admin.drop_database_force(db_name)
 
 
+def _is_fixture_registered(request: pytest.FixtureRequest, name: str) -> bool:
+    """Return whether pytest has registered a fixture named ``name`` for the current node."""
+    return bool(request.session._fixturemanager.getfixturedefs(name, request.node))
+
+
+def _fixture_or_default(request: pytest.FixtureRequest, name: str, default: Any) -> Any:
+    """Return registered fixture value for ``name`` or ``default`` when absent."""
+    if _is_fixture_registered(request, name):
+        return request.getfixturevalue(name)
+    return default
+
+
+@contextmanager
+def provide_default_embedded_postgres_session(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[EmbeddedPostgresService, None, None]:
+    """Yield ``embedded_postgres_service`` if registered, else provision an xdist-safe embedded session cluster.
+
+    Yields:
+        Active :class:`EmbeddedPostgresService` pointed at the worker database.
+    """
+    if _is_fixture_registered(request, "embedded_postgres_service"):
+        yield request.getfixturevalue("embedded_postgres_service")
+        return
+
+    binaries = resolve_postgres_binaries(_fixture_or_default(request, "embedded_postgres_bin_dir", None))
+    user: str = _fixture_or_default(request, "embedded_postgres_user", "postgres")
+    database: str = _fixture_or_default(request, "embedded_postgres_database", "pytest_databases")
+    port: int = _fixture_or_default(request, "embedded_postgres_port", 0)
+    isolation: PostgresXdistIsolationLevel = _fixture_or_default(
+        request, "xdist_embedded_postgres_isolation_level", "template"
+    )
+    template_name: str = _fixture_or_default(request, "embedded_postgres_template_name", None) or DEFAULT_TEMPLATE_NAME
+    template_setup = _fixture_or_default(request, "embedded_postgres_template_setup", None)
+    fingerprint_sources = _fixture_or_default(request, "embedded_postgres_template_fingerprint_sources", ())
+    lock_dir = _fixture_or_default(request, "embedded_postgres_template_lock_dir", None)
+    worker_id = get_xdist_worker_id()
+    worker_num = get_xdist_worker_num()
+    db_name = f"{database}_{worker_num}" if (worker_num is not None and isolation != "server") else database
+
+    if worker_id is None or isolation == "server":
+        with provide_embedded_postgres_service(
+            data_dir=tmp_path_factory.mktemp("embedded_postgres"),
+            binaries=binaries,
+            port=port,
+            user=user,
+            database="postgres",
+            timeout=30.0,
+        ) as admin:
+            yield _prepare_database(
+                admin,
+                db_name=db_name,
+                isolation=isolation,
+                template_name=template_name,
+                template_setup=template_setup,
+                fingerprint_sources=fingerprint_sources,
+                lock_dir=lock_dir,
+            )
+        return
+
+    shared_dir = tmp_path_factory.getbasetemp().parent
+    with _SharedCluster(shared_dir, worker_id=worker_id, binaries=binaries, user=user, port=port) as admin:
+        try:
+            yield _prepare_database(
+                admin,
+                db_name=db_name,
+                isolation=isolation,
+                template_name=template_name,
+                template_setup=template_setup,
+                fingerprint_sources=fingerprint_sources,
+                lock_dir=lock_dir or shared_dir,
+            )
+        finally:
+            with contextlib.suppress(RuntimeError):
+                admin.drop_database_force(db_name)
+
+
+@pytest.fixture(autouse=False, scope="session")
+def postgres_any_service(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[PostgresServiceProtocol, None, None]:
+    """Provide a session-scoped Docker or embedded PostgreSQL service selected via ``--postgres-backend``.
+
+    Yields:
+        Active PostgreSQL service conforming to :class:`~pytest_databases.types.PostgresServiceProtocol`.
+    """
+    backend = resolve_postgres_backend(request.config)
+    if backend == "embedded":
+        with provide_default_embedded_postgres_session(request, tmp_path_factory) as service:
+            yield service
+        return
+    docker_pg_module = importlib.import_module("pytest_databases.docker.postgres")
+    with docker_pg_module.provide_default_postgres_session(request) as service:
+        yield service
+
+
 class _SharedCluster:
     """One cluster shared by xdist workers and stopped by the last worker to leave.
 
@@ -608,6 +745,7 @@ def _prepare_database(
     template_setup: Callable[[EmbeddedPostgresService], object] | str | Path | Sequence[str | Path] | None,
     fingerprint_sources: Sequence[str | bytes | Path],
     lock_dir: Path | str | None,
+    init_sql: str | Path | Sequence[str | Path] | None = None,
 ) -> EmbeddedPostgresService:
     """Create ``db_name`` from the template (``"template"`` isolation) or empty, replacing any leftover.
 
@@ -620,14 +758,32 @@ def _prepare_database(
             template_name,
             setup_fn=setup_fn,
             setup_sql=setup_sql,
+            init_sql=init_sql,
             fingerprint_sources=fingerprint_sources,
             lock_dir=lock_dir,
         )
         admin.create_worker_database_from_template(template, db_name)
-    else:
-        admin.drop_database_force(db_name)
-        _create_database(admin, db_name)
-    return dataclasses.replace(admin, database=db_name)
+        return dataclasses.replace(admin, database=db_name)
+
+    admin.drop_database_force(db_name)
+    _create_database(admin, db_name)
+    target = dataclasses.replace(admin, database=db_name)
+    _apply_embedded_init_sql(target, init_sql=init_sql)
+    return target
+
+
+def _apply_embedded_init_sql(
+    target: EmbeddedPostgresService,
+    *,
+    init_sql: str | Path | Sequence[str | Path] | None,
+) -> None:
+    """Execute ``init_sql`` scripts sequentially against ``target``."""
+    for statement in read_init_scripts(init_sql):
+        exit_code, output = target.exec_sql(statement)
+        if exit_code != 0:
+            detail = output.decode(errors="replace").strip()
+            msg = f"Embedded PostgreSQL init_sql failed on {target.database!r} (exit {exit_code}): {detail}"
+            raise RuntimeError(msg)
 
 
 def _create_database(service: EmbeddedPostgresService, database: str) -> None:

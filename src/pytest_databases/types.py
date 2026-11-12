@@ -7,18 +7,20 @@ import io
 import posixpath
 import tarfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self, TypeAlias, TypedDict, runtime_checkable
 
 from docker.errors import NotFound
 
-from pytest_databases.helpers import exec_output_to_bytes
+from pytest_databases.helpers import DEFAULT_TEMPLATE_NAME, DEFAULT_WORKER_PREFIX, exec_output_to_bytes
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     from docker.models.containers import Container
 
 __all__ = (
+    "PostgresBackend",
+    "PostgresServiceProtocol",
     "PostgresXdistIsolationLevel",
     "ServiceContainer",
     "XdistIsolationLevel",
@@ -27,8 +29,90 @@ __all__ = (
     "exec_container_command",
 )
 
+PostgresBackend: TypeAlias = Literal["docker", "embedded"]
 XdistIsolationLevel = Literal["database", "server"]
 PostgresXdistIsolationLevel = Literal["database", "server", "template"]
+
+
+@runtime_checkable
+class PostgresServiceProtocol(Protocol):
+    """Runtime-checkable structural interface shared by Docker, external, and embedded PostgreSQL services."""
+
+    @property
+    def host(self) -> str:
+        """Hostname or IP address accepting PostgreSQL connections."""
+        ...
+
+    @property
+    def port(self) -> int:
+        """TCP port accepting PostgreSQL connections."""
+        ...
+
+    @property
+    def user(self) -> str:
+        """Database role name used for connections and SQL execution."""
+        ...
+
+    @property
+    def password(self) -> str:
+        """Database role password (empty string when trust authentication is active)."""
+        ...
+
+    @property
+    def database(self) -> str:
+        """Target database name."""
+        ...
+
+    @property
+    def dsn(self) -> str:
+        """Formatted libpq connection string for this service."""
+        ...
+
+    @property
+    def connection_config(self) -> dict[str, Any]:
+        """Driver keyword arguments (``host``, ``port``, ``user``, ``database``, and optional ``password``)."""
+        ...
+
+    def exec_sql(
+        self,
+        sql: str,
+        *,
+        database: str | None = None,
+        tuples_only: bool = False,
+        timeout: float = 30.0,
+    ) -> tuple[int, bytes]:
+        """Execute ``sql`` against ``database`` (defaults to ``self.database``)."""
+        ...
+
+    def ensure_template(
+        self,
+        template_name: str = DEFAULT_TEMPLATE_NAME,
+        *,
+        setup_fn: Callable[[Self], object] | None = None,
+        setup_sql: str | Path | Sequence[str | Path] | None = None,
+        init_sql: str | Path | Sequence[str | Path] | None = None,
+        fingerprint_sources: Sequence[str | bytes | Path] = (),
+        lock_dir: Path | str | None = None,
+        lock_timeout: float = 180.0,
+    ) -> str:
+        """Build an immutable PostgreSQL template database once and return its name."""
+        ...
+
+    def create_worker_database_from_template(self, template_name: str, worker_db: str) -> str:
+        """Recreate ``worker_db`` cloned from ``template_name`` and verify connectivity."""
+        ...
+
+    def clone_template_database(self, target_db: str, *, source_db: str | None = None) -> str:
+        """Clone ``source_db`` (defaults to ``self.database``) into ``target_db``."""
+        ...
+
+    def drop_database_force(self, db_name: str) -> None:
+        """Terminate active sessions and drop ``db_name`` if it exists."""
+        ...
+
+    def sweep_worker_databases(self, prefix: str = DEFAULT_WORKER_PREFIX) -> list[str]:
+        """Drop worker databases matching ``prefix`` while preserving templates and active targets."""
+        ...
 
 
 @dataclasses.dataclass
